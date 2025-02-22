@@ -29,7 +29,7 @@
                     <img src="assets/images/profile-icon.png" alt="Profile">
                     <div class="admin-info">
                         <p class="admin-name">Admin</p>
-                        <p class="status">Online</p>
+                        <p class="status">Onlines</p>
                     </div>
                 </div>
                 <ul class="menu">
