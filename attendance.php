@@ -17,7 +17,7 @@
             </div>
             <div class="header-main">
                 <div class="notification">
-                    <img src="assets/images/bell-icon.png" alt="Notifications">
+                    <img src="assets/images/bell-icon.png" alt="Notification">
                 </div>
             </div>
         </header>
