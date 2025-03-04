@@ -1,6 +1,21 @@
 import React from 'react';
-import Layout from './components/Layout';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'; 
+import Layout from './components/Layout'; 
+import Login from './pages/Login';
+import ProtectedRoute from './routes/ProtectedRoute';
+import MainLayout from './components/Layout';
 
-const App = () => <Layout />;
+const App = () => {
+  return (
+    <Router>
+        <Routes>
+            <Route path="/login" element={<Login />} />
+
+            <Route element={<ProtectedRoute />} />
+            <Route path="/*" element={<MainLayout />} />
+        </Routes>
+    </Router>
+  );
+};
 
 export default App;
