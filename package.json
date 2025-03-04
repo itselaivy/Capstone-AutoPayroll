@@ -11,8 +11,11 @@
   },
   "dependencies": {
     "antd": "^5.24.2",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
+    "axios": "^1.8.1",
+    "dayjs": "^1.11.13",
+    "moment": "^2.30.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
     "react-icons": "^5.5.0"
   },
   "devDependencies": {
