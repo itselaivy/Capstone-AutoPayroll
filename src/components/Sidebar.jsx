@@ -47,10 +47,10 @@ const Sidebar = ({ collapsed, setSelectedKey }) => {
     { key: '6', icon: <IoCashOutline />, label: 'Cash Advance', route: '/cash-advance' },
     { key: '7', icon: <ScheduleOutlined />, label: 'Schedules', route: '/schedules' },
     { key: '8', icon: <TransactionOutlined />, label: 'Allowances', route: '/allowances' },
-    { key: '9', icon: <MinusCircleOutlined />, label: 'Deductions', route: '/deductions' },
+    { key: '9', icon: <MinusCircleOutlined />, label: 'Deductions', route: '/deduction' },
     { key: '10', icon: <IdcardOutlined />, label: 'Position', route: '/position' },
-    { key: '11', icon: <CarryOutOutlined />, label: 'Holiday Type', route: '/holiday-type' },
-    { key: '12', icon: <SolutionOutlined />, label: 'Leave Type', route: '/leave-type' },
+    { key: '11', icon: <CarryOutOutlined />, label: 'Holiday Type', route: '/holidaytype' },
+    { key: '12', icon: <SolutionOutlined />, label: 'Leave Type', route: '/leavetype' },
     { key: '13', icon: <BankOutlined />, label: 'Payroll', route: '/payroll' },
     { key: '14', icon: <LogoutOutlined />, label: 'Logout', onClick: handleLogout } 
   ];
@@ -99,16 +99,23 @@ const Sidebar = ({ collapsed, setSelectedKey }) => {
       >
         {menuItems.map((item) => (
           <Menu.Item
-            key={item.key}
-            icon={item.icon}
-            style={{
-              background: selectedKey === item.key ? '#DCEFFF' : 'transparent', // Highlight selected item
-              color: selectedKey === item.key ? '#000' : 'white' // Change color for selected item
-            }}
-            onClick={item.onClick || (() => navigate(item.route))} // Apply logout function for Logout
-          >
-            {item.route ? <Link to={item.route}>{item.label}</Link> : item.label}
-          </Menu.Item>
+          key={item.key}
+          icon={item.icon}
+          style={{
+            background: selectedKey === item.key ? '#DCEFFF' : 'transparent',
+            color: selectedKey === item.key ? '#000' : 'white',
+          }}
+          onClick={() => {
+            if (item.onClick) {
+              item.onClick();
+            } else {
+              navigate(item.route);
+            }
+          }}
+        >
+          {item.label}
+        </Menu.Item>
+        
         ))}
       </Menu>
     </Sider>
