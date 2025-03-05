@@ -46,7 +46,7 @@ const ContentArea = ({ selectedKey, colorBgContainer, borderRadiusLG }) => {
         padding: 24,
         minHeight: 280,
         background: 'colorBgContainer',
-        borderRadius: borderRadiusLG,
+        borderRadius: '200px',
       }}
     >
       {renderContent()}
