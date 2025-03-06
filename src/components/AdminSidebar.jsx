@@ -1,22 +1,11 @@
 import React, { useState } from 'react';
 import { Layout, Menu } from 'antd';
-import { Link, useNavigate } from 'react-router-dom'; 
+import { useNavigate } from 'react-router-dom'; 
 import {
   UserOutlined,
   DashboardOutlined,
-  BranchesOutlined,
-  CalendarOutlined,
-  ClockCircleOutlined,
-  ScheduleOutlined,
-  BankOutlined,
-  IdcardOutlined,
-  MinusCircleOutlined,
-  SolutionOutlined,
-  TransactionOutlined,
-  CarryOutOutlined,
   LogoutOutlined
 } from '@ant-design/icons';
-import { IoCashOutline } from 'react-icons/io5';
 import logo from '../assets/logo.png';
 
 const { Sider } = Layout;
@@ -34,25 +23,14 @@ const Sidebar = ({ collapsed, setSelectedKey }) => {
   // Handle Logout
   const handleLogout = () => {
     localStorage.removeItem('authToken'); // Clear authentication data
-    navigate('/login'); // Redirect to login page
+    navigate('/login'); 
   };
 
 
   const menuItems = [
-    { key: '1', icon: <DashboardOutlined />, label: 'Dashboard', route: '/User/' },
-    { key: '2', icon: <BranchesOutlined />, label: 'Branches', route: '/User/branches' },
-    { key: '3', icon: <CalendarOutlined />, label: 'Attendance', route: '/User/attendance' },
-    { key: '4', icon: <UserOutlined />, label: 'Employees', route: '/User/employees' },
-    { key: '5', icon: <ClockCircleOutlined />, label: 'Overtime', route: '/User/overtime' },
-    { key: '6', icon: <IoCashOutline />, label: 'Cash Advance', route: '/User/cash-advance' },
-    { key: '7', icon: <ScheduleOutlined />, label: 'Schedules', route: '/User/schedules' },
-    { key: '8', icon: <TransactionOutlined />, label: 'Allowances', route: '/User/allowances' },
-    { key: '9', icon: <MinusCircleOutlined />, label: 'Deductions', route: '/User/deduction' },
-    { key: '10', icon: <IdcardOutlined />, label: 'Position', route: '/User/position' },
-    { key: '11', icon: <CarryOutOutlined />, label: 'Holiday Type', route: '/User/holidaytype' },
-    { key: '12', icon: <SolutionOutlined />, label: 'Leave Type', route: '/User/leavetype' },
-    { key: '13', icon: <BankOutlined />, label: 'Payroll', route: '/User/payroll' },
-    { key: '14', icon: <LogoutOutlined />, label: 'Logout', onClick: handleLogout } 
+    { key: '1', icon: <DashboardOutlined />, label: 'Dashboard', route: '/Admin/' }, // Matches the default route
+    { key: '2', icon: <UserOutlined />, label: 'User Account', route: '/Admin/adminuseraccount' }, // Matches the nested route
+    { key: '3', icon: <LogoutOutlined />, label: 'Logout', onClick: handleLogout },
   ];
 
   return (

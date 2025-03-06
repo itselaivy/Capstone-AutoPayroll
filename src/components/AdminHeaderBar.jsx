@@ -4,7 +4,7 @@ import { MenuOutlined } from '@ant-design/icons';
 
 const { Header } = Layout;
 
-const UserHeaderBar = ({ collapsed, setCollapsed }) => {
+const AdminHeaderBar = ({ collapsed, setCollapsed }) => {
   return (
     <Header style={{ padding: 0, background: '#1D3863', textAlign: 'left' }}> 
       <Button
@@ -20,4 +20,4 @@ const UserHeaderBar = ({ collapsed, setCollapsed }) => {
   );
 }
 
-export default UserHeaderBar;
+export default AdminHeaderBar;

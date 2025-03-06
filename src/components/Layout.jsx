@@ -2,9 +2,7 @@ import React, { useState } from 'react';
 import { Layout, theme } from 'antd';
 import Sidebar from './Sidebar';
 import HeaderBar from './HeaderBar';
-import ContentArea from './ContentArea';
-import { Routes, Route } from 'react-router-dom'; 
-
+import { Routes, Route } from 'react-router-dom';
 
 import Dashboard from '../pages/User/Dashboard';
 import Branches from '../pages/User/Branches';
@@ -20,11 +18,10 @@ import HolidayType from '../pages/User/HolidayType';
 import LeaveType from '../pages/User/LeaveType';
 import Payroll from '../pages/User/Payroll';
 import Login from '../pages/Login';
-// Import other pages...
 
 const { Content } = Layout;
 
-const MainLayout = () => {
+const UserMainLayout = () => {
   const [collapsed, setCollapsed] = useState(false);
   const [selectedKey, setSelectedKey] = useState('1');
 
@@ -38,9 +35,8 @@ const MainLayout = () => {
       <Layout style={{ background: '#DCEFFF' }}>
         <HeaderBar collapsed={collapsed} setCollapsed={setCollapsed} />
         <Content style={{ padding: '20px' }}>
-
           <Routes>
-            <Route path="/" element={<Dashboard />} />
+            <Route path="/" element={<Dashboard />} /> {/* Default route */}
             <Route path="/branches" element={<Branches />} />
             <Route path="/attendance" element={<Attendance />} />
             <Route path="/employees" element={<Employees />} />
@@ -54,7 +50,6 @@ const MainLayout = () => {
             <Route path="/leavetype" element={<LeaveType />} />
             <Route path="/payroll" element={<Payroll />} />
             <Route path="/logout" element={<Login />} />
-
           </Routes>
         </Content>
       </Layout>
@@ -62,4 +57,4 @@ const MainLayout = () => {
   );
 };
 
-export default MainLayout;
+export default UserMainLayout;
