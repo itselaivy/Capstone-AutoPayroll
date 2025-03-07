@@ -25,7 +25,7 @@ const AdminMainLayout = () => {
         <Content style={{ padding: '20px' }}>
         <Routes>
           <Route path="/" element={<AdminDashboard />} /> {/* Default route */}
-          <Route path="/Admin/adminuseraccount" element={<UserAccount />} /> {/* Nested route */}
+          <Route path="/adminuseraccount" element={<UserAccount />} /> {/* Nested route */}
         </Routes>
         </Content>
       </Layout>

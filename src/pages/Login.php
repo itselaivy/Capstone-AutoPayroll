@@ -26,11 +26,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
             if ($result->num_rows === 1) {
                 $row = $result->fetch_assoc();
-                $stored_password = $row['Password'];
+                $stored_password = $row['Password']; // Hashed password from the database
                 $role = $row['Role'];
                 $userID = $row['UserID'];
 
-                if ($password === $stored_password) {
+                // Verify the entered password against the hashed password
+                if (password_verify($password, $stored_password)) {
                     $_SESSION['loggedin'] = true;
                     $_SESSION['UserID'] = $userID;
                     $_SESSION['username'] = $row['Username'];

@@ -1,9 +1,8 @@
 import React from 'react'
 import { Layout } from 'antd'
 
-import AdminDashboard from '../pages/Admin/AdminDashboard';
-import UserAccount from '../pages/Admin/AdminUserAccount';
-
+import AdminDashboard from '../pages/Admin/AdminDashboard'
+import AdminUserAccount from '../pages/Admin/AdminUserAccount'
 
 const { Content } = Layout
 
@@ -12,7 +11,7 @@ const AdminContentArea = ({ selectedKey, colorBgContainer, borderRadiusLG }) => 
   const renderContent = () => {
     switch (selectedKey) {
       case '1': return <AdminDashboard />
-      case '2': return <UserAccount />
+      case '2': return <AdminUserAccount />
       default: return <h2>Select a menu item</h2>
     }
   }
