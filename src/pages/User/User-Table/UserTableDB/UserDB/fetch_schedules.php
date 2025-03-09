@@ -33,7 +33,7 @@ if ($conn->connect_error) {
 $method = $_SERVER['REQUEST_METHOD'];
 
 if ($method == "GET") {
-    $sql = "SELECT ScheduleID AS `key`, TimeIn, TimeOut FROM schedules"; // Fix: Use correct table name
+    $sql = "SELECT ScheduleID AS `key`, TimeIn, TimeOut FROM schedules"; 
     $result = $conn->query($sql);
 
     if ($result) {
@@ -67,6 +67,7 @@ if ($method == "GET") {
         http_response_code(400); // Bad Request
         echo json_encode(["error" => "Time In and Time Out are required"]);
     }
+    
 } elseif ($method == "PUT") {
     $data = json_decode(file_get_contents("php://input"), true);
     error_log("PUT Data: " . print_r($data, true)); // Log the received data
