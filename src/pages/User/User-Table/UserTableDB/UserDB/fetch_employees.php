@@ -50,7 +50,7 @@ try {
             } elseif ($type == 'positions') {
                 $sql = "SELECT PositionID, PositionTitle FROM positions";
             } elseif ($type == 'schedules') {
-                $sql = "SELECT ScheduleID, TimeIn, TimeOut FROM schedules";
+                $sql = "SELECT ScheduleID, ShiftStart, ShiftEnd FROM schedules";
             } else {
                 throw new Exception("Invalid type specified");
             }
@@ -71,7 +71,7 @@ try {
                         e.EmployeeName,
                         b.BranchName,
                         p.PositionTitle,
-                        CONCAT(s.TimeIn, ' - ', s.TimeOut) AS Schedule,
+                        CONCAT(s.ShiftStart, ' - ', s.ShiftEnd) AS Schedule,
                         e.MemberSince,
                         e.BranchID,
                         e.PositionID,

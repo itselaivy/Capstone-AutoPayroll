@@ -362,12 +362,16 @@ const EmployeesTable = () => {
       </Table>
 
       <Modal 
-        title={<span style={{ fontSize: '22px', fontWeight: 'bold' }}>
-          {modalType === 'Add' ? 'Add New Employee' :
-           modalType === 'Edit' ? 'Edit Employee Details' :
-           modalType === 'View' ? 'View Employee Information' :
-           'Confirm Employee Deletion'}
-        </span>}
+        title={
+          <div style={{ textAlign: 'center' }}>
+            <span style={{ fontSize: '22px', fontWeight: 'bold' }}>
+              {modalType === 'Add' ? 'Add New Employee' :
+              modalType === 'Edit' ? 'Edit Employee Details' :
+              modalType === 'View' ? 'View Employee Information' :
+              'Confirm Employee Deletion'}
+            </span>
+          </div>
+        }
         open={isModalOpen}
         onOk={modalType === 'View' ? handleCancel : handleOk}
         onCancel={handleCancel}
@@ -379,9 +383,6 @@ const EmployeesTable = () => {
       >
         {modalType === 'Add' && (
           <>
-            <p style={{ marginBottom: '15px', fontWeight: 'bold', fontSize: '18px' }}>
-              Enter the details of the new employee:
-            </p>
             <Form form={form} layout="vertical">
               <Form.Item 
                 label="Employee Name" 
@@ -424,7 +425,7 @@ const EmployeesTable = () => {
                 <Select placeholder="Select Schedule">
                   {schedules.map((schedule) => (
                     <Option key={schedule.ScheduleID} value={schedule.ScheduleID}>
-                      {`${schedule.TimeIn} - ${schedule.TimeOut}`}
+                      {`${schedule.ShiftStart} - ${schedule.ShiftEnd}`}
                     </Option>
                   ))}
                 </Select>
@@ -442,7 +443,6 @@ const EmployeesTable = () => {
 
         {modalType === 'Edit' && (
           <>
-            <p style={{ marginBottom: '15px', fontWeight: 'bold', fontSize: '18px' }}>Modify the employee details below:</p>
             <Form form={form} layout="vertical">
               <Form.Item 
                 label="Employee Name" 
@@ -485,7 +485,7 @@ const EmployeesTable = () => {
                 <Select placeholder="Select Schedule">
                   {schedules.map((schedule) => (
                     <Option key={schedule.ScheduleID} value={schedule.ScheduleID}>
-                      {`${schedule.TimeIn} - ${schedule.TimeOut}`}
+                      {`${schedule.ShiftStart} - ${schedule.ShiftEnd}`}
                     </Option>
                   ))}
                 </Select>

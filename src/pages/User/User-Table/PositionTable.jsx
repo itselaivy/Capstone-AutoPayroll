@@ -283,13 +283,16 @@ const PositionsTable = () => {
 
       {/* Modal for Add, View, Edit, Delete */}
       <Modal 
-        title= <span style={{ fontSize: '22px', fontWeight: 'bold' }}>
-          {
-            modalType === 'Add' ? 'Add a New Position' :
-            modalType === 'Edit' ? 'Edit Position Details' :
-            modalType === 'View' ? 'View Position Information' :
-            'Confirm Position Deletion'
-          } </span>
+        title={
+          <div style={{ textAlign: 'center' }}>
+            <span style={{ fontSize: '22px', fontWeight: 'bold' }}>
+              {modalType === 'Add' ? 'Add New Job Position' :
+              modalType === 'Edit' ? 'Edit Job Position Details' :
+              modalType === 'View' ? 'View Job Position Information' :
+              'Confirm Employee Deletion'}
+            </span>
+          </div>
+        }
         visible={isModalOpen}  // Use 'visible' instead of 'open'
         onOk={modalType === 'View' ? handleCancel : handleOk}
         onCancel={handleCancel}
@@ -302,9 +305,6 @@ const PositionsTable = () => {
 
       {modalType === 'Add' && (
   <>
-    <p style={{ marginBottom: '15px', fontWeight: 'bold', fontSize: '18px' }}>
-      Enter the details of the new position:
-    </p>
     <Form form={form} layout="vertical">
       <Form.Item
         label="Position Title"
@@ -330,7 +330,6 @@ const PositionsTable = () => {
 
 {modalType === 'Edit' && (
   <>
-    <p style={{ marginBottom: '15px', fontWeight: 'bold', fontSize: '18px' }}>Modify the position details below:</p>
     <Form form={form} layout="vertical">
       <Form.Item
         label="Position Title"

@@ -262,13 +262,16 @@ const BranchesTable = () => {
 
       {/* Modal for Add, View, Edit, Delete */}
       <Modal 
-        title= <span style={{ fontSize: '22px', fontWeight: 'bold' }}>
-          {
-            modalType === 'Add' ? 'Add a New Branch' :
-            modalType === 'Edit' ? 'Edit Branch Details' :
-            modalType === 'View' ? 'View Branch Information' :
-            'Confirm Branch Deletion'
-          } </span>
+        title={
+          <div style={{ textAlign: 'center' }}>
+            <span style={{ fontSize: '22px', fontWeight: 'bold' }}>
+              {modalType === 'Add' ? 'Add New Branch' :
+              modalType === 'Edit' ? 'Edit Branch Details' :
+              modalType === 'View' ? 'View Branch Information' :
+              'Confirm Employee Deletion'}
+            </span>
+          </div>
+        }
         visible={isModalOpen}  // Use 'visible' instead of 'open'
         onOk={modalType === 'View' ? handleCancel : handleOk}
         onCancel={handleCancel}
@@ -280,9 +283,6 @@ const BranchesTable = () => {
       >
         {modalType === 'Add' && (
           <>
-            <p style={{ marginBottom: '15px', fontWeight: 'bold', fontSize: '18px' }}>
-              Enter the details of the new branch:
-            </p>
             <Form form={form} layout="vertical">
               <Form.Item
                 label="Branch Name"
@@ -290,7 +290,7 @@ const BranchesTable = () => {
                 rules={[{ required: true, message: 'Please enter branch name!' }]}
               >
                 <Input 
-                  placeholder="e.g., Central Park Branch"  
+                  placeholder="e.g., Kia, Cebu Branch"  
                   className="custom-input"
                   style={{ border: '1px solid black' }} 
                 />
@@ -301,7 +301,6 @@ const BranchesTable = () => {
 
         {modalType === 'Edit' && (
           <>
-            <p style={{ marginBottom: '15px', fontWeight: 'bold', fontSize: '18px' }}>Modify the branch details below:</p>
             <Form form={form} layout="vertical">
               <Form.Item
                 label="Branch Name"

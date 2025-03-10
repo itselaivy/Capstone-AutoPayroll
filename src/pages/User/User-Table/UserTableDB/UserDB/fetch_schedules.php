@@ -33,7 +33,7 @@ if ($conn->connect_error) {
 $method = $_SERVER['REQUEST_METHOD'];
 
 if ($method == "GET") {
-    $sql = "SELECT ScheduleID AS `key`, TimeIn, TimeOut FROM schedules"; 
+    $sql = "SELECT ScheduleID AS `key`, ShiftStart, ShiftEnd FROM schedules"; 
     $result = $conn->query($sql);
 
     if ($result) {
@@ -51,9 +51,9 @@ if ($method == "GET") {
     $data = json_decode(file_get_contents("php://input"), true);
     error_log("POST Data: " . print_r($data, true)); // Log the received data
 
-    if (!empty($data["timeIn"]) && !empty($data["timeOut"])) { // Fix: Check for correct fields
-        $stmt = $conn->prepare("INSERT INTO schedules (TimeIn, TimeOut) VALUES (?, ?)"); // Fix: Use correct table and fields
-        $stmt->bind_param("ss", $data["timeIn"], $data["timeOut"]); // Fix: Bind two parameters
+    if (!empty($data["shiftStart"]) && !empty($data["shiftEnd"])) { // Fix: Check for correct fields
+        $stmt = $conn->prepare("INSERT INTO schedules (ShiftStart, ShiftEnd) VALUES (?, ?)"); // Fix: Use correct table and fields
+        $stmt->bind_param("ss", $data["shiftStart"], $data["shiftEnd"]); // Fix: Bind two parameters
 
         if ($stmt->execute()) {
             http_response_code(201); // Created
@@ -65,16 +65,16 @@ if ($method == "GET") {
         $stmt->close();
     } else {
         http_response_code(400); // Bad Request
-        echo json_encode(["error" => "Time In and Time Out are required"]);
+        echo json_encode(["error" => "Shift Start and Shift End are required"]);
     }
     
 } elseif ($method == "PUT") {
     $data = json_decode(file_get_contents("php://input"), true);
     error_log("PUT Data: " . print_r($data, true)); // Log the received data
 
-    if (!empty($data["scheduleID"]) && !empty($data["timeIn"]) && !empty($data["timeOut"])) {
-        $stmt = $conn->prepare("UPDATE schedules SET TimeIn = ?, TimeOut = ? WHERE ScheduleID = ?");
-        $stmt->bind_param("ssi", $data["timeIn"], $data["timeOut"], $data["scheduleID"]);
+    if (!empty($data["scheduleID"]) && !empty($data["shiftStart"]) && !empty($data["shiftEnd"])) {
+        $stmt = $conn->prepare("UPDATE schedules SET ShiftStart = ?, ShiftEnd = ? WHERE ScheduleID = ?");
+        $stmt->bind_param("ssi", $data["shiftStartn"], $data["shiftEnd"], $data["scheduleID"]);
 
         if ($stmt->execute()) {
             http_response_code(200); // OK
@@ -86,7 +86,7 @@ if ($method == "GET") {
         $stmt->close();
     } else {
         http_response_code(400); // Bad Request
-        echo json_encode(["error" => "Schedule ID, Time In, and Time Out are required"]);
+        echo json_encode(["error" => "Schedule ID, Shift Start and Shift End are required"]);
     }
 
 } elseif ($method == "DELETE") {

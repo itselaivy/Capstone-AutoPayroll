@@ -54,8 +54,8 @@ const SchedulesTable = () => {
   const handleSearch = (value) => {
     const filtered = data.filter(
       (item) =>
-        item.TimeIn.toLowerCase().includes(value.toLowerCase()) ||
-        item.TimeOut.toLowerCase().includes(value.toLowerCase())
+        item.ShiftStart.toLowerCase().includes(value.toLowerCase()) ||
+        item.ShiftEnd.toLowerCase().includes(value.toLowerCase())
     );
     setSearchText(value);
     setFilteredData(filtered);
@@ -71,8 +71,8 @@ const SchedulesTable = () => {
     if (type === 'Edit' && record) {
       // Directly use moment to parse the time
       form.setFieldsValue({
-        timeIn: moment(record.TimeIn, "h:mm A"),
-        timeOut: moment(record.TimeOut, "h:mm A")
+        shiftStart: moment(record.ShiftStart, "h:mm A"),
+        shiftEnd: moment(record.ShiftEnd, "h:mm A")
       });
     }
   };
@@ -84,8 +84,8 @@ const SchedulesTable = () => {
       form.validateFields()
         .then((values) => {
           const payload = {
-            timeIn: values.timeIn.format("h:mm A"), // Format time to "HH:MM AM/PM"
-            timeOut: values.timeOut.format("h:mm A"), // Format time to "HH:MM AM/PM"
+            shiftStart: values.shiftStart.format("h:mm A"), // Format time to "HH:MM AM/PM"
+            shiftEnd: values.shiftEnd.format("h:mm A"), // Format time to "HH:MM AM/PM"
           };
           console.log("Add Payload:", payload); // Log payload
           fetch("http://localhost/UserTableDB/UserDB/fetch_schedules.php", {
@@ -120,8 +120,8 @@ const SchedulesTable = () => {
         .then((values) => {
           const payload = {
             scheduleID: selectedSchedule.key, // Ensure this matches the key in the fetched data
-            timeIn: values.timeIn.format("h:mm A"), // Format time to "HH:MM AM/PM"
-            timeOut: values.timeOut.format("h:mm A"), // Format time to "HH:MM AM/PM"
+            shiftStart: values.shiftStart.format("h:mm A"), // Format time to "HH:MM AM/PM"
+            shiftEnd: values.shiftEnd.format("h:mm A"), // Format time to "HH:MM AM/PM"
           };
           console.log("Edit Payload:", payload); // Log payload
           fetch("http://localhost/UserTableDB/UserDB/fetch_schedules.php", {
@@ -225,16 +225,16 @@ const SchedulesTable = () => {
         }}
       >
         <Column 
-          title="Time In ⬍" 
-          dataIndex="TimeIn" // Ensure this matches the key in the fetched data
-          key="TimeIn" 
-          sorter={(a, b) => a.TimeIn.localeCompare(b.TimeIn)} 
+          title="Shift Start ⬍" 
+          dataIndex="ShiftStart" // Ensure this matches the key in the fetched data
+          key="ShiftStart" 
+          sorter={(a, b) => a.ShiftStart.localeCompare(b.ShiftStart)} 
         />
         <Column 
-          title="Time Out ⬍" 
-          dataIndex="TimeOut" // Ensure this matches the key in the fetched data
-          key="TimeOut" 
-          sorter={(a, b) => a.TimeOut.localeCompare(b.TimeOut)} 
+          title="Shit End ⬍" 
+          dataIndex="ShiftEnd" // Ensure this matches the key in the fetched data
+          key="ShiftEnd" 
+          sorter={(a, b) => a.ShiftEnd.localeCompare(b.ShiftEnd)} 
         />
         <Column
           title="Action"
@@ -303,35 +303,32 @@ const SchedulesTable = () => {
 
       {modalType === 'Add' && (
   <>
-    <p style={{ marginBottom: '15px', fontWeight: 'bold', fontSize: '18px' }}>
-      Enter the details of the new schedule:
-    </p>
     <Form form={form} layout="vertical">
       <Form.Item
-        label="Time In"
-        name="timeIn"
+        label="Shift Start"
+        name="shiftStart"
         rules={[
-          { required: true, message: 'Please enter time in!' },
+          { required: true, message: 'Please enter start of the shift!' },
         ]}
       >
         <TimePicker
           use12Hours
           format="h:mm A"
-          placeholder="Select Time In"
+          placeholder="Select Shift Start"
           style={{ width: '100%' }}
         />
       </Form.Item>
       <Form.Item
-        label="Time Out"
-        name="timeOut"
+        label="Shift End"
+        name="shiftEnd"
         rules={[
-          { required: true, message: 'Please enter time out!' },
+          { required: true, message: 'Please enter end of the shift!' },
         ]}
       >
         <TimePicker
           use12Hours
           format="h:mm A"
-          placeholder="Select Time Out"
+          placeholder="Select Shift Start"
           style={{ width: '100%' }}
         />
       </Form.Item>
@@ -341,27 +338,26 @@ const SchedulesTable = () => {
 
 {modalType === 'Edit' && (
   <>
-    <p style={{ marginBottom: '15px', fontWeight: 'bold', fontSize: '18px' }}>Modify the schedule details below:</p>
     <Form form={form} layout="vertical">
       <Form.Item
-        label="Time In"
-        name="timeIn"
+        label="Shift Start"
+        name="shiftStart"
         rules={[
-          { required: true, message: 'Please enter time in!' },
+          { required: true, message: 'Please enter start of the shift!' },
         ]}
       >
         <TimePicker
-  use12Hours
-  format="h:mm A"
-  placeholder="Select Time In"
-  style={{ width: '100%' }}
-/>
+          use12Hours
+          format="h:mm A"
+          placeholder="Select Shift Start"
+          style={{ width: '100%' }}
+        />
       </Form.Item>
       <Form.Item
-        label="Time Out"
-        name="timeOut"
+        label="Shift End"
+        name="shiftEnd"
         rules={[
-          { required: true, message: 'Please enter time out!' },
+          { required: true, message: 'Please enter end of the shift!' },
         ]}
       >
         <TimePicker
@@ -378,8 +374,8 @@ const SchedulesTable = () => {
     {modalType === 'View' && (
       <div>
         <p style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: 10}}>Schedule Details:</p>
-        <p><strong>Time In:</strong> {selectedSchedule?.TimeIn}</p>
-        <p><strong>Time Out:</strong> {selectedSchedule?.TimeOut}</p>
+        <p><strong>Shift Start:</strong> {selectedSchedule?.ShiftStart}</p>
+        <p><strong>Shift End:</strong> {selectedSchedule?.ShiftEnd}</p>
       </div>
     )}
 
@@ -388,7 +384,7 @@ const SchedulesTable = () => {
         <p style={{ fontSize: '18px', fontWeight: 'bold', color: '#ff4d4f' }}>
           ⚠️ Are you sure you want to delete this schedule?
         </p>
-        <p>This action <strong>cannot be undone</strong>. The schedule "<strong>{selectedSchedule?.TimeIn} - {selectedSchedule?.TimeOut}</strong>" will be permanently removed.</p>
+        <p>This action <strong>cannot be undone</strong>. The schedule "<strong>{selectedSchedule?.ShiftStart} - {selectedSchedule?.ShiftEnd}</strong>" will be permanently removed.</p>
       </div>
     )}
       </Modal>
