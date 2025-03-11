@@ -1,0 +1,17 @@
+/* Default submenu background */
+.ant-menu-sub {
+    background: #1D3863 !important;
+  }
+  
+  /* Submenu background when expanded */
+  .ant-menu-submenu-expanded .ant-menu-sub {
+    background: #0D1F3C !important;
+  }
+  
+  /* Ensure specificity for inline mode and dark theme */
+  .ant-menu-dark.ant-menu-inline .ant-menu-sub {
+    background: #1D3863 !important;
+  }
+  .ant-menu-dark.ant-menu-inline .ant-menu-submenu-expanded .ant-menu-sub {
+    background: #0D1F3C !important;
+  }

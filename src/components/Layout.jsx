@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Layout, theme } from 'antd';
 import Sidebar from './Sidebar';
 import HeaderBar from './HeaderBar';
@@ -24,19 +24,47 @@ const { Content } = Layout;
 const UserMainLayout = () => {
   const [collapsed, setCollapsed] = useState(false);
   const [selectedKey, setSelectedKey] = useState('1');
+  const [sidebarHeight, setSidebarHeight] = useState(0);
+  const [openKeys, setOpenKeys] = useState([]);
 
   const {
     token: { colorBgContainer, borderRadiusLG },
   } = theme.useToken();
 
+  const headerHeight = 64; // Adjust if your HeaderBar height differs
+
+  const contentHeight = () => {
+    const viewportHeight = window.innerHeight;
+    const adjustedViewportHeight = viewportHeight - headerHeight;
+
+    // Only expand height if both 'employees' and 'payroll' dropdowns are open
+    const bothDropdownsOpen = openKeys.includes('employees') && openKeys.includes('payroll');
+    
+    if (bothDropdownsOpen && sidebarHeight > viewportHeight) {
+      return `${sidebarHeight - headerHeight}px`; // Expand to sidebar height minus header
+    }
+    return `${adjustedViewportHeight}px`; // Default to viewport minus header
+  };
+
   return (
-    <Layout style={{ minHeight: '100vh', background: '#DCEFFF' }}>
-      <Sidebar collapsed={collapsed} setSelectedKey={setSelectedKey} />
-      <Layout style={{ background: '#DCEFFF' }}>
+    <Layout style={{ display: 'flex', flexDirection: 'row' }}>
+      <Sidebar 
+        collapsed={collapsed} 
+        setSelectedKey={setSelectedKey} 
+        setSidebarHeight={setSidebarHeight} 
+        setOpenKeysState={setOpenKeys} // Receive openKeys from Sidebar
+      />
+      <Layout style={{ flex: 1, background: '#DCEFFF' }}>
         <HeaderBar collapsed={collapsed} setCollapsed={setCollapsed} />
-        <Content style={{ padding: '20px' }}>
+        <Content
+          style={{
+            padding: '20px',
+            minHeight: contentHeight(),
+            background: '#DCEFFF'
+          }}
+        >
           <Routes>
-            <Route path="/" element={<Dashboard />} /> {/* Default route */}
+            <Route path="/" element={<Dashboard />} />
             <Route path="/branches" element={<Branches />} />
             <Route path="/attendance" element={<Attendance />} />
             <Route path="/employees" element={<Employees />} />
