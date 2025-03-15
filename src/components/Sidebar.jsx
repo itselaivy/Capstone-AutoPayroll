@@ -71,9 +71,9 @@ const Sidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysState
       icon: <UserOutlined />,
       label: 'Employees',
       children: [
-        { key: '4', icon: <UserOutlined />, label: 'Employees', route: '/User/employees' },
+        { key: '4', icon: <UserOutlined />, label: 'Employee List', route: '/User/employees' },
         { key: '5', icon: <IdcardOutlined />, label: 'Position', route: '/User/position' },
-        { key: '6', icon: <ScheduleOutlined />, label: 'Schedules', route: '/User/schedules' },
+        { key: '6', icon: <ScheduleOutlined />, label: 'Schedule', route: '/User/schedules' },
         { key: '7', icon: <ClockCircleOutlined />, label: 'Overtime', route: '/User/overtime' }
       ]
     },
