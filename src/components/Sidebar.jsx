@@ -28,6 +28,7 @@ const Sidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysState
   const [isModalVisible, setIsModalVisible] = useState(false);
   const navigate = useNavigate(); 
   const sidebarRef = useRef(null);
+  const scrollableRef = useRef(null); // Ref for scrollable div
 
   const handleMenuClick = (e) => {
     setSelected(e.key);
@@ -54,10 +55,28 @@ const Sidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysState
   };
 
   useEffect(() => {
-    if (sidebarRef.current) {
-      const height = sidebarRef.current.offsetHeight;
-      setSidebarHeight(height);
-    }
+    const updateSidebarHeight = () => {
+      if (sidebarRef.current && scrollableRef.current) {
+        const viewportHeight = window.innerHeight; // Viewport height
+        sidebarRef.current.style.height = `${viewportHeight}px`; // Set dynamic height
+        setSidebarHeight(viewportHeight); // Pass height to parent
+
+        // Calculate the height for the scrollable area
+        const logoHeight = sidebarRef.current.querySelector('.logo-section')?.offsetHeight || 0;
+        const scrollableHeight = viewportHeight - logoHeight;
+        scrollableRef.current.style.height = `${scrollableHeight}px`;
+      }
+    };
+
+    updateSidebarHeight();
+    window.addEventListener('resize', updateSidebarHeight);
+    const observer = new MutationObserver(updateSidebarHeight);
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    return () => {
+      window.removeEventListener('resize', updateSidebarHeight);
+      observer.disconnect();
+    };
   }, [collapsed, openKeys, setSidebarHeight]);
 
   const menuItems = [
@@ -106,16 +125,26 @@ const Sidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysState
         collapsed={collapsed}
         width={250}
         collapsedWidth={100}
-        style={{ background: '#1D3863' }}
+        style={{ 
+          background: '#1D3863',
+          position: 'fixed', // Fix Sidebar to viewport
+          top: 0,
+          left: 0,
+          zIndex: 1000 // Ensure Sidebar stays above main content
+        }}
         ref={sidebarRef}
       >
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          padding: '16px',
-          background: '#1D3863'
-        }}>
+        {/* Logo Section */}
+        <div 
+          className="logo-section"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            padding: '16px',
+            background: '#1D3863'
+          }}
+        >
           <img
             src={logo}
             alt="AutoPayroll"
@@ -134,13 +163,20 @@ const Sidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysState
           )}
         </div>
 
-        <div style={{ 
-          flex: 1, 
-          overflowY: 'auto', 
-          background: '#1D3863',
-          // Adjust marginBottom based on collapsed state
-          marginBottom: collapsed ? 300 : 250 // Increased from 250 to 300 when collapsed
-        }}>
+        {/* Scrollable Menu Section with Custom Scrollbar */}
+        <div 
+          ref={scrollableRef}
+          style={{ 
+            display: 'flex',
+            flexDirection: 'column',
+            overflowY: 'auto', // Independent scrollbar
+            background: '#1D3863',
+            // Custom Scrollbar Styles
+            scrollbarWidth: 'thin', // For Firefox
+            scrollbarColor: '#A9BADA #0D1F3C', // For Firefox (thumb and track)
+          }}
+          className="custom-scrollbar" // Add a class for additional styling
+        >
           <Menu
             theme="dark"
             mode="inline"
@@ -148,7 +184,7 @@ const Sidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysState
             openKeys={openKeys}
             onOpenChange={onOpenChange}
             onClick={handleMenuClick}
-            style={{ background: '#1D3863', color: 'white', borderRadius: 6 }}
+            style={{ background: '#1D3863', color: 'white', borderRadius: 6, flex: '1 0 auto' }}
             items={menuItems.map((item) => 
               item.type === 'group' ? {
                 key: item.key,
@@ -189,44 +225,42 @@ const Sidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysState
               }
             )}
           />
+          <Menu
+            theme="dark"
+            mode="inline"
+            style={{ 
+              background: '#1D3863', 
+              color: 'white', 
+              borderRadius: 6,
+              marginTop: 'auto' // Push to bottom of scrollable area
+            }}
+            items={logoutMenuItems.map((item) => 
+              item.type === 'group' ? {
+                key: item.key,
+                label: item.label,
+                type: 'group',
+                style: { 
+                  color: '#A9BADA', 
+                  fontWeight: 'bold', 
+                  cursor: 'default', 
+                  pointerEvents: 'none',
+                  background: '#0D1F3C',
+                  textAlign: collapsed ? 'center' : 'left',
+                  padding: collapsed ? '0' : '0 24px'
+                }
+              } : {
+                key: item.key,
+                icon: item.icon,
+                label: item.label,
+                onClick: item.onClick,
+                style: {
+                  background: selectedKey === item.key ? '#DCEFFF' : 'transparent',
+                  color: selectedKey === item.key ? '#000' : 'white',
+                }
+              }
+            )}
+          />
         </div>
-
-        <Menu
-          theme="dark"
-          mode="inline"
-          style={{ 
-            background: '#1D3863', 
-            color: 'white', 
-            borderRadius: 6,
-            // Add marginTop when collapsed to push it lower
-            marginTop: collapsed ? '30px' : '50px'
-          }}
-          items={logoutMenuItems.map((item) => 
-            item.type === 'group' ? {
-              key: item.key,
-              label: item.label,
-              type: 'group',
-              style: { 
-                color: '#A9BADA', 
-                fontWeight: 'bold', 
-                cursor: 'default', 
-                pointerEvents: 'none',
-                background: '#0D1F3C',
-                textAlign: collapsed ? 'center' : 'left',
-                padding: collapsed ? '0' : '0 24px'
-              }
-            } : {
-              key: item.key,
-              icon: item.icon,
-              label: item.label,
-              onClick: item.onClick,
-              style: {
-                background: selectedKey === item.key ? '#DCEFFF' : 'transparent',
-                color: selectedKey === item.key ? '#000' : 'white',
-              }
-            }
-          )}
-        />
       </Sider>
 
       {/* Logout Confirmation Modal */}

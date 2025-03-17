@@ -26,6 +26,7 @@ const UserMainLayout = () => {
   const [selectedKey, setSelectedKey] = useState('1');
   const [sidebarHeight, setSidebarHeight] = useState(0);
   const [openKeys, setOpenKeys] = useState([]);
+  const [contentOverflow, setContentOverflow] = useState('hidden'); // Manage scrollbar
 
   const {
     token: { colorBgContainer, borderRadiusLG },
@@ -33,34 +34,47 @@ const UserMainLayout = () => {
 
   const headerHeight = 64; // Adjust if your HeaderBar height differs
 
-  const contentHeight = () => {
-    const viewportHeight = window.innerHeight;
-    const adjustedViewportHeight = viewportHeight - headerHeight;
+  useEffect(() => {
+    const updateContentOverflow = () => {
+      const contentHeight = document.querySelector('.ant-layout-content').scrollHeight;
+      const viewportHeight = window.innerHeight - headerHeight;
+      setContentOverflow(contentHeight > viewportHeight ? 'auto' : 'hidden');
+    };
 
-    // Only expand height if both 'employees' and 'payroll' dropdowns are open
-    const bothDropdownsOpen = openKeys.includes('employees') && openKeys.includes('payroll');
-    
-    if (bothDropdownsOpen && sidebarHeight > viewportHeight) {
-      return `${sidebarHeight - headerHeight}px`; // Expand to sidebar height minus header
-    }
-    return `${adjustedViewportHeight}px`; // Default to viewport minus header
-  };
+    updateContentOverflow();
+    window.addEventListener('resize', updateContentOverflow);
+    const observer = new MutationObserver(updateContentOverflow);
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    return () => {
+      window.removeEventListener('resize', updateContentOverflow);
+      observer.disconnect();
+    };
+  }, []);
 
   return (
-    <Layout style={{ display: 'flex', flexDirection: 'row' }}>
+    <Layout style={{ minHeight: '100vh' }}> {/* Ensure Layout takes full height */}
       <Sidebar 
         collapsed={collapsed} 
         setSelectedKey={setSelectedKey} 
         setSidebarHeight={setSidebarHeight} 
-        setOpenKeysState={setOpenKeys} // Receive openKeys from Sidebar
+        setOpenKeysState={setOpenKeys} 
       />
-      <Layout style={{ flex: 1, background: '#DCEFFF' }}>
+      <Layout 
+        style={{ 
+          marginLeft: collapsed ? 100 : 250, // Shift content right based on Sidebar width
+          background: '#DCEFFF',
+          minHeight: '100vh' // Ensure it stretches with content
+        }}
+      >
         <HeaderBar collapsed={collapsed} setCollapsed={setCollapsed} />
         <Content
           style={{
             padding: '20px',
-            minHeight: contentHeight(),
-            background: '#DCEFFF'
+            minHeight: `calc(100vh - ${headerHeight}px)`, // Default height
+            background: '#DCEFFF',
+            overflowY: contentOverflow, // Dynamic scrollbar
+            position: 'relative' // Ensure content stays in flow
           }}
         >
           <Routes>
