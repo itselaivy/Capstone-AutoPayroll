@@ -6,6 +6,8 @@ header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type");
 header("Content-Type: application/json");
+header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
+header("Pragma: no-cache");
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     header("HTTP/1.1 200 OK");
@@ -24,15 +26,12 @@ try {
     }
 
     function recordExists($conn, $table, $id) {
-        // Map table names to their correct ID column names
         $idColumnMap = [
             'branches' => 'BranchID',
             'employees' => 'EmployeeID',
             'attendance' => 'AttendanceID'
         ];
-
-        // Use the correct column name based on the table
-        $idColumn = $idColumnMap[$table] ?? 'ID'; // Default to 'ID' if table not found (safety fallback)
+        $idColumn = $idColumnMap[$table] ?? 'ID';
         $stmt = $conn->prepare("SELECT * FROM $table WHERE $idColumn = ?");
         $stmt->bind_param("i", $id);
         $stmt->execute();
@@ -48,17 +47,83 @@ try {
             if ($type == 'branches') {
                 $sql = "SELECT BranchID, BranchName FROM branches";
             } elseif ($type == 'employees') {
-                $sql = "SELECT EmployeeID, EmployeeName, BranchID FROM employees"; // Ensure BranchID is included
+                $sql = "SELECT EmployeeID, EmployeeName, BranchID FROM employees";
             } else {
                 throw new Exception("Invalid type specified");
             }
-
             $result = $conn->query($sql);
             $data = [];
             while ($row = $result->fetch_assoc()) {
                 $data[] = $row;
             }
             echo json_encode($data);
+        } elseif (isset($_GET['year'])) {
+            $year = $_GET['year'];
+            $month = isset($_GET['month']) && $_GET['month'] !== 'all' ? $_GET['month'] : null;
+            $branch = isset($_GET['branch']) && $_GET['branch'] !== 'all' ? $_GET['branch'] : null;
+
+            // Base SQL query
+            $sql = "SELECT DAY(Date) AS day, 
+                           SUM(CASE WHEN TimeInStatus = 'On-Time' THEN 1 ELSE 0 END) AS onTime, 
+                           SUM(CASE WHEN TimeInStatus = 'Late' THEN 1 ELSE 0 END) AS late
+                    FROM attendance 
+                    WHERE YEAR(Date) = ?";
+            $types = "i"; // Type string for bind_param
+            $params = [$year]; // Parameters array
+
+            // Add month filter if provided
+            if ($month !== null) {
+                $sql .= " AND MONTH(Date) = ?";
+                $types .= "i";
+                $params[] = $month;
+            }
+
+            // Add branch filter if provided
+            if ($branch !== null) {
+                $sql .= " AND BranchID = ?";
+                $types .= "i";
+                $params[] = $branch;
+            }
+
+            $sql .= " GROUP BY DAY(Date)";
+
+            $stmt = $conn->prepare($sql);
+            if (!$stmt) {
+                throw new Exception("Prepare failed: " . $conn->error);
+            }
+
+            // Dynamically bind parameters
+            if (count($params) > 1) {
+                $stmt->bind_param($types, ...$params);
+            } else {
+                $stmt->bind_param($types, $params[0]);
+            }
+
+            $stmt->execute();
+            $result = $stmt->get_result();
+            $data = [];
+
+            // Determine days to include based on month or full year
+            $daysInPeriod = $month !== null ? cal_days_in_month(CAL_GREGORIAN, $month, $year) : 365;
+            $dayMap = array_fill(1, $daysInPeriod, ['onTime' => 0, 'late' => 0]);
+
+            while ($row = $result->fetch_assoc()) {
+                $dayMap[(int)$row['day']] = [
+                    'onTime' => (int)$row['onTime'],
+                    'late' => (int)$row['late'],
+                ];
+            }
+
+            foreach ($dayMap as $day => $counts) {
+                $data[] = [
+                    "date" => sprintf("%d-%02d-%02d", $year, $month ?: 1, $day), // Use month if provided, else default to 1
+                    "onTime" => $counts['onTime'],
+                    "late" => $counts['late'],
+                ];
+            }
+
+            echo json_encode($data);
+            $stmt->close();
         } else {
             $sql = "SELECT 
                         a.AttendanceID,
@@ -150,11 +215,11 @@ try {
         if (!$data) {
             throw new Exception("Invalid JSON data");
         }
-    
+
         if (!empty($data["AttendanceID"])) {
             $stmt = $conn->prepare("DELETE FROM attendance WHERE AttendanceID = ?");
             $stmt->bind_param("i", $data["AttendanceID"]);
-    
+
             if ($stmt->execute()) {
                 echo json_encode(["success" => "Attendance deleted"]);
             } else {

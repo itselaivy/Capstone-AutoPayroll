@@ -1,7 +1,12 @@
-import React from 'react'
+import React from 'react';
+import DashboardContent from './User-Table/DashboardContent'; 
 
 const Dashboard = () => {
-  return <h2>Welcome to the User Dashboard!</h2>
-}
+  return (
+    <div>
+      <DashboardContent />
+    </div>
+  );
+};
 
-export default Dashboard
+export default Dashboard;

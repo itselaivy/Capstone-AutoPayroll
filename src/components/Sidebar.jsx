@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Layout, Menu, Modal } from 'antd';
-import { useNavigate } from 'react-router-dom'; 
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   UserOutlined,
   DashboardOutlined,
@@ -23,12 +23,37 @@ import './Sidebar.css';
 const { Sider } = Layout;
 
 const Sidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysState }) => {
-  const [selectedKey, setSelected] = useState('1'); 
-  const [openKeys, setOpenKeys] = useState([]); 
+  const [selectedKey, setSelected] = useState('1');
+  const [openKeys, setOpenKeys] = useState([]);
   const [isModalVisible, setIsModalVisible] = useState(false);
-  const navigate = useNavigate(); 
+  const navigate = useNavigate();
+  const location = useLocation();
   const sidebarRef = useRef(null);
-  const scrollableRef = useRef(null); // Ref for scrollable div
+  const scrollableRef = useRef(null);
+
+  // Map routes to menu keys (relative to /user/)
+  const routeToKeyMap = {
+    '/user/': '1',
+    '/user/branches': '2',
+    '/user/attendance': '3',
+    '/user/employees': '4',
+    '/user/position': '5',
+    '/user/schedules': '6',
+    '/user/overtime': '7',
+    '/user/payroll': '8',
+    '/user/holidaytype': '9',
+    '/user/leavetype': '10',
+    '/user/allowances': '11',
+    '/user/deduction': '12',
+    '/user/cash-advance': '13'
+  };
+
+  // Sync selectedKey with current route
+  useEffect(() => {
+    const currentKey = routeToKeyMap[location.pathname] || '1';
+    setSelected(currentKey);
+    setSelectedKey(currentKey);
+  }, [location.pathname, setSelectedKey]);
 
   const handleMenuClick = (e) => {
     setSelected(e.key);
@@ -40,8 +65,8 @@ const Sidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysState
   };
 
   const handleLogoutConfirm = () => {
-    localStorage.removeItem('authToken'); 
-    navigate('/login'); 
+    localStorage.removeItem('authToken');
+    navigate('/login');
     setIsModalVisible(false);
   };
 
@@ -57,11 +82,10 @@ const Sidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysState
   useEffect(() => {
     const updateSidebarHeight = () => {
       if (sidebarRef.current && scrollableRef.current) {
-        const viewportHeight = window.innerHeight; // Viewport height
-        sidebarRef.current.style.height = `${viewportHeight}px`; // Set dynamic height
-        setSidebarHeight(viewportHeight); // Pass height to parent
+        const viewportHeight = window.innerHeight;
+        sidebarRef.current.style.height = `${viewportHeight}px`;
+        setSidebarHeight(viewportHeight);
 
-        // Calculate the height for the scrollable area
         const logoHeight = sidebarRef.current.querySelector('.logo-section')?.offsetHeight || 0;
         const scrollableHeight = viewportHeight - logoHeight;
         scrollableRef.current.style.height = `${scrollableHeight}px`;
@@ -80,40 +104,40 @@ const Sidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysState
   }, [collapsed, openKeys, setSidebarHeight]);
 
   const menuItems = [
-    { key: 'overview', label: 'OVERVIEW', type: 'group' }, 
-    { key: '1', icon: <DashboardOutlined />, label: 'Dashboard', route: '/User/' },
+    { key: 'overview', label: 'OVERVIEW', type: 'group' },
+    { key: '1', icon: <DashboardOutlined />, label: 'Dashboard', route: '/user/' },
     { key: 'manage', label: 'MANAGE', type: 'group' },
-    { key: '2', icon: <BranchesOutlined />, label: 'Branches', route: '/User/branches' },
-    { key: '3', icon: <CalendarOutlined />, label: 'Attendance', route: '/User/attendance' },
+    { key: '2', icon: <BranchesOutlined />, label: 'Branches', route: '/user/branches' },
+    { key: '3', icon: <CalendarOutlined />, label: 'Attendance', route: '/user/attendance' },
     {
       key: 'employees',
       icon: <UserOutlined />,
       label: 'Employees',
       children: [
-        { key: '4', icon: <UserOutlined />, label: 'Employee List', route: '/User/employees' },
-        { key: '5', icon: <IdcardOutlined />, label: 'Position', route: '/User/position' },
-        { key: '6', icon: <ScheduleOutlined />, label: 'Schedule', route: '/User/schedules' },
-        { key: '7', icon: <ClockCircleOutlined />, label: 'Overtime', route: '/User/overtime' }
+        { key: '4', icon: <UserOutlined />, label: 'Employee List', route: '/user/employees' },
+        { key: '5', icon: <IdcardOutlined />, label: 'Position', route: '/user/position' },
+        { key: '6', icon: <ScheduleOutlined />, label: 'Schedule', route: '/user/schedules' },
+        { key: '7', icon: <ClockCircleOutlined />, label: 'Overtime', route: '/user/overtime' }
       ]
     },
-    { key: 'payroll-section', label: 'PAYROLL', type: 'group' }, 
+    { key: 'payroll-section', label: 'PAYROLL', type: 'group' },
     {
       key: 'payroll',
       icon: <BankOutlined />,
       label: 'Payroll',
       children: [
-        { key: '8', icon: <BankOutlined />, label: 'Payroll', route: '/User/payroll' },
-        { key: '9', icon: <CarryOutOutlined />, label: 'Holiday', route: '/User/holidaytype' },
-        { key: '10', icon: <SolutionOutlined />, label: 'Leave Type', route: '/User/leavetype' },
-        { key: '11', icon: <TransactionOutlined />, label: 'Allowances', route: '/User/allowances' },
-        { key: '12', icon: <MinusCircleOutlined />, label: 'Deductions', route: '/User/deduction' },
-        { key: '13', icon: <IoCashOutline />, label: 'Cash Advance', route: '/User/cash-advance' }
+        { key: '8', icon: <BankOutlined />, label: 'Payroll', route: '/user/payroll' },
+        { key: '9', icon: <CarryOutOutlined />, label: 'Holiday', route: '/user/holidaytype' },
+        { key: '10', icon: <SolutionOutlined />, label: 'Leave Type', route: '/user/leavetype' },
+        { key: '11', icon: <TransactionOutlined />, label: 'Allowances', route: '/user/allowances' },
+        { key: '12', icon: <MinusCircleOutlined />, label: 'Deductions', route: '/user/deduction' },
+        { key: '13', icon: <IoCashOutline />, label: 'Cash Advance', route: '/user/cash-advance' }
       ]
     },
   ];
 
   const logoutMenuItems = [
-    { key: 'session', label: 'SESSION', type: 'group' }, 
+    { key: 'session', label: 'SESSION', type: 'group' },
     { key: '14', icon: <LogoutOutlined />, label: 'Logout', onClick: showLogoutModal }
   ];
 
@@ -127,14 +151,13 @@ const Sidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysState
         collapsedWidth={100}
         style={{ 
           background: '#1D3863',
-          position: 'fixed', // Fix Sidebar to viewport
+          position: 'fixed',
           top: 0,
           left: 0,
-          zIndex: 1000 // Ensure Sidebar stays above main content
+          zIndex: 1000
         }}
         ref={sidebarRef}
       >
-        {/* Logo Section */}
         <div 
           className="logo-section"
           style={{
@@ -163,19 +186,17 @@ const Sidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysState
           )}
         </div>
 
-        {/* Scrollable Menu Section with Custom Scrollbar */}
         <div 
           ref={scrollableRef}
           style={{ 
             display: 'flex',
             flexDirection: 'column',
-            overflowY: 'auto', // Independent scrollbar
+            overflowY: 'auto',
             background: '#1D3863',
-            // Custom Scrollbar Styles
-            scrollbarWidth: 'thin', // For Firefox
-            scrollbarColor: '#A9BADA #0D1F3C', // For Firefox (thumb and track)
+            scrollbarWidth: 'thin',
+            scrollbarColor: '#A9BADA #0D1F3C',
           }}
-          className="custom-scrollbar" // Add a class for additional styling
+          className="custom-scrollbar"
         >
           <Menu
             theme="dark"
@@ -232,7 +253,7 @@ const Sidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysState
               background: '#1D3863', 
               color: 'white', 
               borderRadius: 6,
-              marginTop: 'auto' // Push to bottom of scrollable area
+              marginTop: 'auto'
             }}
             items={logoutMenuItems.map((item) => 
               item.type === 'group' ? {
@@ -263,7 +284,6 @@ const Sidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysState
         </div>
       </Sider>
 
-      {/* Logout Confirmation Modal */}
       <Modal
         title="Confirm Logout"
         visible={isModalVisible}

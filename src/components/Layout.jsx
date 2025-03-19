@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Layout, theme } from 'antd';
+import { useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import HeaderBar from './HeaderBar';
 import { Routes, Route } from 'react-router-dom';
@@ -26,19 +27,23 @@ const UserMainLayout = () => {
   const [selectedKey, setSelectedKey] = useState('1');
   const [sidebarHeight, setSidebarHeight] = useState(0);
   const [openKeys, setOpenKeys] = useState([]);
-  const [contentOverflow, setContentOverflow] = useState('hidden'); // Manage scrollbar
+  const [contentOverflow, setContentOverflow] = useState('hidden');
+  const location = useLocation();
 
   const {
     token: { colorBgContainer, borderRadiusLG },
   } = theme.useToken();
 
-  const headerHeight = 64; // Adjust if your HeaderBar height differs
+  const headerHeight = 64;
 
   useEffect(() => {
     const updateContentOverflow = () => {
-      const contentHeight = document.querySelector('.ant-layout-content').scrollHeight;
-      const viewportHeight = window.innerHeight - headerHeight;
-      setContentOverflow(contentHeight > viewportHeight ? 'auto' : 'hidden');
+      const contentElement = document.querySelector('.ant-layout-content');
+      if (contentElement) {
+        const contentHeight = contentElement.scrollHeight;
+        const viewportHeight = window.innerHeight - headerHeight;
+        setContentOverflow(contentHeight > viewportHeight ? 'auto' : 'hidden');
+      }
     };
 
     updateContentOverflow();
@@ -50,10 +55,10 @@ const UserMainLayout = () => {
       window.removeEventListener('resize', updateContentOverflow);
       observer.disconnect();
     };
-  }, []);
+  }, [location.pathname]);
 
   return (
-    <Layout style={{ minHeight: '100vh' }}> {/* Ensure Layout takes full height */}
+    <Layout style={{ minHeight: '100vh' }}>
       <Sidebar 
         collapsed={collapsed} 
         setSelectedKey={setSelectedKey} 
@@ -62,19 +67,19 @@ const UserMainLayout = () => {
       />
       <Layout 
         style={{ 
-          marginLeft: collapsed ? 100 : 250, // Shift content right based on Sidebar width
+          marginLeft: collapsed ? 100 : 250,
           background: '#DCEFFF',
-          minHeight: '100vh' // Ensure it stretches with content
+          minHeight: '100vh'
         }}
       >
         <HeaderBar collapsed={collapsed} setCollapsed={setCollapsed} />
         <Content
           style={{
             padding: '20px',
-            minHeight: `calc(100vh - ${headerHeight}px)`, // Default height
+            minHeight: `calc(100vh - ${headerHeight}px)`,
             background: '#DCEFFF',
-            overflowY: contentOverflow, // Dynamic scrollbar
-            position: 'relative' // Ensure content stays in flow
+            overflowY: contentOverflow,
+            position: 'relative'
           }}
         >
           <Routes>
@@ -91,7 +96,7 @@ const UserMainLayout = () => {
             <Route path="/holidaytype" element={<HolidayType />} />
             <Route path="/leavetype" element={<LeaveType />} />
             <Route path="/payroll" element={<Payroll />} />
-            <Route path="/logout" element={<Login />} />
+            <Route path="/login" element={<Login />} />
           </Routes>
         </Content>
       </Layout>

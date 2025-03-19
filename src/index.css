@@ -21,3 +21,117 @@ body {
 .fade-out {
   opacity: 0;
 }
+
+/* Wrapper for the entire app */
+.app-wrapper {
+  position: relative;
+  min-height: 100vh;
+}
+
+/* Full-page reload overlay */
+.reload-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, rgba(26, 60, 109, 0.9), rgba(0, 0, 0, 0.85)); /* Gradient background */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+  animation: fadeOut 0.6s ease forwards 3s; /* Changed from 2.5s to 3s */
+}
+
+/* Loader container */
+.reload-loader {
+  text-align: center;
+}
+
+/* Dual-ring animation */
+.dual-ring {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  margin: 0 auto 20px;
+}
+
+.dual-ring::before,
+.dual-ring::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border: 4px solid transparent;
+  border-radius: 50%;
+  animation: rotateRing 2s linear infinite;
+}
+
+.dual-ring::before {
+  border-top-color: #52c41a; /* Green accent */
+  animation-delay: 0s;
+}
+
+.dual-ring::after {
+  border-bottom-color: #1A3C6D; /* Dark blue accent */
+  animation-delay: -1s; /* Offset for counter-rotation */
+}
+
+/* Orbiting dots */
+.orbit-dot {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background-color: #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.8);
+}
+
+.orbit-dot-1 {
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  animation: orbit 1.5s ease-in-out infinite;
+}
+
+.orbit-dot-2 {
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  animation: orbit 1.5s ease-in-out infinite reverse;
+}
+
+/* Text below loader */
+.reload-text {
+  color: #fff;
+  font-size: 20px;
+  font-weight: 600;
+  font-family: 'Poppins', sans-serif;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  letter-spacing: 0.5px;
+}
+
+/* Hide app content during initial load */
+.app-content.hidden {
+  opacity: 0;
+  visibility: hidden;
+}
+
+/* Keyframes for animations */
+@keyframes rotateRing {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes orbit {
+  0% { transform: translateX(-50%) translateY(0); opacity: 1; }
+  50% { transform: translateX(-50%) translateY(20px); opacity: 0.7; }
+  100% { transform: translateX(-50%) translateY(0); opacity: 1; }
+}
+
+@keyframes fadeOut {
+  0% { opacity: 1; }
+  100% { opacity: 0; visibility: hidden; }
+}
