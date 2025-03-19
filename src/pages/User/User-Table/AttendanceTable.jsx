@@ -1,16 +1,18 @@
 import { useState, useEffect } from 'react';
-import { Space, Table, Tag, Button, Input, Modal, Form, message, DatePicker, TimePicker, Select, Upload } from 'antd';
+import { Space, Table, Tag, Button, Input, Modal, Form, message, DatePicker, TimePicker, Select, Upload, Typography } from 'antd';
 import { EyeOutlined, EditOutlined, DeleteOutlined, PlusOutlined, SearchOutlined, UploadOutlined } from '@ant-design/icons';
 import moment from 'moment';
 import Papa from 'papaparse';
 
 const { Column } = Table;
 const { Option } = Select;
+const { Title } = Typography;
 
 const AttendanceTable = () => {
   const [searchText, setSearchText] = useState('');
+  const [selectedBranch, setSelectedBranch] = useState('all'); // New state for branch filter, default to 'all'
   const [filteredData, setFilteredData] = useState([]);
-  const [originalData, setOriginalData] = useState([]); // Store original data
+  const [originalData, setOriginalData] = useState([]);
   const [screenWidth, setScreenWidth] = useState(window.innerWidth);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalType, setModalType] = useState('');
@@ -59,8 +61,13 @@ const AttendanceTable = () => {
         timeOut: moment(attendance.TimeOut, 'HH:mm:ss').format('hh:mm A'),
         status: attendance.TimeInStatus,
       }));
-      setOriginalData(mappedData); // Store original data
-      setFilteredData(mappedData); // Set initial filtered data
+
+      // Filter for today's date
+      const today = moment().format('YYYY-MM-DD');
+      const todayData = mappedData.filter(record => record.date === today);
+
+      setOriginalData(todayData); // Store only today's data
+      setFilteredData(todayData); // Set initial filtered data to today's records
     } catch (err) {
       console.error("Fetch Attendance Error:", err.message);
       message.error(`Failed to load attendance data: ${err.message}`);
@@ -78,20 +85,37 @@ const AttendanceTable = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const handleSearch = (value) => {
-    const lowerValue = value.toLowerCase().trim();
-    if (!lowerValue) {
-      setFilteredData(originalData); // Revert to original data when search is cleared
-    } else {
-      const filtered = originalData.filter(item =>
+  // Combined filter function for search and branch
+  const applyFilters = (data, search, branch) => {
+    let result = [...data];
+
+    // Apply branch filter
+    if (branch !== 'all') {
+      result = result.filter(item => item.branchId === branch);
+    }
+
+    // Apply search filter
+    const lowerValue = search.toLowerCase().trim();
+    if (lowerValue) {
+      result = result.filter(item =>
         Object.values(item)
           .filter(val => typeof val === 'string' || typeof val === 'number')
           .map(val => val.toString().toLowerCase())
           .some(val => val.includes(lowerValue))
       );
-      setFilteredData(filtered);
     }
+
+    return result;
+  };
+
+  const handleSearch = (value) => {
     setSearchText(value);
+    setFilteredData(applyFilters(originalData, value, selectedBranch));
+  };
+
+  const handleBranchChange = (value) => {
+    setSelectedBranch(value);
+    setFilteredData(applyFilters(originalData, searchText, value));
   };
 
   const handleEmployeeChange = (employeeId) => {
@@ -117,6 +141,7 @@ const AttendanceTable = () => {
       });
     } else {
       form.resetFields();
+      form.setFieldsValue({ date: moment() }); // Set today's date as default for Add modal
     }
   };
 
@@ -235,31 +260,91 @@ const AttendanceTable = () => {
   const showLabels = screenWidth >= 600;
 
   return (
-    <>
+    <div style={{ padding: '20px' }}>
+      <Title level={2} style={{ fontFamily: 'Poppins, sans-serif', marginBottom: '20px' }}>
+        Attendance - {moment().format('MMMM Do, YYYY')}
+      </Title>
+
       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
-        <Button icon={<PlusOutlined />} size="middle" style={{ backgroundColor: '#2C3743', borderColor: '#2C3743', color: 'white' }} onClick={() => openModal('Add')}>
+        <Button 
+          icon={<PlusOutlined />} 
+          size="middle" 
+          style={{ backgroundColor: '#2C3743', borderColor: '#2C3743', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
+          onClick={() => openModal('Add')}
+        >
           {showLabels && 'Add Attendance'}
         </Button>
         <Upload accept=".csv" beforeUpload={handleCSVUpload} showUploadList={false}>
-          <Button icon={<UploadOutlined />} size="middle" style={{ backgroundColor: '#2C3743', borderColor: '#2C3743', color: 'white' }}>
+          <Button 
+            icon={<UploadOutlined />} 
+            size="middle" 
+            style={{ backgroundColor: '#2C3743', borderColor: '#2C3743', color: 'white', fontFamily: 'Poppins, sans-serif' }}
+          >
             {showLabels && 'Import CSV'}
           </Button>
         </Upload>
+        <Select
+          value={selectedBranch}
+          onChange={handleBranchChange}
+          style={{ 
+            width: screenWidth < 480 ? '100%' : '200px', 
+            marginTop: screenWidth < 480 ? 10 : 0, 
+            fontFamily: 'Poppins, sans-serif' 
+          }}
+          placeholder="Filter by Branch"
+        >
+          <Option value="all" style={{ fontFamily: 'Poppins, sans-serif' }}>All Branches</Option>
+          {branches.map(branch => (
+            <Option 
+              key={branch.BranchID} 
+              value={branch.BranchID} 
+              style={{ fontFamily: 'Poppins, sans-serif' }}
+            >
+              {branch.BranchName}
+            </Option>
+          ))}
+        </Select>
         <Input
-          placeholder="Search by any field (e.g., name, time, status)"
+          placeholder="Search Attendance Records"
           allowClear
           value={searchText}
           onChange={(e) => handleSearch(e.target.value)}
           prefix={<SearchOutlined />}
-          style={{ width: screenWidth < 480 ? '100%' : '250px', marginTop: screenWidth < 480 ? 10 : 0 }}
+          style={{ width: screenWidth < 480 ? '100%' : '250px', marginTop: screenWidth < 480 ? 10 : 0, fontFamily: 'Poppins, sans-serif' }}
         />
       </div>
 
-      <Table dataSource={filteredData} bordered scroll={{ x: true }} pagination={{ position: ['bottomCenter'] }}>
-        <Column title="Date" dataIndex="date" key="date" />
-        <Column title="Employee ID" dataIndex="employeeId" key="employeeId" />
-        <Column title="Employee Name" dataIndex="employeeName" key="employeeName" />
-        <Column title="Branch" dataIndex="branch" key="branch" />
+      <Table 
+        dataSource={filteredData} 
+        bordered 
+        scroll={{ x: true }} 
+        pagination={{ position: ['bottomCenter'] }}
+        style={{ fontFamily: 'Poppins, sans-serif' }}
+      >
+        <Column 
+          title="Date" 
+          dataIndex="date" 
+          key="date" 
+          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
+        />
+        <Column 
+          title="Employee ID" 
+          dataIndex="employeeId" 
+          key="employeeId" 
+          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
+        />
+        <Column 
+          title="Employee Name" 
+          dataIndex="employeeName" 
+          key="employeeName" 
+          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
+        />
+        <Column 
+          title="Branch" 
+          dataIndex="branch" 
+          key="branch" 
+          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
+        />
         <Column 
           title="Check In" 
           dataIndex="timeIn" 
@@ -267,26 +352,49 @@ const AttendanceTable = () => {
           sorter={(a, b) => moment(a.timeIn, 'hh:mm A').diff(moment(b.timeIn, 'hh:mm A'))}
           render={(text, record) => (
             <Space>
-              {text}
-              <Tag color={record.status === 'Late' ? 'volcano' : 'green'} style={{ fontSize: '12px', fontWeight: 'bold' }}>
+              <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>
+              <Tag 
+                color={record.status === 'Late' ? 'volcano' : 'green'} 
+                style={{ fontSize: '12px', fontWeight: 'bold', fontFamily: 'Poppins, sans-serif' }}
+              >
                 {record.status}
               </Tag>
             </Space>
           )}
         />
-        <Column title="Check Out" dataIndex="timeOut" key="timeOut" />
+        <Column 
+          title="Check Out" 
+          dataIndex="timeOut" 
+          key="timeOut" 
+          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
+        />
         <Column 
           title="Action"
           key="action"
           render={(_, record) => (
             <Space size="middle" wrap>
-              <Button icon={<EyeOutlined />} size="middle" style={{ backgroundColor: '#52c41a', borderColor: '#52c41a', color: 'white' }} onClick={() => openModal('View', record)}>
+              <Button 
+                icon={<EyeOutlined />} 
+                size="middle" 
+                style={{ backgroundColor: '#52c41a', borderColor: '#52c41a', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
+                onClick={() => openModal('View', record)}
+              >
                 {showLabels && 'View'}
               </Button>
-              <Button icon={<EditOutlined />} size="middle" style={{ backgroundColor: '#722ed1', borderColor: '#722ed1', color: 'white' }} onClick={() => openModal('Edit', record)}>
+              <Button 
+                icon={<EditOutlined />} 
+                size="middle" 
+                style={{ backgroundColor: '#722ed1', borderColor: '#722ed1', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
+                onClick={() => openModal('Edit', record)}
+              >
                 {showLabels && 'Edit'}
               </Button>
-              <Button icon={<DeleteOutlined />} size="middle" style={{ backgroundColor: '#ff4d4f', borderColor: '#ff4d4f', color: 'white' }} onClick={() => openModal('Delete', record)}>
+              <Button 
+                icon={<DeleteOutlined />} 
+                size="middle" 
+                style={{ backgroundColor: '#ff4d4f', borderColor: '#ff4d4f', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
+                onClick={() => openModal('Delete', record)}
+              >
                 {showLabels && 'Delete'}
               </Button>
             </Space>
@@ -295,58 +403,109 @@ const AttendanceTable = () => {
       </Table>
 
       <Modal 
-        title={<div style={{ textAlign: 'center' }}><span style={{ fontSize: '22px', fontWeight: 'bold' }}>{modalType === 'Add' ? 'Add New Attendance' : modalType === 'Edit' ? 'Edit Attendance Details' : modalType === 'View' ? 'View Attendance Information' : 'Confirm Attendance Deletion'}</span></div>}
+        title={
+          <div style={{ textAlign: 'center' }}>
+            <span style={{ fontSize: '22px', fontWeight: 'bold', fontFamily: 'Poppins, sans-serif' }}>
+              {modalType === 'Add' ? 'Add New Attendance' : 
+               modalType === 'Edit' ? 'Edit Attendance Details' : 
+               modalType === 'View' ? 'View Attendance Information' : 
+               'Confirm Attendance Deletion'}
+            </span>
+          </div>
+        }
         open={isModalOpen}
         onOk={handleOk}
         onCancel={handleCancel}
         okText={modalType === 'Delete' ? 'Delete' : 'OK'}
-        okButtonProps={{ danger: modalType === 'Delete' }}
+        okButtonProps={{ danger: modalType === 'Delete', style: { fontFamily: 'Poppins, sans-serif' } }}
+        cancelButtonProps={{ style: { fontFamily: 'Poppins, sans-serif' } }}
         width={600}
         centered
       >
         {(modalType === 'Add' || modalType === 'Edit') && (
-          <Form form={form} layout="vertical">
-            <Form.Item label="Date" name="date" rules={[{ required: true, message: 'Please select a date!' }]}>
-              <DatePicker style={{ width: '100%' }} />
+          <Form form={form} layout="vertical" style={{ fontFamily: 'Poppins, sans-serif' }}>
+            <Form.Item 
+              label="Date" 
+              name="date" 
+              rules={[{ required: true, message: 'Please select a date!' }]}
+            >
+              <DatePicker 
+                style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }} 
+                disabled={modalType === 'Add'} // Disable date picker for Add to enforce today
+              />
             </Form.Item>
-            <Form.Item label="Employee" name="employeeId" rules={[{ required: true, message: 'Please select an employee!' }]}>
+            <Form.Item 
+              label="Employee" 
+              name="employeeId" 
+              rules={[{ required: true, message: 'Please select an employee!' }]}
+            >
               <Select
                 showSearch
                 placeholder="Type or select an employee"
                 optionFilterProp="children"
                 onChange={handleEmployeeChange}
-                filterOption={(input, option) =>
-                  option.children.toLowerCase().includes(input.toLowerCase())
-                }
+                filterOption={(input, option) => option.children.toLowerCase().includes(input.toLowerCase())}
+                style={{ fontFamily: 'Poppins, sans-serif' }}
               >
                 {employees.map((employee) => (
-                  <Option key={employee.EmployeeID} value={employee.EmployeeID}>
+                  <Option 
+                    key={employee.EmployeeID} 
+                    value={employee.EmployeeID}
+                    style={{ fontFamily: 'Poppins, sans-serif' }}
+                  >
                     {employee.EmployeeName}
                   </Option>
                 ))}
               </Select>
             </Form.Item>
-            <Form.Item label="Branch" name="branch" rules={[{ required: true, message: 'Branch will be auto-set' }]}>
-              <Select placeholder="Employee Branch" disabled>
+            <Form.Item 
+              label="Branch" 
+              name="branch" 
+              rules={[{ required: true, message: 'Branch will be auto-set' }]}
+            >
+              <Select 
+                placeholder="Employee Branch" 
+                disabled
+                style={{ fontFamily: 'Poppins, sans-serif' }}
+              >
                 {branches.map((branch) => (
-                  <Option key={branch.BranchID} value={branch.BranchID}>
+                  <Option 
+                    key={branch.BranchID} 
+                    value={branch.BranchID}
+                    style={{ fontFamily: 'Poppins, sans-serif' }}
+                  >
                     {branch.BranchName}
                   </Option>
                 ))}
               </Select>
             </Form.Item>
-            <Form.Item label="Check In" name="timeIn" rules={[{ required: true, message: 'Please select a time in!' }]}>
-              <TimePicker format="hh:mm A" style={{ width: '100%' }} use12Hours />
+            <Form.Item 
+              label="Check In" 
+              name="timeIn" 
+              rules={[{ required: true, message: 'Please select a time in!' }]}
+            >
+              <TimePicker 
+                format="hh:mm A" 
+                style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }} 
+                use12Hours 
+              />
             </Form.Item>
-            <Form.Item label="Check Out" name="timeOut" rules={[{ required: true, message: 'Please select a time out!' }]}>
-              <TimePicker format="hh:mm A" style={{ width: '100%' }} use12Hours />
+            <Form.Item 
+              label="Check Out" 
+              name="timeOut" 
+              rules={[{ required: true, message: 'Please select a time out!' }]}
+            >
+              <TimePicker 
+                format="hh:mm A" 
+                style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }} 
+                use12Hours 
+              />
             </Form.Item>
           </Form>
         )}
 
         {modalType === 'View' && selectedAttendance && (
-          <div>
-            <p style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: 10 }}>Attendance Details:</p>
+          <div style={{ fontFamily: 'Poppins, sans-serif' }}>
             <p><strong>Date:</strong> {selectedAttendance.date}</p>
             <p><strong>Employee Name:</strong> {selectedAttendance.employeeName}</p>
             <p><strong>Branch:</strong> {selectedAttendance.branch}</p>
@@ -357,7 +516,7 @@ const AttendanceTable = () => {
         )}
 
         {modalType === 'Delete' && selectedAttendance && (
-          <div>
+          <div style={{ fontFamily: 'Poppins, sans-serif' }}>
             <p style={{ fontSize: '18px', fontWeight: 'bold', color: '#ff4d4f' }}>
               ⚠️ Are you sure you want to delete this attendance record?
             </p>
@@ -365,7 +524,7 @@ const AttendanceTable = () => {
           </div>
         )}
       </Modal>
-    </>
+    </div>
   );
 };
 
