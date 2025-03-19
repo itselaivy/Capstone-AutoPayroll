@@ -35,12 +35,13 @@ body {
   left: 0;
   width: 100%;
   height: 100%;
-  background: linear-gradient(135deg, rgba(26, 60, 109, 0.9), rgba(0, 0, 0, 0.85)); /* Gradient background */
+  background: linear-gradient(135deg, rgba(26, 60, 109, 0.9), rgba(0, 0, 0, 0.85));
   display: flex;
   justify-content: center;
   align-items: center;
   z-index: 9999;
-  animation: fadeOut 0.6s ease forwards 3s; /* Changed from 2.5s to 3s */
+  animation: fadeOut 0.6s ease forwards 10s; /* Fade out after 10s */
+  will-change: opacity; /* Hint to browser for optimization */
 }
 
 /* Loader container */
@@ -48,59 +49,40 @@ body {
   text-align: center;
 }
 
-/* Dual-ring animation */
-.dual-ring {
+/* Spinner core container */
+.spinner-core {
   position: relative;
-  width: 80px;
-  height: 80px;
+  width: 70px;
+  height: 70px;
   margin: 0 auto 20px;
 }
 
-.dual-ring::before,
-.dual-ring::after {
-  content: '';
+/* Rotating ring */
+.spinner-ring {
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
   border: 4px solid transparent;
-  border-radius: 50%;
-  animation: rotateRing 2s linear infinite;
-}
-
-.dual-ring::before {
   border-top-color: #52c41a; /* Green accent */
-  animation-delay: 0s;
-}
-
-.dual-ring::after {
-  border-bottom-color: #1A3C6D; /* Dark blue accent */
-  animation-delay: -1s; /* Offset for counter-rotation */
-}
-
-/* Orbiting dots */
-.orbit-dot {
-  position: absolute;
-  width: 12px;
-  height: 12px;
-  background-color: #fff;
   border-radius: 50%;
-  box-shadow: 0 0 8px rgba(255, 255, 255, 0.8);
+  animation: rotate 1.5s linear infinite;
+  will-change: transform; /* Optimize for GPU */
 }
 
-.orbit-dot-1 {
-  top: 10px;
+/* Pulsing arc */
+.spinner-arc {
+  position: absolute;
+  top: 50%;
   left: 50%;
-  transform: translateX(-50%);
-  animation: orbit 1.5s ease-in-out infinite;
-}
-
-.orbit-dot-2 {
-  bottom: 10px;
-  left: 50%;
-  transform: translateX(-50%);
-  animation: orbit 1.5s ease-in-out infinite reverse;
+  width: 40px;
+  height: 40px;
+  background: radial-gradient(circle, rgba(26, 60, 109, 0.8), transparent);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  animation: pulse 2s ease-in-out infinite;
+  will-change: transform, opacity; /* Optimize for GPU */
 }
 
 /* Text below loader */
@@ -120,15 +102,15 @@ body {
 }
 
 /* Keyframes for animations */
-@keyframes rotateRing {
+@keyframes rotate {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
 }
 
-@keyframes orbit {
-  0% { transform: translateX(-50%) translateY(0); opacity: 1; }
-  50% { transform: translateX(-50%) translateY(20px); opacity: 0.7; }
-  100% { transform: translateX(-50%) translateY(0); opacity: 1; }
+@keyframes pulse {
+  0% { transform: translate(-50%, -50%) scale(1); opacity: 0.8; }
+  50% { transform: translate(-50%, -50%) scale(1.2); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(1); opacity: 0.8; }
 }
 
 @keyframes fadeOut {

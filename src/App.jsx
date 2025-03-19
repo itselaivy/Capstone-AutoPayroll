@@ -15,9 +15,16 @@ const App = () => {
 
   useEffect(() => {
     const initializeApp = async () => {
+      const start = Date.now();
       try {
-        await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate delay
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate delay (replace with real init)
       } finally {
+        const elapsed = Date.now() - start;
+        const minDuration = 1500; // 10 seconds minimum
+        const remaining = minDuration - elapsed;
+        if (remaining > 0) {
+          await new Promise(resolve => setTimeout(resolve, remaining)); // Ensure at least 10s
+        }
         setLoading(false);
         setIsInitialLoad(false);
       }
@@ -38,11 +45,11 @@ const App = () => {
       {loading && isInitialLoad && (
         <div className="reload-overlay">
           <div className="reload-loader">
-            <div className="dual-ring">
-              <div className="orbit-dot orbit-dot-1"></div>
-              <div className="orbit-dot orbit-dot-2"></div>
+            <div className="spinner-core">
+              <div className="spinner-ring"></div>
+              <div className="spinner-arc"></div>
             </div>
-            <Text className="reload-text">Loading Application...</Text>
+            <Text className="reload-text">Loading AutoPayroll</Text>
           </div>
         </div>
       )}
