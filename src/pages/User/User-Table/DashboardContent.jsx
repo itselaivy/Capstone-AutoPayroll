@@ -236,7 +236,7 @@ const Dashboard = () => {
 
   return (
     <div className="dashboard-container">
-      <Title level={2} className="dashboard-title">Dashboard</Title>
+      <Title level={2} className="dashboard-title" style={{ fontFamily: 'Poppins, sans-serif' }}>Dashboard</Title>
       {loading && <Spin tip="Loading data..." style={{ display: 'block', textAlign: 'center', margin: '20px 0', fontFamily: 'Poppins, sans-serif' }} />}
       {error && <Text type="danger" style={{ display: 'block', textAlign: 'center', margin: '20px 0', fontFamily: 'Poppins, sans-serif' }}>{error}</Text>}
 
@@ -369,7 +369,7 @@ const Dashboard = () => {
                   onClick={downloadAttendancePDF}
                   loading={loading}
                   style={{
-                    backgroundColor: '#2C3743', // Custom color as requested
+                    backgroundColor: '#2C3743',
                     borderColor: '#2C3743',
                     color: '#fff',
                     fontFamily: 'Poppins, sans-serif',
@@ -470,7 +470,7 @@ const Dashboard = () => {
                     >
                       <Col span={16}>{p.name || 'Unknown'}</Col>
                       <Col span={8} style={{ textAlign: 'right' }}>
-                        <Text strong type={p.onTimeRate >= 90 ? 'success' : p.onTimeRate >= 75 ? 'warning' : 'danger'}>
+                        <Text strong type={p.onTimeRate >= 90 ? 'success' : p.onTimeRate >= 75 ? 'warning' : 'danger'} style={{ fontFamily: 'Poppins, sans-serif' }}>
                           {p.onTimeRate || 0}%
                         </Text>
                       </Col>
@@ -488,19 +488,23 @@ const Dashboard = () => {
       </Row>
 
       <Modal
-        title={`Attendance Details - ${modalData?.date || ''}`}
+        title={<span style={{ fontSize: '22px', fontWeight: 'bold', fontFamily: 'Poppins, sans-serif' }}>{`Attendance Details - ${modalData?.date || ''}`}</span>}
         open={!!modalData}
         onCancel={() => setModalData(null)}
         footer={null}
+        centered
+        bodyStyle={{ padding: '20px', fontFamily: 'Poppins, sans-serif' }}
       >
         {modalData && modalData.employees ? (
-          <ul style={{ fontFamily: 'Poppins, sans-serif' }}>
+          <ul style={{ fontFamily: 'Poppins, sans-serif', listStyleType: 'none', padding: 0 }}>
             {modalData.employees.map((e, index) => (
-              <li key={index}>{e.name || 'Unknown'} - {e.status || 'N/A'}</li>
+              <li key={index} style={{ marginBottom: 8, fontFamily: 'Poppins, sans-serif' }}>
+                {e.name || 'Unknown'} - <Text style={{ fontFamily: 'Poppins, sans-serif' }}>{e.status || 'N/A'}</Text>
+              </li>
             ))}
           </ul>
         ) : (
-          <Spin tip="Loading details..." />
+          <Spin tip="Loading details..." style={{ display: 'block', textAlign: 'center', fontFamily: 'Poppins, sans-serif' }} />
         )}
       </Modal>
     </div>
