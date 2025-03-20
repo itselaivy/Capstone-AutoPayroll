@@ -1,15 +1,15 @@
 import { useState, useEffect } from 'react';
-import { Space, Table, Button, Input, Modal, Form, message, Select, Upload } from 'antd';
-import { EyeOutlined, EditOutlined, DeleteOutlined, PlusOutlined, SearchOutlined, UploadOutlined } from '@ant-design/icons';
-import Papa from 'papaparse';
+import { Space, Table, Button, Input, Modal, Form, message, Select, Typography } from 'antd';
+import { EyeOutlined, EditOutlined, DeleteOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons';
 
 const { Column } = Table;
 const { Option } = Select;
+const { Title } = Typography;
 
 const AllowancesTable = () => {
   const [searchText, setSearchText] = useState('');
   const [filteredData, setFilteredData] = useState([]);
-  const [originalData, setOriginalData] = useState([]); // Store original data
+  const [originalData, setOriginalData] = useState([]);
   const [screenWidth, setScreenWidth] = useState(window.innerWidth);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalType, setModalType] = useState('');
@@ -44,8 +44,8 @@ const AllowancesTable = () => {
         description: allowance.Description,
         amount: parseFloat(allowance.Amount).toFixed(2),
       }));
-      setOriginalData(mappedData); // Store original data
-      setFilteredData(mappedData); // Set initial filtered data
+      setOriginalData(mappedData);
+      setFilteredData(mappedData);
     } catch (err) {
       console.error("Fetch Allowances Error:", err.message);
       message.error(`Failed to load allowances data: ${err.message}`);
@@ -66,7 +66,7 @@ const AllowancesTable = () => {
   const handleSearch = (value) => {
     const lowerValue = value.toLowerCase().trim();
     if (!lowerValue) {
-      setFilteredData(originalData); // Revert to original data when search is cleared
+      setFilteredData(originalData);
     } else {
       const filtered = originalData.filter(item =>
         Object.values(item)
@@ -168,34 +168,6 @@ const AllowancesTable = () => {
     form.resetFields();
   };
 
-  const handleCSVUpload = (file) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      Papa.parse(e.target.result, {
-        header: true,
-        complete: (results) => {
-          const data = results.data.map(row => ({
-            ...row,
-            Amount: parseFloat(row.Amount).toFixed(2),
-          }));
-          fetch(`${API_BASE_URL}/fetch_allowances.php`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(data),
-          })
-            .then((res) => res.json())
-            .then(() => {
-              message.success("CSV data imported successfully!");
-              fetchData();
-            })
-            .catch(() => message.error("Failed to import CSV data"));
-        },
-      });
-    };
-    reader.readAsText(file);
-    return false;
-  };
-
   const formatNumberWithCommas = (number) => {
     return parseFloat(number).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
@@ -203,50 +175,93 @@ const AllowancesTable = () => {
   const showLabels = screenWidth >= 600;
 
   return (
-    <>
+    <div style={{ padding: '20px' }}>
+      <Title level={2} style={{ fontFamily: 'Poppins, sans-serif', marginBottom: '20px' }}>
+        Allowances
+      </Title>
+
       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
-        <Button icon={<PlusOutlined />} size="middle" style={{ backgroundColor: '#2C3743', borderColor: '#2C3743', color: 'white' }} onClick={() => openModal('Add')}>
-          {showLabels && 'Add Allowance'}
+        <Button 
+          icon={<PlusOutlined />} 
+          size="middle" 
+          style={{ backgroundColor: '#2C3743', borderColor: '#2C3743', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
+          onClick={() => openModal('Add')}
+        >
+          {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Add Allowance</span>}
         </Button>
-        <Upload accept=".csv" beforeUpload={handleCSVUpload} showUploadList={false}>
-          <Button icon={<UploadOutlined />} size="middle" style={{ backgroundColor: '#2C3743', borderColor: '#2C3743', color: 'white' }}>
-            {showLabels && 'Import CSV'}
-          </Button>
-        </Upload>
         <Input
           placeholder="Search by any field (e.g., name, description)"
           allowClear
           value={searchText}
           onChange={(e) => handleSearch(e.target.value)}
           prefix={<SearchOutlined />}
-          style={{ width: screenWidth < 480 ? '100%' : '250px', marginTop: screenWidth < 480 ? 10 : 0 }}
+          style={{ width: screenWidth < 480 ? '100%' : '250px', marginTop: screenWidth < 480 ? 10 : 0, fontFamily: 'Poppins, sans-serif' }}
         />
       </div>
 
-      <Table dataSource={filteredData} bordered scroll={{ x: true }} pagination={{ position: ['bottomCenter'] }}>
-        <Column title="Employee ID" dataIndex="employeeId" key="employeeId" sorter={(a, b) => a.employeeId.localeCompare(b.employeeId)} />
-        <Column title="Employee Name" dataIndex="employeeName" key="employeeName" sorter={(a, b) => a.employeeName.localeCompare(b.employeeName)} />
-        <Column title="Description" dataIndex="description" key="description" sorter={(a, b) => a.description.localeCompare(b.description)} />
+      <Table 
+        dataSource={filteredData} 
+        bordered 
+        scroll={{ x: true }} 
+        pagination={{ position: ['bottomCenter'] }}
+        style={{ fontFamily: 'Poppins, sans-serif' }}
+      >
         <Column 
-          title="Amount" 
+          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Employee ID</span>} 
+          dataIndex="employeeId" 
+          key="employeeId" 
+          sorter={(a, b) => a.employeeId.localeCompare(b.employeeId)}
+          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
+        />
+        <Column 
+          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Employee Name</span>} 
+          dataIndex="employeeName" 
+          key="employeeName" 
+          sorter={(a, b) => a.employeeName.localeCompare(b.employeeName)}
+          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
+        />
+        <Column 
+          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Description</span>} 
+          dataIndex="description" 
+          key="description" 
+          sorter={(a, b) => a.description.localeCompare(b.description)}
+          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
+        />
+        <Column 
+          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Amount</span>} 
           dataIndex="amount" 
           key="amount" 
           sorter={(a, b) => a.amount - b.amount}
-          render={(amount) => `₱${formatNumberWithCommas(amount)}`}
+          render={(amount) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>₱{formatNumberWithCommas(amount)}</span>}
         />
         <Column
-          title="Action"
+          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Action</span>}
           key="action"
           render={(_, record) => (
             <Space size="middle" wrap>
-              <Button icon={<EyeOutlined />} size="middle" style={{ backgroundColor: '#52c41a', borderColor: '#52c41a', color: 'white' }} onClick={() => openModal('View', record)}>
-                {showLabels && 'View'}
+              <Button 
+                icon={<EyeOutlined />} 
+                size="middle" 
+                style={{ backgroundColor: '#52c41a', borderColor: '#52c41a', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
+                onClick={() => openModal('View', record)}
+              >
+                {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>View</span>}
               </Button>
-              <Button icon={<EditOutlined />} size="middle" style={{ backgroundColor: '#722ed1', borderColor: '#722ed1', color: 'white' }} onClick={() => openModal('Edit', record)}>
-                {showLabels && 'Edit'}
+              <Button 
+                icon={<EditOutlined />} 
+                size="middle" 
+                style={{ backgroundColor: '#722ed1', borderColor: '#722ed1', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
+                onClick={() => openModal('Edit', record)}
+              >
+                {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Edit</span>}
               </Button>
-              <Button icon={<DeleteOutlined />} size="middle" style={{ backgroundColor: '#ff4d4f', borderColor: '#ff4d4f', color: 'white' }} onClick={() => openModal('Delete', record)}>
-                {showLabels && 'Delete'}
+              <Button 
+                icon={<DeleteOutlined />} 
+                size="middle" 
+                style={{ backgroundColor: '#ff4d4f', borderColor: '#ff4d4f', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
+                onClick={() => openModal('Delete', record)}
+              >
+                {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Delete</span>}
               </Button>
             </Space>
           )}
@@ -254,61 +269,93 @@ const AllowancesTable = () => {
       </Table>
 
       <Modal
-        title={<div style={{ textAlign: 'center' }}><span style={{ fontSize: '22px', fontWeight: 'bold' }}>{modalType === 'Add' ? 'Add New Allowance' : modalType === 'Edit' ? 'Edit Allowance Details' : modalType === 'View' ? 'View Allowance Information' : 'Confirm Allowance Deletion'}</span></div>}
+        title={
+          <div style={{ textAlign: 'center' }}>
+            <span style={{ fontSize: '22px', fontWeight: 'bold', fontFamily: 'Poppins, sans-serif' }}>
+              {modalType === 'Add' ? 'Add New Allowance' : 
+               modalType === 'Edit' ? 'Edit Allowance Details' : 
+               modalType === 'View' ? 'View Allowance Information' : 
+               'Confirm Allowance Deletion'}
+            </span>
+          </div>
+        }
         open={isModalOpen}
         onOk={handleOk}
         onCancel={handleCancel}
         okText={modalType === 'Delete' ? 'Delete' : 'OK'}
-        okButtonProps={{ danger: modalType === 'Delete' }}
+        okButtonProps={{ danger: modalType === 'Delete', style: { fontFamily: 'Poppins, sans-serif' } }}
+        cancelButtonProps={{ style: { fontFamily: 'Poppins, sans-serif' } }}
         width={600}
         centered
+        bodyStyle={{ padding: '20px', fontFamily: 'Poppins, sans-serif' }}
       >
         {(modalType === 'Add' || modalType === 'Edit') && (
-          <Form form={form} layout="vertical">
-            <Form.Item label="Employee" name="employeeId" rules={[{ required: true, message: 'Please select an employee!' }]}>
+          <Form form={form} layout="vertical" style={{ fontFamily: 'Poppins, sans-serif' }}>
+            <Form.Item 
+              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Employee</span>} 
+              name="employeeId" 
+              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select an employee!</span> }]}
+            >
               <Select
                 showSearch
                 placeholder="Type or select an employee"
                 optionFilterProp="children"
-                filterOption={(input, option) =>
-                  option.children.toLowerCase().includes(input.toLowerCase())
-                }
+                filterOption={(input, option) => option.children.toLowerCase().includes(input.toLowerCase())}
+                style={{ fontFamily: 'Poppins, sans-serif' }}
               >
                 {employees.map((employee) => (
-                  <Option key={employee.EmployeeID} value={employee.EmployeeID}>
+                  <Option key={employee.EmployeeID} value={employee.EmployeeID} style={{ fontFamily: 'Poppins, sans-serif' }}>
                     {employee.EmployeeName}
                   </Option>
                 ))}
               </Select>
             </Form.Item>
-            <Form.Item label="Description" name="description" rules={[{ required: true, message: 'Please enter a description!' }]}>
-              <Input style={{ width: '100%' }} />
+            <Form.Item 
+              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Description</span>} 
+              name="description" 
+              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please enter a description!</span> }]}
+            >
+              <Input style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }} />
             </Form.Item>
-            <Form.Item label="Amount (₱)" name="amount" rules={[{ required: true, message: 'Please enter the amount!' }]}>
-              <Input type="number" step="0.01" min="0" style={{ width: '100%' }} />
+            <Form.Item 
+              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Amount (₱)</span>} 
+              name="amount" 
+              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please enter the amount!</span> }]}
+            >
+              <Input type="number" step="0.01" min="0" style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }} />
             </Form.Item>
           </Form>
         )}
 
         {modalType === 'View' && selectedAllowance && (
-          <div>
-            <p style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: 10 }}>Allowance Details:</p>
-            <p><strong>Employee Name:</strong> {selectedAllowance.employeeName}</p>
-            <p><strong>Description:</strong> {selectedAllowance.description}</p>
-            <p><strong>Amount:</strong> ₱{formatNumberWithCommas(selectedAllowance.amount)}</p>
+          <div style={{ fontFamily: 'Poppins, sans-serif' }}>
+            <p style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: 10, fontFamily: 'Poppins, sans-serif' }}>
+              Allowance Details:
+            </p>
+            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
+              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Employee Name:</strong> {selectedAllowance.employeeName}
+            </p>
+            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
+              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Description:</strong> {selectedAllowance.description}
+            </p>
+            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
+              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Amount:</strong> ₱{formatNumberWithCommas(selectedAllowance.amount)}
+            </p>
           </div>
         )}
 
         {modalType === 'Delete' && selectedAllowance && (
-          <div>
-            <p style={{ fontSize: '18px', fontWeight: 'bold', color: '#ff4d4f' }}>
+          <div style={{ fontFamily: 'Poppins, sans-serif' }}>
+            <p style={{ fontSize: '18px', fontWeight: 'bold', color: '#ff4d4f', fontFamily: 'Poppins, sans-serif' }}>
               ⚠️ Are you sure you want to delete this allowance record?
             </p>
-            <p>This action <strong>cannot be undone</strong>. The allowance record for "<strong>{selectedAllowance.employeeName}</strong>" will be permanently removed.</p>
+            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
+              This action <strong style={{ fontFamily: 'Poppins, sans-serif' }}>cannot be undone</strong>. The allowance record for "<strong style={{ fontFamily: 'Poppins, sans-serif' }}>{selectedAllowance.employeeName}</strong>" will be permanently removed.
+            </p>
           </div>
         )}
       </Modal>
-    </>
+    </div>
   );
 };
 
