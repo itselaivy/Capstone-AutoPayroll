@@ -179,7 +179,8 @@ const Sidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysState
               fontSize: '24px',
               fontWeight: 'bold',
               textAlign: 'center',
-              marginBottom: 10
+              marginBottom: 10,
+              fontFamily: 'Poppins, sans-serif'
             }}>
               AutoPayroll
             </span>
@@ -205,7 +206,7 @@ const Sidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysState
             openKeys={openKeys}
             onOpenChange={onOpenChange}
             onClick={handleMenuClick}
-            style={{ background: '#1D3863', color: 'white', borderRadius: 6, flex: '1 0 auto' }}
+            style={{ background: '#1D3863', color: 'white', borderRadius: 6, flex: '1 0 auto', fontFamily: 'Poppins, sans-serif' }}
             items={menuItems.map((item) => 
               item.type === 'group' ? {
                 key: item.key,
@@ -218,7 +219,8 @@ const Sidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysState
                   pointerEvents: 'none',
                   background: '#0D1F3C',
                   textAlign: collapsed ? 'center' : 'left',
-                  padding: collapsed ? '0' : '0 24px'
+                  padding: collapsed ? '0' : '0 24px',
+                  fontFamily: 'Poppins, sans-serif'
                 }
               } : item.children ? {
                 key: item.key,
@@ -232,8 +234,10 @@ const Sidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysState
                   style: {
                     background: selectedKey === child.key ? '#DCEFFF' : 'transparent',
                     color: selectedKey === child.key ? '#000' : 'white',
+                    fontFamily: 'Poppins, sans-serif'
                   }
-                }))
+                })),
+                style: { fontFamily: 'Poppins, sans-serif' }
               } : {
                 key: item.key,
                 icon: item.icon,
@@ -242,6 +246,7 @@ const Sidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysState
                 style: {
                   background: selectedKey === item.key ? '#DCEFFF' : 'transparent',
                   color: selectedKey === item.key ? '#000' : 'white',
+                  fontFamily: 'Poppins, sans-serif'
                 }
               }
             )}
@@ -253,7 +258,8 @@ const Sidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysState
               background: '#1D3863', 
               color: 'white', 
               borderRadius: 6,
-              marginTop: 'auto'
+              marginTop: 'auto',
+              fontFamily: 'Poppins, sans-serif'
             }}
             items={logoutMenuItems.map((item) => 
               item.type === 'group' ? {
@@ -267,7 +273,8 @@ const Sidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysState
                   pointerEvents: 'none',
                   background: '#0D1F3C',
                   textAlign: collapsed ? 'center' : 'left',
-                  padding: collapsed ? '0' : '0 24px'
+                  padding: collapsed ? '0' : '0 24px',
+                  fontFamily: 'Poppins, sans-serif'
                 }
               } : {
                 key: item.key,
@@ -277,6 +284,7 @@ const Sidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysState
                 style: {
                   background: selectedKey === item.key ? '#DCEFFF' : 'transparent',
                   color: selectedKey === item.key ? '#000' : 'white',
+                  fontFamily: 'Poppins, sans-serif'
                 }
               }
             )}
@@ -285,16 +293,18 @@ const Sidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysState
       </Sider>
 
       <Modal
-        title="Confirm Logout"
+        title={<span style={{ fontSize: '22px', fontWeight: 'bold', fontFamily: 'Poppins, sans-serif' }}>Confirm Logout</span>}
         visible={isModalVisible}
         onOk={handleLogoutConfirm}
         onCancel={handleLogoutCancel}
         okText="Yes, Logout"
         cancelText="No, Stay"
-        okButtonProps={{ danger: true }}
+        okButtonProps={{ danger: true, style: { fontFamily: 'Poppins, sans-serif' } }}
+        cancelButtonProps={{ style: { fontFamily: 'Poppins, sans-serif' } }}
         centered
+        bodyStyle={{ padding: '20px', fontFamily: 'Poppins, sans-serif' }}
       >
-        <p>Are you sure you want to logout?</p>
+        <p style={{ fontFamily: 'Poppins, sans-serif' }}>Are you sure you want to logout?</p>
       </Modal>
     </>
   );
