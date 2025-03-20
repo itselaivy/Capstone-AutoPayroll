@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Modal, Space, Table, Button, Input, Form, message, Select } from 'antd';
+import { Modal, Space, Table, Button, Input, Form, message, Select, Typography } from 'antd';
 import { 
   EyeOutlined, EditOutlined, DeleteOutlined, PlusOutlined, 
   SearchOutlined 
@@ -8,9 +8,15 @@ import './UserTable.css';
 
 const { Column } = Table;
 const { Option } = Select;
+const { Title } = Typography;
 
 const EmployeesTable = () => {
   const [searchText, setSearchText] = useState('');
+  const [selectedBranch, setSelectedBranch] = useState('all');
+  const [selectedPosition, setSelectedPosition] = useState('all');
+  const [selectedMemberSinceMonth, setSelectedMemberSinceMonth] = useState('all');
+  const [selectedMemberSinceDay, setSelectedMemberSinceDay] = useState('all');
+  const [selectedMemberSinceYear, setSelectedMemberSinceYear] = useState('all');
   const [data, setData] = useState([]);
   const [filteredData, setFilteredData] = useState([]);
   const [screenWidth, setScreenWidth] = useState(window.innerWidth);
@@ -22,8 +28,7 @@ const EmployeesTable = () => {
   const [positions, setPositions] = useState([]);
   const [schedules, setSchedules] = useState([]);
   const [dropdownsLoaded, setDropdownsLoaded] = useState(false);
-  
-  // Base API URL
+
   const API_BASE_URL = "http://localhost/UserTableDB/UserDB";
 
   const fetchDropdownData = async () => {
@@ -38,9 +43,9 @@ const EmployeesTable = () => {
       const positionsData = await positionsRes.json();
       const schedulesData = await schedulesRes.json();
 
-      console.log("Fetched Branches:", branchesData);
-      console.log("Fetched Positions:", positionsData);
-      console.log("Fetched Schedules:", schedulesData);
+      console.log('Branches:', branchesData);
+      console.log('Positions:', positionsData);
+      console.log('Schedules:', schedulesData);
 
       setBranches(branchesData);
       setPositions(positionsData);
@@ -59,13 +64,10 @@ const EmployeesTable = () => {
   const fetchData = () => {
     fetch(`${API_BASE_URL}/fetch_employees.php`)
       .then((res) => {
-        if (!res.ok) {
-          throw new Error("Failed to fetch data");
-        }
+        if (!res.ok) throw new Error("Failed to fetch data");
         return res.json();
       })
       .then((data) => {
-        console.log("Raw backend data:", data);
         const mappedData = data.map(employee => ({
           "Employee ID": employee.key,
           "Employee Name": employee.EmployeeName,
@@ -80,6 +82,7 @@ const EmployeesTable = () => {
           ScheduleID: Number(employee.ScheduleID),
           MemberSince: employee.MemberSince
         }));
+        console.log('Mapped Employee Data:', mappedData);
         setData(mappedData);
         setFilteredData(mappedData);
       })
@@ -99,68 +102,109 @@ const EmployeesTable = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const showLabels = screenWidth >= 600;
+  const monthNames = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+  ];
 
-  const handleSearch = (value) => {
-    setSearchText(value);
-    
-    if (!value.trim()) {
-      setFilteredData(data);
-      return;
+  const monthToNumber = (monthName) => {
+    const index = monthNames.indexOf(monthName);
+    return index !== -1 ? (index + 1).toString().padStart(2, '0') : null;
+  };
+
+  const applyFilters = (data, search, branch, position, month, day, year) => {
+    let result = [...data];
+
+    if (branch !== 'all') {
+      result = result.filter(item => item.BranchID === Number(branch));
     }
-    
-    const searchValue = value.toLowerCase();
-    const filtered = data.filter(
-      (item) =>
+
+    if (position !== 'all') {
+      result = result.filter(item => item.PositionID === Number(position));
+    }
+
+    if (month !== 'all' || day !== 'all' || year !== 'all') {
+      result = result.filter(item => {
+        const [itemYear, itemMonth, itemDay] = item["Member Since"].split('-');
+        const monthNumber = month === 'all' ? null : monthToNumber(month);
+        return (
+          (month === 'all' || itemMonth === monthNumber) &&
+          (day === 'all' || itemDay === day.padStart(2, '0')) &&
+          (year === 'all' || itemYear === year)
+        );
+      });
+    }
+
+    const searchValue = search.toLowerCase().trim();
+    if (searchValue) {
+      result = result.filter(item =>
         item["Employee ID"].toString().includes(searchValue) ||
         item["Employee Name"].toLowerCase().includes(searchValue) ||
         item["Branch Name"].toLowerCase().includes(searchValue) ||
         item["Position Title"].toLowerCase().includes(searchValue) ||
         item["Schedule"].toLowerCase().includes(searchValue) ||
         item["Member Since"].toLowerCase().includes(searchValue)
-    );
-    setFilteredData(filtered);
+      );
+    }
+
+    return result;
+  };
+
+  const handleSearch = (value) => {
+    setSearchText(value);
+    setFilteredData(applyFilters(data, value, selectedBranch, selectedPosition, selectedMemberSinceMonth, selectedMemberSinceDay, selectedMemberSinceYear));
+  };
+
+  const handleBranchChange = (value) => {
+    setSelectedBranch(value);
+    setFilteredData(applyFilters(data, searchText, value, selectedPosition, selectedMemberSinceMonth, selectedMemberSinceDay, selectedMemberSinceYear));
+  };
+
+  const handlePositionChange = (value) => {
+    setSelectedPosition(value);
+    setFilteredData(applyFilters(data, searchText, selectedBranch, value, selectedMemberSinceMonth, selectedMemberSinceDay, selectedMemberSinceYear));
+  };
+
+  const handleMonthChange = (value) => {
+    setSelectedMemberSinceMonth(value);
+    setFilteredData(applyFilters(data, searchText, selectedBranch, selectedPosition, value, selectedMemberSinceDay, selectedMemberSinceYear));
+  };
+
+  const handleDayChange = (value) => {
+    setSelectedMemberSinceDay(value);
+    setFilteredData(applyFilters(data, searchText, selectedBranch, selectedPosition, selectedMemberSinceMonth, value, selectedMemberSinceYear));
+  };
+
+  const handleYearChange = (value) => {
+    setSelectedMemberSinceYear(value);
+    setFilteredData(applyFilters(data, searchText, selectedBranch, selectedPosition, selectedMemberSinceMonth, selectedMemberSinceDay, value));
   };
 
   const openModal = (type, record = null) => {
-    console.log("Opening Modal:", type, record);
     setModalType(type);
     setSelectedEmployee(record);
     setIsModalOpen(true);
 
     if (type === 'Edit' && record) {
+      console.log('Editing Employee:', record);
       const initializeForm = () => {
-        console.log("Setting form values:", {
-          EmployeeName: record["Employee Name"],
-          BranchID: record["Branch Name"],
-          PositionID: record["Position Title"],
-          ScheduleID: record.ScheduleID,
-          MemberSince: record["Member Since"]
-        });
         form.setFieldsValue({
           EmployeeName: record["Employee Name"],
-          BranchID: record["Branch Name"],
-          PositionID: record["Position Title"],
-          ScheduleID: record.ScheduleID,
+          BranchID: record["Branch Name"], // Set to name initially
+          PositionID: record["Position Title"], // Set to title initially
+          ScheduleID: record["Schedule"], // Set to schedule string initially
           MemberSince: record["Member Since"]
         });
-        // Force re-render to ensure Select displays names
-        form.resetFields(['BranchID', 'PositionID', 'ScheduleID']);
-        form.setFieldsValue({
-          BranchID: record["Branch Name"],
-          PositionID: record["Position Title"],
-          ScheduleID: record.ScheduleID
-        });
+        console.log('Form Values After Set:', form.getFieldsValue());
       };
 
       if (dropdownsLoaded) {
         initializeForm();
       } else {
-        console.warn("Dropdown data not yet loaded, delaying form initialization");
-        const waitForDropdowns = setInterval(() => {
+        const interval = setInterval(() => {
           if (dropdownsLoaded) {
             initializeForm();
-            clearInterval(waitForDropdowns);
+            clearInterval(interval);
           }
         }, 100);
       }
@@ -174,53 +218,54 @@ const EmployeesTable = () => {
       handleCancel();
       return;
     }
-    
+
     if (modalType === "Add" || modalType === "Edit") {
       form.validateFields()
         .then((values) => {
-          console.log("Form Values on Submit:", values);
+          // Convert names/titles back to IDs for the payload
+          const branch = branches.find(b => b.BranchName === values.BranchID);
+          const position = positions.find(p => p.PositionTitle === values.PositionID);
+          const schedule = schedules.find(s => `${s.ShiftStart} - ${s.ShiftEnd}` === values.ScheduleID);
+
           const payload = {
             EmployeeName: values.EmployeeName,
-            BranchID: Number(values.BranchID),
-            PositionID: Number(values.PositionID),
-            ScheduleID: Number(values.ScheduleID),
+            BranchID: branch ? Number(branch.BranchID) : null,
+            PositionID: position ? Number(position.PositionID) : null,
+            ScheduleID: schedule ? Number(schedule.ScheduleID) : null,
             MemberSince: values.MemberSince
           };
-  
+
           if (modalType === "Edit" && selectedEmployee) {
             payload.EmployeeID = selectedEmployee.key;
           }
-  
+
+          if (!payload.BranchID || !payload.PositionID || !payload.ScheduleID) {
+            throw new Error("Invalid selection for Branch, Position, or Schedule");
+          }
+
           const url = `${API_BASE_URL}/fetch_employees.php`;
           const method = modalType === "Add" ? "POST" : "PUT";
-  
+
           fetch(url, {
             method: method,
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
           })
             .then((res) => {
-              if (!res.ok) {
-                return res.text().then((text) => {
-                  console.error("Server Response:", text);
-                  throw new Error(text);
-                });
-              }
+              if (!res.ok) throw new Error("Server error");
               return res.json();
             })
-            .then((data) => {
+            .then(() => {
               message.success(`Employee ${modalType === "Add" ? "added" : "updated"} successfully!`);
               setIsModalOpen(false);
               form.resetFields();
               fetchData();
             })
             .catch((err) => {
-              console.error(`${modalType} Error:`, err);
               message.error(`Failed to ${modalType === "Add" ? "add" : "update"} employee: ${err.message}`);
             });
         })
         .catch((errorInfo) => {
-          console.log("Validation Failed:", errorInfo);
           message.error("Please fill all required fields correctly");
         });
     } else if (modalType === "Delete" && selectedEmployee) {
@@ -230,12 +275,10 @@ const EmployeesTable = () => {
         body: JSON.stringify({ employeeID: selectedEmployee.key }),
       })
         .then((res) => {
-          if (!res.ok) {
-            return res.json().then(err => { throw new Error(err.error || "Failed to delete employee"); });
-          }
+          if (!res.ok) throw new Error("Failed to delete employee");
           return res.json();
         })
-        .then((data) => {
+        .then(() => {
           message.success("Employee deleted successfully!");
           setIsModalOpen(false);
           fetchData();
@@ -251,35 +294,98 @@ const EmployeesTable = () => {
     form.resetFields();
   };
 
+  const showLabels = screenWidth >= 600;
+
+  const days = Array.from({ length: 31 }, (_, i) => (i + 1).toString());
+  const years = Array.from({ length: 50 }, (_, i) => (new Date().getFullYear() - i).toString());
+
   return (
-    <>
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'right', 
-        alignItems: 'center', 
-        gap: 16, 
-        marginBottom: 20,
-        flexWrap: 'wrap' 
-      }}>
+    <div style={{ padding: '20px' }}>
+      <Title level={2} style={{ fontFamily: 'Poppins, sans-serif', marginBottom: '20px' }}>
+        Employees
+      </Title>
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
         <Button
           icon={<PlusOutlined />}
           size="middle"
-          style={{ 
-            backgroundColor: '#2C3743', 
-            borderColor: '#2C3743', 
-            color: 'white'
-          }}
+          style={{ backgroundColor: '#2C3743', borderColor: '#2C3743', color: 'white', fontFamily: 'Poppins, sans-serif' }}
           onClick={() => openModal('Add')}
         >
-          {showLabels && 'Add Employee'} 
+          {showLabels && 'Add Employee'}
         </Button>
+        <Select
+          value={selectedBranch}
+          onChange={handleBranchChange}
+          style={{ width: screenWidth < 480 ? '100%' : '200px', marginTop: screenWidth < 480 ? 10 : 0, fontFamily: 'Poppins, sans-serif' }}
+          placeholder="Filter by Branch"
+        >
+          <Option value="all" style={{ fontFamily: 'Poppins, sans-serif' }}>All Branches</Option>
+          {branches.map(branch => (
+            <Option key={branch.BranchID} value={branch.BranchID} style={{ fontFamily: 'Poppins, sans-serif' }}>
+              {branch.BranchName}
+            </Option>
+          ))}
+        </Select>
+        <Select
+          value={selectedPosition}
+          onChange={handlePositionChange}
+          style={{ width: screenWidth < 480 ? '100%' : '200px', marginTop: screenWidth < 480 ? 10 : 0, fontFamily: 'Poppins, sans-serif' }}
+          placeholder="Filter by Position"
+        >
+          <Option value="all" style={{ fontFamily: 'Poppins, sans-serif' }}>All Positions</Option>
+          {positions.map(position => (
+            <Option key={position.PositionID} value={position.PositionID} style={{ fontFamily: 'Poppins, sans-serif' }}>
+              {position.PositionTitle}
+            </Option>
+          ))}
+        </Select>
+        <Select
+          value={selectedMemberSinceMonth}
+          onChange={handleMonthChange}
+          style={{ width: screenWidth < 480 ? '100%' : '120px', marginTop: screenWidth < 480 ? 10 : 0, fontFamily: 'Poppins, sans-serif' }}
+          placeholder="Month"
+        >
+          <Option value="all" style={{ fontFamily: 'Poppins, sans-serif' }}>All Months</Option>
+          {monthNames.map((month, index) => (
+            <Option key={index} value={month} style={{ fontFamily: 'Poppins, sans-serif' }}>
+              {month}
+            </Option>
+          ))}
+        </Select>
+        <Select
+          value={selectedMemberSinceDay}
+          onChange={handleDayChange}
+          style={{ width: screenWidth < 480 ? '100%' : '120px', marginTop: screenWidth < 480 ? 10 : 0, fontFamily: 'Poppins, sans-serif' }}
+          placeholder="Day"
+        >
+          <Option value="all" style={{ fontFamily: 'Poppins, sans-serif' }}>All Days</Option>
+          {days.map(day => (
+            <Option key={day} value={day} style={{ fontFamily: 'Poppins, sans-serif' }}>
+              {day.padStart(2, '0')}
+            </Option>
+          ))}
+        </Select>
+        <Select
+          value={selectedMemberSinceYear}
+          onChange={handleYearChange}
+          style={{ width: screenWidth < 480 ? '100%' : '120px', marginTop: screenWidth < 480 ? 10 : 0, fontFamily: 'Poppins, sans-serif' }}
+          placeholder="Year"
+        >
+          <Option value="all" style={{ fontFamily: 'Poppins, sans-serif' }}>All Years</Option>
+          {years.map(year => (
+            <Option key={year} value={year} style={{ fontFamily: 'Poppins, sans-serif' }}>
+              {year}
+            </Option>
+          ))}
+        </Select>
         <Input
           placeholder="Search..."
           allowClear
           value={searchText}
           onChange={(e) => handleSearch(e.target.value)}
           prefix={<SearchOutlined />}
-          style={{ width: screenWidth < 480 ? '100%' : '250px', marginTop: screenWidth < 480 ? 10 : 0 }}
+          style={{ width: screenWidth < 480 ? '100%' : '250px', marginTop: screenWidth < 480 ? 10 : 0, fontFamily: 'Poppins, sans-serif' }}
         />
       </div>
 
@@ -287,45 +393,49 @@ const EmployeesTable = () => {
         dataSource={filteredData} 
         bordered
         scroll={{ x: true }}
-        pagination={{ 
-          responsive: true,
-          position: ['bottomCenter']
-        }}
+        pagination={{ responsive: true, position: ['bottomCenter'] }}
+        style={{ fontFamily: 'Poppins, sans-serif' }}
       >
         <Column 
           title="Employee ID" 
           dataIndex="Employee ID" 
           key="Employee ID" 
           sorter={(a, b) => a["Employee ID"] - b["Employee ID"]}
+          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
         />
         <Column 
           title="Employee Name" 
           dataIndex="Employee Name" 
           key="Employee Name" 
           sorter={(a, b) => a["Employee Name"].localeCompare(b["Employee Name"])} 
+          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
         />
         <Column 
           title="Branch Name" 
           dataIndex="Branch Name" 
           key="Branch Name" 
           sorter={(a, b) => a["Branch Name"].localeCompare(b["Branch Name"])} 
+          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
         />
         <Column 
           title="Position Title" 
           dataIndex="Position Title" 
           key="Position Title" 
           sorter={(a, b) => a["Position Title"].localeCompare(b["Position Title"])} 
+          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
         />
         <Column 
           title="Schedule" 
           dataIndex="Schedule" 
           key="Schedule" 
+          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
         />
         <Column 
           title="Member Since" 
           dataIndex="Member Since" 
           key="Member Since" 
           sorter={(a, b) => new Date(a["Member Since"]) - new Date(b["Member Since"])}
+          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
         />
         <Column
           title="Action"
@@ -335,7 +445,7 @@ const EmployeesTable = () => {
               <Button
                 icon={<EyeOutlined />}
                 size="small"
-                style={{ backgroundColor: '#52c41a', borderColor: '#52c41a', color: 'white', padding: 15 }}
+                style={{ backgroundColor: '#52c41a', borderColor: '#52c41a', color: 'white', padding: 15, fontFamily: 'Poppins, sans-serif' }}
                 onClick={() => openModal('View', record)}
               >
                 View
@@ -343,7 +453,7 @@ const EmployeesTable = () => {
               <Button
                 icon={<EditOutlined />}
                 size="small"
-                style={{ backgroundColor: '#722ed1', borderColor: '#722ed1', color: 'white', padding: 15 }}
+                style={{ backgroundColor: '#722ed1', borderColor: '#722ed1', color: 'white', padding: 15, fontFamily: 'Poppins, sans-serif' }}
                 onClick={() => openModal('Edit', record)}
               >
                 Edit
@@ -351,7 +461,7 @@ const EmployeesTable = () => {
               <Button
                 icon={<DeleteOutlined />}
                 size="small"
-                style={{ backgroundColor: '#ff4d4f', borderColor: '#ff4d4f', color: 'white', padding: 15 }}
+                style={{ backgroundColor: '#ff4d4f', borderColor: '#ff4d4f', color: 'white', padding: 15, fontFamily: 'Poppins, sans-serif' }}
                 onClick={() => openModal('Delete', record)}
               >
                 Delete
@@ -364,7 +474,7 @@ const EmployeesTable = () => {
       <Modal 
         title={
           <div style={{ textAlign: 'center' }}>
-            <span style={{ fontSize: '22px', fontWeight: 'bold' }}>
+            <span style={{ fontSize: '22px', fontWeight: 'bold', fontFamily: 'Poppins, sans-serif' }}>
               {modalType === 'Add' ? 'Add New Employee' :
               modalType === 'Edit' ? 'Edit Employee Details' :
               modalType === 'View' ? 'View Employee Information' :
@@ -376,152 +486,116 @@ const EmployeesTable = () => {
         onOk={modalType === 'View' ? handleCancel : handleOk}
         onCancel={handleCancel}
         okText={modalType === 'Delete' ? 'Delete' : 'OK'}
-        okButtonProps={{ danger: modalType === 'Delete' }}
+        okButtonProps={{ danger: modalType === 'Delete', style: { fontFamily: 'Poppins, sans-serif' } }}
+        cancelButtonProps={{ style: { fontFamily: 'Poppins, sans-serif' } }}
         width={600}
         centered
-        style={{ minHeight: '100px', padding: '20px', margin: 20 }}
+        style={{ minHeight: '100px', padding: '20px', margin: 20, fontFamily: 'Poppins, sans-serif' }}
       >
-        {modalType === 'Add' && (
-          <>
-            <Form form={form} layout="vertical">
-              <Form.Item 
-                label="Employee Name" 
-                name="EmployeeName" 
-                rules={[{ required: true, message: 'Please enter employee name!' }]}
+        {(modalType === 'Add' || modalType === 'Edit') && (
+          <Form form={form} layout="vertical" style={{ fontFamily: 'Poppins, sans-serif' }}>
+            <Form.Item 
+              label="Employee Name" 
+              name="EmployeeName" 
+              rules={[{ required: true, message: 'Please enter employee name!' }]}
+              initialValue={selectedEmployee ? selectedEmployee["Employee Name"] : undefined}
+            >
+              <Input placeholder="Enter Employee Name" style={{ fontFamily: 'Poppins, sans-serif' }} />
+            </Form.Item>
+            <Form.Item 
+              label="Branch" 
+              name="BranchID" 
+              rules={[{ required: true, message: 'Please select a branch!' }]}
+              initialValue={selectedEmployee ? selectedEmployee["Branch Name"] : undefined}
+            >
+              <Select 
+                placeholder="Select Branch" 
+                style={{ fontFamily: 'Poppins, sans-serif' }}
+                loading={!dropdownsLoaded}
+                showSearch
+                optionFilterProp="children"
+                disabled={!dropdownsLoaded}
               >
-                <Input placeholder="Enter Employee Name" />
-              </Form.Item>
-              <Form.Item 
-                label="Branch" 
-                name="BranchID" 
-                rules={[{ required: true, message: 'Please select a branch!' }]}
+                {branches.map((branch) => (
+                  <Option key={branch.BranchID} value={branch.BranchName} style={{ fontFamily: 'Poppins, sans-serif' }}>
+                    {branch.BranchName}
+                  </Option>
+                ))}
+              </Select>
+            </Form.Item>
+            <Form.Item 
+              label="Position" 
+              name="PositionID" 
+              rules={[{ required: true, message: 'Please select a position!' }]}
+              initialValue={selectedEmployee ? selectedEmployee["Position Title"] : undefined}
+            >
+              <Select 
+                placeholder="Select Position" 
+                style={{ fontFamily: 'Poppins, sans-serif' }}
+                loading={!dropdownsLoaded}
+                showSearch
+                optionFilterProp="children"
+                disabled={!dropdownsLoaded}
               >
-                <Select placeholder="Select Branch">
-                  {branches.map((branch) => (
-                    <Option key={branch.BranchID} value={branch.BranchID}>
-                      {branch.BranchName}
-                    </Option>
-                  ))}
-                </Select>
-              </Form.Item>
-              <Form.Item 
-                label="Position" 
-                name="PositionID" 
-                rules={[{ required: true, message: 'Please select a position!' }]}
+                {positions.map((position) => (
+                  <Option key={position.PositionID} value={position.PositionTitle} style={{ fontFamily: 'Poppins, sans-serif' }}>
+                    {position.PositionTitle}
+                  </Option>
+                ))}
+              </Select>
+            </Form.Item>
+            <Form.Item 
+              label="Schedule" 
+              name="ScheduleID" 
+              rules={[{ required: true, message: 'Please select a schedule!' }]}
+              initialValue={selectedEmployee ? selectedEmployee["Schedule"] : undefined}
+            >
+              <Select 
+                placeholder="Select Schedule" 
+                style={{ fontFamily: 'Poppins, sans-serif' }}
+                loading={!dropdownsLoaded}
+                showSearch
+                optionFilterProp="children"
+                disabled={!dropdownsLoaded}
               >
-                <Select placeholder="Select Position">
-                  {positions.map((position) => (
-                    <Option key={position.PositionID} value={position.PositionID}>
-                      {position.PositionTitle}
-                    </Option>
-                  ))}
-                </Select>
-              </Form.Item>
-              <Form.Item 
-                label="Schedule" 
-                name="ScheduleID" 
-                rules={[{ required: true, message: 'Please select a schedule!' }]}
-              >
-                <Select placeholder="Select Schedule">
-                  {schedules.map((schedule) => (
-                    <Option key={schedule.ScheduleID} value={schedule.ScheduleID}>
-                      {`${schedule.ShiftStart} - ${schedule.ShiftEnd}`}
-                    </Option>
-                  ))}
-                </Select>
-              </Form.Item>
-              <Form.Item 
-                label="Member Since" 
-                name="MemberSince" 
-                rules={[{ required: true, message: 'Please enter member since date!' }]}
-              >
-                <Input type="date" placeholder="Enter Member Since Date" />
-              </Form.Item>
-            </Form>
-          </>
+                {schedules.map((schedule) => (
+                  <Option key={schedule.ScheduleID} value={`${schedule.ShiftStart} - ${schedule.ShiftEnd}`} style={{ fontFamily: 'Poppins, sans-serif' }}>
+                    {`${schedule.ShiftStart} - ${schedule.ShiftEnd}`}
+                  </Option>
+                ))}
+              </Select>
+            </Form.Item>
+            <Form.Item 
+              label="Member Since" 
+              name="MemberSince" 
+              rules={[{ required: true, message: 'Please enter member since date!' }]}
+              initialValue={selectedEmployee ? selectedEmployee["Member Since"] : undefined}
+            >
+              <Input type="date" placeholder="Enter Member Since Date" style={{ fontFamily: 'Poppins, sans-serif' }} />
+            </Form.Item>
+          </Form>
         )}
 
-        {modalType === 'Edit' && (
-          <>
-            <Form form={form} layout="vertical">
-              <Form.Item 
-                label="Employee Name" 
-                name="EmployeeName" 
-                rules={[{ required: true, message: 'Please enter employee name!' }]}
-              >
-                <Input placeholder="Enter Employee Name" />
-              </Form.Item>
-              <Form.Item 
-                label="Branch" 
-                name="BranchID" 
-                rules={[{ required: true, message: 'Please select a branch!' }]}
-              >
-                <Select placeholder="Select Branch">
-                  {branches.map((branch) => (
-                    <Option key={branch.BranchID} value={branch.BranchID}>
-                      {branch.BranchName}
-                    </Option>
-                  ))}
-                </Select>
-              </Form.Item>
-              <Form.Item 
-                label="Position" 
-                name="PositionID" 
-                rules={[{ required: true, message: 'Please select a position!' }]}
-              >
-                <Select placeholder="Select Position">
-                  {positions.map((position) => (
-                    <Option key={position.PositionID} value={position.PositionID}>
-                      {position.PositionTitle}
-                    </Option>
-                  ))}
-                </Select>
-              </Form.Item>
-              <Form.Item 
-                label="Schedule" 
-                name="ScheduleID" 
-                rules={[{ required: true, message: 'Please select a schedule!' }]}
-              >
-                <Select placeholder="Select Schedule">
-                  {schedules.map((schedule) => (
-                    <Option key={schedule.ScheduleID} value={schedule.ScheduleID}>
-                      {`${schedule.ShiftStart} - ${schedule.ShiftEnd}`}
-                    </Option>
-                  ))}
-                </Select>
-              </Form.Item>
-              <Form.Item 
-                label="Member Since" 
-                name="MemberSince" 
-                rules={[{ required: true, message: 'Please enter member since date!' }]}
-              >
-                <Input type="date" placeholder="Enter Member Since Date" />
-              </Form.Item>
-            </Form>
-          </>
-        )}
-
-        {modalType === 'View' && (
-          <div>
-            <p style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: 10}}>Employee Details:</p>
-            <p><strong>Employee Name:</strong> {selectedEmployee?.["Employee Name"]}</p>
-            <p><strong>Branch Name:</strong> {selectedEmployee?.["Branch Name"]}</p>
-            <p><strong>Position Title:</strong> {selectedEmployee?.["Position Title"]}</p>
-            <p><strong>Schedule:</strong> {selectedEmployee?.Schedule}</p>
-            <p><strong>Member Since:</strong> {selectedEmployee?.["Member Since"]}</p>
+        {modalType === 'View' && selectedEmployee && (
+          <div style={{ fontFamily: 'Poppins, sans-serif' }}>
+             <p><strong>Employee Name:</strong> {selectedEmployee["Employee Name"]}</p>
+            <p><strong>Branch Name:</strong> {selectedEmployee["Branch Name"]}</p>
+            <p><strong>Position Title:</strong> {selectedEmployee["Position Title"]}</p>
+            <p><strong>Schedule:</strong> {selectedEmployee.Schedule}</p>
+            <p><strong>Member Since:</strong> {selectedEmployee["Member Since"]}</p>
           </div>
         )}
 
-        {modalType === 'Delete' && (
-          <div>
+        {modalType === 'Delete' && selectedEmployee && (
+          <div style={{ fontFamily: 'Poppins, sans-serif' }}>
             <p style={{ fontSize: '18px', fontWeight: 'bold', color: '#ff4d4f' }}>
               ⚠️ Are you sure you want to delete this employee?
             </p>
-            <p>This action <strong>cannot be undone</strong>. The employee "<strong>{selectedEmployee?.["Employee Name"]}</strong>" will be permanently removed.</p>
+            <p>This action <strong>cannot be undone</strong>. The employee "<strong>{selectedEmployee["Employee Name"]}</strong>" will be permanently removed.</p>
           </div>
         )}
       </Modal>
-    </>
+    </div>
   );
 };
 

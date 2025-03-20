@@ -4,7 +4,6 @@ import EmployeesTable from './User-Table/EmployeesTable';
 const Employees = () => {
   return (
     <div>
-      <h1>Employees</h1>
       <EmployeesTable />
     </div>
   );
