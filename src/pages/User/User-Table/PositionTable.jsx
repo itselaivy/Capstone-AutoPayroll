@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Modal, Space, Table, Button, Input, Form, message } from 'antd';
+import { Modal, Space, Table, Button, Input, Form, message, Typography } from 'antd';
 import { 
   EyeOutlined, EditOutlined, DeleteOutlined, PlusOutlined, 
   SearchOutlined 
@@ -7,6 +7,7 @@ import {
 import './UserTable.css';
 
 const { Column } = Table;
+const { Title } = Typography;
 
 const PositionsTable = () => {
   const [searchText, setSearchText] = useState('');
@@ -144,7 +145,11 @@ const PositionsTable = () => {
   };
 
   return (
-    <>
+    <div style={{ padding: '20px' }}>
+      <Title level={2} style={{ fontFamily: 'Poppins, sans-serif', marginBottom: '20px' }}>
+        Positions
+      </Title>
+
       <div style={{ 
         display: 'flex', 
         justifyContent: 'right', 
@@ -325,7 +330,7 @@ const PositionsTable = () => {
           </div>
         )}
       </Modal>
-    </>
+    </div>
   );
 };
 
