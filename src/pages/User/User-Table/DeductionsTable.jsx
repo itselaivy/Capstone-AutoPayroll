@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Space, Table, Button, Input, Modal, Form, message, Select, Upload, Tag, Radio } from 'antd';
-import { EyeOutlined, EditOutlined, DeleteOutlined, PlusOutlined, SearchOutlined, UploadOutlined } from '@ant-design/icons';
-import Papa from 'papaparse';
+import { Space, Table, Button, Input, Modal, Form, message, Select, Tag, Radio, Typography } from 'antd';
+import { EyeOutlined, EditOutlined, DeleteOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons';
 
 const { Column } = Table;
 const { Option } = Select;
+const { Title } = Typography;
 
 const DeductionsTable = () => {
   const [searchText, setSearchText] = useState('');
@@ -93,7 +93,7 @@ const DeductionsTable = () => {
   const handleSearch = (value) => {
     const lowerValue = value.toLowerCase().trim();
     if (!lowerValue) {
-      setFilteredData(originalData); // Revert to original grouped data when search is cleared
+      setFilteredData(originalData);
     } else {
       const filtered = originalData.filter(item =>
         item.employeeId.toString().toLowerCase().includes(lowerValue) ||
@@ -108,7 +108,7 @@ const DeductionsTable = () => {
   const openModal = (type, record = null) => {
     setModalType(type);
     setSelectedEmployee(record);
-    setDeleteOption('all'); // Reset delete option to 'all' by default
+    setDeleteOption('all');
     if (type === "Edit" && record) {
       form.setFieldsValue({
         deductions: record.deductions.map(d => ({
@@ -237,34 +237,6 @@ const DeductionsTable = () => {
     form.resetFields();
   };
 
-  const handleCSVUpload = (file) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      Papa.parse(e.target.result, {
-        header: true,
-        complete: (results) => {
-          const data = results.data.map(row => ({
-            ...row,
-            Amount: parseFloat(row.Amount).toFixed(2),
-          }));
-          fetch(`${API_BASE_URL}/fetch_deductions.php`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(data),
-          })
-            .then((res) => res.json())
-            .then(() => {
-              message.success("CSV data imported successfully!");
-              fetchData();
-            })
-            .catch(() => message.error("Failed to import CSV data"));
-        },
-      });
-    };
-    reader.readAsText(file);
-    return false;
-  };
-
   const formatNumberWithCommas = (number) => {
     return parseFloat(number).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
@@ -285,37 +257,59 @@ const DeductionsTable = () => {
   const showLabels = screenWidth >= 600;
 
   return (
-    <>
+    <div style={{ padding: '20px' }}>
+      <Title level={2} style={{ fontFamily: 'Poppins, sans-serif', marginBottom: '20px' }}>
+        Deductions
+      </Title>
+
       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
-        <Button icon={<PlusOutlined />} size="middle" style={{ backgroundColor: '#2C3743', borderColor: '#2C3743', color: 'white' }} onClick={() => openModal('Add')}>
-          {showLabels && 'Add Deduction'}
+        <Button 
+          icon={<PlusOutlined />} 
+          size="middle" 
+          style={{ backgroundColor: '#2C3743', borderColor: '#2C3743', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
+          onClick={() => openModal('Add')}
+        >
+          {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Add Deduction</span>}
         </Button>
-        <Upload accept=".csv" beforeUpload={handleCSVUpload} showUploadList={false}>
-          <Button icon={<UploadOutlined />} size="middle" style={{ backgroundColor: '#2C3743', borderColor: '#2C3743', color: 'white' }}>
-            {showLabels && 'Import CSV'}
-          </Button>
-        </Upload>
         <Input
           placeholder="Search by any field (e.g., name, type)"
           allowClear
           value={searchText}
           onChange={(e) => handleSearch(e.target.value)}
           prefix={<SearchOutlined />}
-          style={{ width: screenWidth < 480 ? '100%' : '250px', marginTop: screenWidth < 480 ? 10 : 0 }}
+          style={{ width: screenWidth < 480 ? '100%' : '250px', marginTop: screenWidth < 480 ? 10 : 0, fontFamily: 'Poppins, sans-serif' }}
         />
       </div>
 
-      <Table dataSource={filteredData} bordered scroll={{ x: true }} pagination={{ position: ['bottomCenter'] }}>
-        <Column title="Employee ID" dataIndex="employeeId" key="employeeId" sorter={(a, b) => a.employeeId.localeCompare(b.employeeId)} />
-        <Column title="Employee Name" dataIndex="employeeName" key="employeeName" sorter={(a, b) => a.employeeName.localeCompare(b.employeeName)} />
+      <Table 
+        dataSource={filteredData} 
+        bordered 
+        scroll={{ x: true }} 
+        pagination={{ position: ['bottomCenter'] }}
+        style={{ fontFamily: 'Poppins, sans-serif' }}
+      >
+        <Column 
+          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Employee ID</span>} 
+          dataIndex="employeeId" 
+          key="employeeId" 
+          sorter={(a, b) => a.employeeId.localeCompare(b.employeeId)}
+          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
+        />
+        <Column 
+          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Employee Name</span>} 
+          dataIndex="employeeName" 
+          key="employeeName" 
+          sorter={(a, b) => a.employeeName.localeCompare(b.employeeName)}
+          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
+        />
         <Column
-          title="Deductions"
+          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Deductions</span>}
           dataIndex="deductions"
           key="deductions"
           render={(deductions) => (
             <Space wrap>
               {deductions.map((deduction) => (
-                <Tag key={deduction.deductionId} color="blue">
+                <Tag key={deduction.deductionId} color="blue" style={{ fontFamily: 'Poppins, sans-serif' }}>
                   {deduction.type}: ₱{formatNumberWithCommas(deduction.amount)}
                 </Tag>
               ))}
@@ -323,40 +317,40 @@ const DeductionsTable = () => {
           )}
         />
         <Column
-          title="Total Amount"
+          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Total Amount</span>}
           dataIndex="totalAmount"
           key="totalAmount"
           sorter={(a, b) => a.totalAmount - b.totalAmount}
-          render={(totalAmount) => `₱${formatNumberWithCommas(totalAmount)}`}
+          render={(totalAmount) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>₱{formatNumberWithCommas(totalAmount)}</span>}
         />
         <Column
-          title="Action"
+          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Action</span>}
           key="action"
           render={(_, record) => (
             <Space size="middle" wrap>
-              <Button
-                icon={<EyeOutlined />}
-                size="middle"
-                style={{ backgroundColor: '#52c41a', borderColor: '#52c41a', color: 'white' }}
+              <Button 
+                icon={<EyeOutlined />} 
+                size="middle" 
+                style={{ backgroundColor: '#52c41a', borderColor: '#52c41a', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
                 onClick={() => openModal('View', record)}
               >
-                {showLabels && 'View'}
+                {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>View</span>}
               </Button>
-              <Button
-                icon={<EditOutlined />}
-                size="middle"
-                style={{ backgroundColor: '#722ed1', borderColor: '#722ed1', color: 'white' }}
+              <Button 
+                icon={<EditOutlined />} 
+                size="middle" 
+                style={{ backgroundColor: '#722ed1', borderColor: '#722ed1', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
                 onClick={() => openModal('Edit', record)}
               >
-                {showLabels && 'Edit'}
+                {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Edit</span>}
               </Button>
-              <Button
-                icon={<DeleteOutlined />}
-                size="middle"
-                style={{ backgroundColor: '#ff4d4f', borderColor: '#ff4d4f', color: 'white' }}
+              <Button 
+                icon={<DeleteOutlined />} 
+                size="middle" 
+                style={{ backgroundColor: '#ff4d4f', borderColor: '#ff4d4f', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
                 onClick={() => openModal('Delete', record)}
               >
-                {showLabels && 'Delete'}
+                {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Delete</span>}
               </Button>
             </Space>
           )}
@@ -364,70 +358,92 @@ const DeductionsTable = () => {
       </Table>
 
       <Modal
-        title={<div style={{ textAlign: 'center' }}><span style={{ fontSize: '22px', fontWeight: 'bold' }}>{modalType === 'Add' ? 'Add New Deduction' : modalType === 'Edit' ? 'Edit Deductions' : modalType === 'View' ? 'View Deductions' : 'Confirm Deductions Deletion'}</span></div>}
+        title={
+          <div style={{ textAlign: 'center' }}>
+            <span style={{ fontSize: '22px', fontWeight: 'bold', fontFamily: 'Poppins, sans-serif' }}>
+              {modalType === 'Add' ? 'Add New Deduction' : 
+               modalType === 'Edit' ? 'Edit Deductions' : 
+               modalType === 'View' ? 'View Deductions' : 
+               'Confirm Deductions Deletion'}
+            </span>
+          </div>
+        }
         open={isModalOpen}
         onOk={handleOk}
         onCancel={handleCancel}
         okText={modalType === 'Delete' ? 'Delete' : 'OK'}
-        okButtonProps={{ danger: modalType === 'Delete' }}
+        okButtonProps={{ danger: modalType === 'Delete', style: { fontFamily: 'Poppins, sans-serif' } }}
+        cancelButtonProps={{ style: { fontFamily: 'Poppins, sans-serif' } }}
         width={600}
         centered
+        bodyStyle={{ padding: '20px', fontFamily: 'Poppins, sans-serif' }}
       >
         {modalType === 'Add' && (
-          <Form form={form} layout="vertical">
-            <Form.Item label="Employee" name="employeeId" rules={[{ required: true, message: 'Please select an employee!' }]}>
+          <Form form={form} layout="vertical" style={{ fontFamily: 'Poppins, sans-serif' }}>
+            <Form.Item 
+              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Employee</span>} 
+              name="employeeId" 
+              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select an employee!</span> }]}
+            >
               <Select
                 showSearch
                 placeholder="Type or select an employee"
                 optionFilterProp="children"
-                filterOption={(input, option) =>
-                  option.children.toLowerCase().includes(input.toLowerCase())
-                }
+                filterOption={(input, option) => option.children.toLowerCase().includes(input.toLowerCase())}
+                style={{ fontFamily: 'Poppins, sans-serif' }}
               >
                 {employees.map((employee) => (
-                  <Option key={employee.EmployeeID} value={employee.EmployeeID}>
+                  <Option key={employee.EmployeeID} value={employee.EmployeeID} style={{ fontFamily: 'Poppins, sans-serif' }}>
                     {employee.EmployeeName}
                   </Option>
                 ))}
               </Select>
             </Form.Item>
-            <Form.Item label="Deduction Type" name="deductionType" rules={[{ required: true, message: 'Please select a deduction type!' }]}>
-              <Select placeholder="Select deduction type">
-                <Option value="Pag-Ibig">Pag-Ibig</Option>
-                <Option value="SSS">SSS</Option>
-                <Option value="PhilHealth">PhilHealth</Option>
+            <Form.Item 
+              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Deduction Type</span>} 
+              name="deductionType" 
+              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select a deduction type!</span> }]}
+            >
+              <Select placeholder="Select deduction type" style={{ fontFamily: 'Poppins, sans-serif' }}>
+                <Option value="Pag-Ibig" style={{ fontFamily: 'Poppins, sans-serif' }}>Pag-Ibig</Option>
+                <Option value="SSS" style={{ fontFamily: 'Poppins, sans-serif' }}>SSS</Option>
+                <Option value="PhilHealth" style={{ fontFamily: 'Poppins, sans-serif' }}>PhilHealth</Option>
               </Select>
             </Form.Item>
-            <Form.Item label="Amount (₱)" name="amount" rules={[{ required: true, message: 'Please enter the amount!' }]}>
-              <Input type="number" step="0.01" min="0" style={{ width: '100%' }} />
+            <Form.Item 
+              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Amount (₱)</span>} 
+              name="amount" 
+              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please enter the amount!</span> }]}
+            >
+              <Input type="number" step="0.01" min="0" style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }} />
             </Form.Item>
           </Form>
         )}
 
         {modalType === 'Edit' && selectedEmployee && (
-          <Form form={form} layout="vertical">
+          <Form form={form} layout="vertical" style={{ fontFamily: 'Poppins, sans-serif' }}>
             <Form.List name="deductions">
               {(fields) => (
                 <>
                   {fields.map((field, index) => (
                     <div key={field.key} style={{ marginBottom: 16 }}>
                       <Form.Item
-                        label={getDeductionLabel(selectedEmployee.deductions[index]?.type)}
+                        label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>{getDeductionLabel(selectedEmployee.deductions[index]?.type)}</span>}
                         name={[field.name, 'deductionType']}
-                        rules={[{ required: true, message: 'Please select a deduction type!' }]}
+                        rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select a deduction type!</span> }]}
                       >
-                        <Select placeholder="Select deduction type" disabled>
-                          <Option value="Pag-Ibig">Pag-Ibig</Option>
-                          <Option value="SSS">SSS</Option>
-                          <Option value="PhilHealth">PhilHealth</Option>
+                        <Select placeholder="Select deduction type" disabled style={{ fontFamily: 'Poppins, sans-serif' }}>
+                          <Option value="Pag-Ibig" style={{ fontFamily: 'Poppins, sans-serif' }}>Pag-Ibig</Option>
+                          <Option value="SSS" style={{ fontFamily: 'Poppins, sans-serif' }}>SSS</Option>
+                          <Option value="PhilHealth" style={{ fontFamily: 'Poppins, sans-serif' }}>PhilHealth</Option>
                         </Select>
                       </Form.Item>
                       <Form.Item
-                        label="Amount (₱)"
+                        label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Amount (₱)</span>}
                         name={[field.name, 'amount']}
-                        rules={[{ required: true, message: 'Please enter the amount!' }]}
+                        rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please enter the amount!</span> }]}
                       >
-                        <Input type="number" step="0.01" min="0" style={{ width: '100%' }} />
+                        <Input type="number" step="0.01" min="0" style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }} />
                       </Form.Item>
                       <Form.Item name={[field.name, 'deductionId']} hidden>
                         <Input type="hidden" />
@@ -441,30 +457,36 @@ const DeductionsTable = () => {
         )}
 
         {modalType === 'View' && selectedEmployee && (
-          <div>
-            <p style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: 10 }}>Deductions for {selectedEmployee.employeeName}:</p>
+          <div style={{ fontFamily: 'Poppins, sans-serif' }}>
+            <p style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: 10, fontFamily: 'Poppins, sans-serif' }}>
+              Deductions for {selectedEmployee.employeeName}:
+            </p>
             {selectedEmployee.deductions.map((deduction) => (
-              <div key={deduction.deductionId} style={{ marginBottom: 8 }}>
-                <p><strong>{getDeductionLabel(deduction.type)}:</strong> ₱{formatNumberWithCommas(deduction.amount)}</p>
+              <div key={deduction.deductionId} style={{ marginBottom: 8, fontFamily: 'Poppins, sans-serif' }}>
+                <p style={{ fontFamily: 'Poppins, sans-serif' }}>
+                  <strong style={{ fontFamily: 'Poppins, sans-serif' }}>{getDeductionLabel(deduction.type)}:</strong> ₱{formatNumberWithCommas(deduction.amount)}
+                </p>
               </div>
             ))}
-            <p><strong>Total Amount:</strong> ₱{formatNumberWithCommas(selectedEmployee.totalAmount)}</p>
+            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
+              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Total Amount:</strong> ₱{formatNumberWithCommas(selectedEmployee.totalAmount)}
+            </p>
           </div>
         )}
 
         {modalType === 'Delete' && selectedEmployee && (
-          <div>
-            <p style={{ fontSize: '18px', fontWeight: 'bold', color: '#ff4d4f', marginBottom: 16 }}>
+          <div style={{ fontFamily: 'Poppins, sans-serif' }}>
+            <p style={{ fontSize: '18px', fontWeight: 'bold', color: '#ff4d4f', marginBottom: 16, fontFamily: 'Poppins, sans-serif' }}>
               ⚠️ Select what to delete for {selectedEmployee.employeeName}:
             </p>
             <Radio.Group
               onChange={(e) => setDeleteOption(e.target.value)}
               value={deleteOption}
-              style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+              style={{ display: 'flex', flexDirection: 'column', gap: 8, fontFamily: 'Poppins, sans-serif' }}
             >
-              <Radio value="all">Delete all deductions</Radio>
+              <Radio value="all" style={{ fontFamily: 'Poppins, sans-serif' }}>Delete all deductions</Radio>
               {selectedEmployee.deductions.map((deduction) => (
-                <Radio key={deduction.deductionId} value={deduction.deductionId}>
+                <Radio key={deduction.deductionId} value={deduction.deductionId} style={{ fontFamily: 'Poppins, sans-serif' }}>
                   Delete {getDeductionLabel(deduction.type)} (₱{formatNumberWithCommas(deduction.amount)})
                 </Radio>
               ))}
@@ -472,7 +494,7 @@ const DeductionsTable = () => {
           </div>
         )}
       </Modal>
-    </>
+    </div>
   );
 };
 
