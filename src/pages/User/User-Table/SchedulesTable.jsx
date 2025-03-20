@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Modal, Space, Table, Button, Input, Form, message, TimePicker } from 'antd';
+import { Modal, Space, Table, Button, Input, Form, message, TimePicker, Typography } from 'antd';
 import { 
   EyeOutlined, EditOutlined, DeleteOutlined, PlusOutlined, 
   SearchOutlined 
@@ -8,47 +8,39 @@ import './UserTable.css';
 import moment from 'moment';
 
 const { Column } = Table;
+const { Title } = Typography;
 
 const SchedulesTable = () => {
   const [searchText, setSearchText] = useState('');
-  const [data, setData] = useState([]); // Original data
-  const [filteredData, setFilteredData] = useState([]); // Filtered data
+  const [data, setData] = useState([]);
+  const [filteredData, setFilteredData] = useState([]);
   const [screenWidth, setScreenWidth] = useState(window.innerWidth);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalType, setModalType] = useState('');
   const [selectedSchedule, setSelectedSchedule] = useState(null);
   const [form] = Form.useForm();
 
-  // Fetch data from the database
   const fetchData = () => {
     fetch("http://localhost/UserTableDB/UserDB/fetch_schedules.php")
       .then((res) => res.json())
       .then((data) => {
-        console.log("Fetched Data:", data); // 🔍 Log fetched data
+        console.log("Fetched Data:", data);
         setData(data);
-        setFilteredData(data); // Initialize filteredData with the fetched data
+        setFilteredData(data);
       })
       .catch((err) => console.error("Error fetching schedules:", err));
   };
-  
 
   useEffect(() => {
-    fetchData(); // Fetch data on component mount
+    fetchData();
   }, []);
 
-  // Track screen size for responsiveness
   useEffect(() => {
-    const handleResize = () => {
-      setScreenWidth(window.innerWidth);
-    };
-
-    handleResize(); // Initial check
+    const handleResize = () => setScreenWidth(window.innerWidth);
     window.addEventListener('resize', handleResize);
-    
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Show labels on action buttons only on larger screens
   const showLabels = screenWidth >= 600;
 
   const handleSearch = (value) => {
@@ -61,121 +53,90 @@ const SchedulesTable = () => {
     setFilteredData(filtered);
   };
 
-  // Open modal for Add, Edit, View, or Delete
   const openModal = (type, record = null) => {
     console.log("Opening Modal:", type, record);
     setModalType(type);
     setSelectedSchedule(record);
     setIsModalOpen(true);
-  
     if (type === 'Edit' && record) {
-      // Directly use moment to parse the time
       form.setFieldsValue({
         shiftStart: moment(record.ShiftStart, "h:mm A"),
         shiftEnd: moment(record.ShiftEnd, "h:mm A")
       });
     }
   };
-  
-  
-  // Handle Add, Edit, or Delete operations
+
   const handleOk = () => {
     if (modalType === "Add") {
       form.validateFields()
         .then((values) => {
           const payload = {
-            shiftStart: values.shiftStart.format("h:mm A"), // Format time to "HH:MM AM/PM"
-            shiftEnd: values.shiftEnd.format("h:mm A"), // Format time to "HH:MM AM/PM"
+            shiftStart: values.shiftStart.format("h:mm A"),
+            shiftEnd: values.shiftEnd.format("h:mm A"),
           };
-          console.log("Add Payload:", payload); // Log payload
+          console.log("Add Payload:", payload);
           fetch("http://localhost/UserTableDB/UserDB/fetch_schedules.php", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
           })
             .then((res) => {
-              console.log("Add Response Status:", res.status); // Log response status
-              if (!res.ok) {
-                throw new Error("Network response was not ok");
-              }
+              if (!res.ok) throw new Error("Network response was not ok");
               return res.json();
             })
-            .then((data) => {
-              console.log("Add Response Data:", data); // Log response data
+            .then(() => {
               message.success("Schedule added successfully!");
               setIsModalOpen(false);
               form.resetFields();
-              fetchData(); // Refetch data after adding
+              fetchData();
             })
-            .catch((err) => {
-              console.error("Error:", err);
-              message.error("Failed to add schedule. Please try again.");
-            });
+            .catch((err) => message.error("Failed to add schedule. Please try again."));
         })
-        .catch((errorInfo) => {
-          console.log("Validation Failed:", errorInfo); // Log validation errors
-        });
+        .catch((errorInfo) => console.log("Validation Failed:", errorInfo));
     } else if (modalType === "Edit" && selectedSchedule) {
       form.validateFields()
         .then((values) => {
           const payload = {
-            scheduleID: selectedSchedule.key, // Ensure this matches the key in the fetched data
-            shiftStart: values.shiftStart.format("h:mm A"), // Format time to "HH:MM AM/PM"
-            shiftEnd: values.shiftEnd.format("h:mm A"), // Format time to "HH:MM AM/PM"
+            scheduleID: selectedSchedule.key,
+            shiftStart: values.shiftStart.format("h:mm A"),
+            shiftEnd: values.shiftEnd.format("h:mm A"),
           };
-          console.log("Edit Payload:", payload); // Log payload
+          console.log("Edit Payload:", payload);
           fetch("http://localhost/UserTableDB/UserDB/fetch_schedules.php", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
           })
             .then((res) => {
-              console.log("Edit Response Status:", res.status); // Log response status
-              if (!res.ok) {
-                throw new Error("Network response was not ok");
-              }
+              if (!res.ok) throw new Error("Network response was not ok");
               return res.json();
             })
-            .then((data) => {
-              console.log("Edit Response Data:", data); // Log response data
+            .then(() => {
               message.success("Schedule updated successfully!");
               setIsModalOpen(false);
               form.resetFields();
-              fetchData(); // Refetch data after editing
+              fetchData();
             })
-            .catch((err) => {
-              console.error("Error:", err);
-              message.error("Failed to update schedule. Please try again.");
-            });
+            .catch((err) => message.error("Failed to update schedule. Please try again."));
         })
-        .catch((errorInfo) => {
-          console.log("Validation Failed:", errorInfo); // Log validation errors
-        });
-    }
-    else if (modalType === "Delete" && selectedSchedule) {
-      console.log("Delete Payload:", selectedSchedule.key); // Log payload
+        .catch((errorInfo) => console.log("Validation Failed:", errorInfo));
+    } else if (modalType === "Delete" && selectedSchedule) {
+      console.log("Delete Payload:", selectedSchedule.key);
       fetch("http://localhost/UserTableDB/UserDB/fetch_schedules.php", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scheduleID: selectedSchedule.key }), // Ensure this matches the key in the fetched data
+        body: JSON.stringify({ scheduleID: selectedSchedule.key }),
       })
         .then((res) => {
-          console.log("Delete Response Status:", res.status); // Log response status
-          if (!res.ok) {
-            throw new Error("Network response was not ok");
-          }
+          if (!res.ok) throw new Error("Network response was not ok");
           return res.json();
         })
-        .then((data) => {
-          console.log("Delete Response Data:", data); // Log response data
+        .then(() => {
           message.success("Schedule deleted successfully!");
           setIsModalOpen(false);
-          fetchData(); // Refetch data after deleting
+          fetchData();
         })
-        .catch((err) => {
-          console.error("Error:", err);
-          message.error("Failed to delete schedule. Please try again.");
-        });
+        .catch((err) => message.error("Failed to delete schedule. Please try again."));
     }
   };
 
@@ -185,7 +146,11 @@ const SchedulesTable = () => {
   };
 
   return (
-    <>
+    <div style={{ padding: '20px' }}>
+      <Title level={2} style={{ fontFamily: 'Poppins, sans-serif', marginBottom: '20px' }}>
+        Schedules
+      </Title>
+
       <div style={{ 
         display: 'flex', 
         justifyContent: 'right', 
@@ -200,11 +165,12 @@ const SchedulesTable = () => {
           style={{ 
             backgroundColor: '#2C3743', 
             borderColor: '#2C3743', 
-            color: 'white'
+            color: 'white',
+            fontFamily: 'Poppins, sans-serif'
           }}
-          onClick={() => openModal('Add')} // Add onClick handler
+          onClick={() => openModal('Add')}
         >
-          {showLabels && 'Add Schedule'} 
+          {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Add Schedule</span>}
         </Button>
         <Input
           placeholder="Search..."
@@ -212,32 +178,37 @@ const SchedulesTable = () => {
           value={searchText}
           onChange={(e) => handleSearch(e.target.value)}
           prefix={<SearchOutlined />}
-          style={{ width: screenWidth < 480 ? '100%' : '250px', marginTop: screenWidth < 480 ? 10 : 0 }}
+          style={{ 
+            width: screenWidth < 480 ? '100%' : '250px', 
+            marginTop: screenWidth < 480 ? 10 : 0,
+            fontFamily: 'Poppins, sans-serif'
+          }}
         />
       </div>
 
-      <Table dataSource={filteredData} 
+      <Table 
+        dataSource={filteredData} 
         bordered
         scroll={{ x: true }}
-        pagination={{ 
-          responsive: true,
-          position: ['bottomCenter']
-        }}
+        pagination={{ responsive: true, position: ['bottomCenter'] }}
+        style={{ fontFamily: 'Poppins, sans-serif' }}
       >
         <Column 
-          title="Shift Start ⬍" 
-          dataIndex="ShiftStart" // Ensure this matches the key in the fetched data
+          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Shift Start ⬍</span>} 
+          dataIndex="ShiftStart" 
           key="ShiftStart" 
-          sorter={(a, b) => a.ShiftStart.localeCompare(b.ShiftStart)} 
+          sorter={(a, b) => a.ShiftStart.localeCompare(b.ShiftStart)}
+          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
         />
         <Column 
-          title="Shit End ⬍" 
-          dataIndex="ShiftEnd" // Ensure this matches the key in the fetched data
+          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Shift End ⬍</span>}
+          dataIndex="ShiftEnd" 
           key="ShiftEnd" 
-          sorter={(a, b) => a.ShiftEnd.localeCompare(b.ShiftEnd)} 
+          sorter={(a, b) => a.ShiftEnd.localeCompare(b.ShiftEnd)}
+          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
         />
         <Column
-          title="Action"
+          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Action</span>}
           key="action"
           render={(_, record) => (
             <Space size="middle" wrap>
@@ -247,11 +218,12 @@ const SchedulesTable = () => {
                 style={{ 
                   backgroundColor: '#52c41a', 
                   borderColor: '#52c41a', 
-                  color: 'white'
+                  color: 'white',
+                  fontFamily: 'Poppins, sans-serif'
                 }}
                 onClick={() => openModal('View', record)}
               >
-                {showLabels && 'View'}
+                {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>View</span>}
               </Button>
               <Button
                 icon={<EditOutlined />}
@@ -259,11 +231,12 @@ const SchedulesTable = () => {
                 style={{ 
                   backgroundColor: '#722ed1', 
                   borderColor: '#722ed1', 
-                  color: 'white'
+                  color: 'white',
+                  fontFamily: 'Poppins, sans-serif'
                 }}
                 onClick={() => openModal('Edit', record)}
               >
-                {showLabels && 'Edit'}
+                {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Edit</span>}
               </Button>
               <Button
                 icon={<DeleteOutlined />}
@@ -271,124 +244,97 @@ const SchedulesTable = () => {
                 style={{ 
                   backgroundColor: '#ff4d4f', 
                   borderColor: '#ff4d4f', 
-                  color: 'white'
+                  color: 'white',
+                  fontFamily: 'Poppins, sans-serif'
                 }}
                 onClick={() => openModal('Delete', record)}
               >
-                {showLabels && 'Delete'}
+                {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Delete</span>}
               </Button>
             </Space>
           )}
         />
       </Table>
 
-      {/* Modal for Add, View, Edit, Delete */}
       <Modal 
-        title= <span style={{ fontSize: '22px', fontWeight: 'bold' }}>
-          {
-            modalType === 'Add' ? 'Add a New Schedule' :
-            modalType === 'Edit' ? 'Edit Schedule Details' :
-            modalType === 'View' ? 'View Schedule Information' :
-            'Confirm Schedule Deletion'
-          } </span>
-        visible={isModalOpen}  // Use 'visible' instead of 'open'
+        title={
+          <div style={{ textAlign: 'center' }}>
+            <span style={{ fontSize: '22px', fontWeight: 'bold', fontFamily: 'Poppins, sans-serif' }}>
+              {modalType === 'Add' ? 'Add a New Schedule' :
+              modalType === 'Edit' ? 'Edit Schedule Details' :
+              modalType === 'View' ? 'View Schedule Information' :
+              'Confirm Schedule Deletion'}
+            </span>
+          </div>
+        }
+        visible={isModalOpen}
         onOk={modalType === 'View' ? handleCancel : handleOk}
         onCancel={handleCancel}
         okText={modalType === 'Delete' ? 'Delete' : 'OK'}
-        okButtonProps={{ danger: modalType === 'Delete' }}
+        okButtonProps={{ 
+          danger: modalType === 'Delete', 
+          style: { fontFamily: 'Poppins, sans-serif' } 
+        }}
+        cancelButtonProps={{ style: { fontFamily: 'Poppins, sans-serif' } }}
         width={600}
         centered
-        bodyStyle={{ minHeight: '100px', padding: '20px', margin: 20 }}
+        bodyStyle={{ minHeight: '100px', padding: '20px', margin: 20, fontFamily: 'Poppins, sans-serif' }}
       >
+        {(modalType === 'Add' || modalType === 'Edit') && (
+          <Form form={form} layout="vertical" style={{ fontFamily: 'Poppins, sans-serif' }}>
+            <Form.Item
+              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Shift Start</span>}
+              name="shiftStart"
+              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please enter start of the shift!</span> }]}
+            >
+              <TimePicker
+                use12Hours
+                format="h:mm A"
+                placeholder="Select Shift Start"
+                style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }}
+              />
+            </Form.Item>
+            <Form.Item
+              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Shift End</span>}
+              name="shiftEnd"
+              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please enter end of the shift!</span> }]}
+            >
+              <TimePicker
+                use12Hours
+                format="h:mm A"
+                placeholder="Select Shift End"
+                style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }}
+              />
+            </Form.Item>
+          </Form>
+        )}
 
-      {modalType === 'Add' && (
-  <>
-    <Form form={form} layout="vertical">
-      <Form.Item
-        label="Shift Start"
-        name="shiftStart"
-        rules={[
-          { required: true, message: 'Please enter start of the shift!' },
-        ]}
-      >
-        <TimePicker
-          use12Hours
-          format="h:mm A"
-          placeholder="Select Shift Start"
-          style={{ width: '100%' }}
-        />
-      </Form.Item>
-      <Form.Item
-        label="Shift End"
-        name="shiftEnd"
-        rules={[
-          { required: true, message: 'Please enter end of the shift!' },
-        ]}
-      >
-        <TimePicker
-          use12Hours
-          format="h:mm A"
-          placeholder="Select Shift Start"
-          style={{ width: '100%' }}
-        />
-      </Form.Item>
-    </Form>
-  </>
-)}
+        {modalType === 'View' && (
+          <div style={{ fontFamily: 'Poppins, sans-serif' }}>
+            <p style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: 10, fontFamily: 'Poppins, sans-serif' }}>
+              Schedule Details:
+            </p>
+            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
+              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Shift Start:</strong> {selectedSchedule?.ShiftStart}
+            </p>
+            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
+              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Shift End:</strong> {selectedSchedule?.ShiftEnd}
+            </p>
+          </div>
+        )}
 
-{modalType === 'Edit' && (
-  <>
-    <Form form={form} layout="vertical">
-      <Form.Item
-        label="Shift Start"
-        name="shiftStart"
-        rules={[
-          { required: true, message: 'Please enter start of the shift!' },
-        ]}
-      >
-        <TimePicker
-          use12Hours
-          format="h:mm A"
-          placeholder="Select Shift Start"
-          style={{ width: '100%' }}
-        />
-      </Form.Item>
-      <Form.Item
-        label="Shift End"
-        name="shiftEnd"
-        rules={[
-          { required: true, message: 'Please enter end of the shift!' },
-        ]}
-      >
-        <TimePicker
-  use12Hours
-  format="h:mm A"
-  placeholder="Select Time In"
-  style={{ width: '100%' }}
-/>
-      </Form.Item>
-    </Form>
-  </>
-)}
-
-    {modalType === 'View' && (
-      <div>
-        <p style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: 10}}>Schedule Details:</p>
-        <p><strong>Shift Start:</strong> {selectedSchedule?.ShiftStart}</p>
-        <p><strong>Shift End:</strong> {selectedSchedule?.ShiftEnd}</p>
-      </div>
-    )}
-
-    {modalType === 'Delete' && (
-      <div>
-        <p style={{ fontSize: '18px', fontWeight: 'bold', color: '#ff4d4f' }}>
-          ⚠️ Are you sure you want to delete this schedule?
-        </p>
-        <p>This action <strong>cannot be undone</strong>. The schedule "<strong>{selectedSchedule?.ShiftStart} - {selectedSchedule?.ShiftEnd}</strong>" will be permanently removed.</p>
-      </div>
-    )}
+        {modalType === 'Delete' && (
+          <div style={{ fontFamily: 'Poppins, sans-serif' }}>
+            <p style={{ fontSize: '18px', fontWeight: 'bold', color: '#ff4d4f', fontFamily: 'Poppins, sans-serif' }}>
+              ⚠️ Are you sure you want to delete this schedule?
+            </p>
+            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
+              This action <strong style={{ fontFamily: 'Poppins, sans-serif' }}>cannot be undone</strong>. The schedule "<strong style={{ fontFamily: 'Poppins, sans-serif' }}>{selectedSchedule?.ShiftStart} - {selectedSchedule?.ShiftEnd}</strong>" will be permanently removed.
+            </p>
+          </div>
+        )}
       </Modal>
-    </>
+    </div>
   );
 };
 
