@@ -10,7 +10,7 @@ const { Column } = Table;
 
 const PositionsTable = () => {
   const [searchText, setSearchText] = useState('');
-  const [data, setData] = useState([]); // Original data
+  const [data, setData] = useState([]);
   const [filteredData, setFilteredData] = useState([]);
   const [screenWidth, setScreenWidth] = useState(window.innerWidth);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -23,31 +23,23 @@ const PositionsTable = () => {
     fetch("http://localhost/UserTableDB/UserDB/fetch_position.php")
       .then((res) => res.json())
       .then((data) => {
-        console.log("Fetched Data:", data); // 🔍 Log fetched data
+        console.log("Fetched Data:", data);
         setData(data);
-        setFilteredData(data); // Initialize filteredData with the fetched data
+        setFilteredData(data);
       })
       .catch((err) => console.error("Error fetching position:", err));
   };
 
-  // Fetch data when the component mounts
   useEffect(() => {
     fetchData();
-  }, []); // Empty dependency array ensures this runs only once on mount
+  }, []);
 
-  // Track screen size for responsiveness
   useEffect(() => {
-    const handleResize = () => {
-      setScreenWidth(window.innerWidth);
-    };
-
-    handleResize(); // Initial check
+    const handleResize = () => setScreenWidth(window.innerWidth);
     window.addEventListener('resize', handleResize);
-    
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Show labels on action buttons only on larger screens
   const showLabels = screenWidth >= 600;
 
   const handleSearch = (value) => {
@@ -58,27 +50,20 @@ const PositionsTable = () => {
     setFilteredData(filtered);
   };
 
-  // Open modal for Add, Edit, View, or Delete
   const openModal = (type, record = null) => {
     console.log("Opening Modal:", type, record);
-    
-    if (record) {
-      console.log("Selected PositionID:", record.PositionID); // Log the PositionID here
-    }
-  
+    if (record) console.log("Selected PositionID:", record.PositionID);
     setModalType(type);
     setSelectedPosition(record);
     setIsModalOpen(true);
-  
     if (type === 'Edit' && record) {
       form.setFieldsValue({
         PositionTitle: record.PositionTitle,
         RatePerHour: record.RatePerHour
       });
     }
-  };  
-  
-  // Handle Add, Edit, or Delete operations
+  };
+
   const handleOk = () => {
     if (modalType === "Add") {
       form.validateFields()
@@ -86,95 +71,70 @@ const PositionsTable = () => {
           const payload = {
             PositionTitle: values.PositionTitle,
             RatePerHour: values.RatePerHour
-          };                    
-          console.log("Add Payload:", payload); // Log payload
+          };
+          console.log("Add Payload:", payload);
           fetch("http://localhost/UserTableDB/UserDB/fetch_position.php", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
           })
             .then((res) => {
-              console.log("Add Response Status:", res.status); // Log response status
-              if (!res.ok) {
-                return res.json().then(err => { throw new Error(err.error); }); // Throw error with backend message
-              }
+              if (!res.ok) return res.json().then(err => { throw new Error(err.error); });
               return res.json();
             })
-            .then((data) => {
-              console.log("Add Response Data:", data); // Log response data
+            .then(() => {
               message.success("Position added successfully!");
               setIsModalOpen(false);
               form.resetFields();
-              fetchData(); // Refetch data after adding
+              fetchData();
             })
-            .catch((err) => {
-              console.error("Error:", err.message); // Log the actual error message
-              message.error(`Failed to add position: ${err.message}`);
-            });
+            .catch((err) => message.error(`Failed to add position: ${err.message}`));
         })
-        .catch((errorInfo) => {
-          console.log("Validation Failed:", errorInfo); // Log validation errors
-        });
+        .catch((errorInfo) => console.log("Validation Failed:", errorInfo));
     } else if (modalType === "Edit" && selectedPosition) {
       form.validateFields()
         .then((values) => {
           const payload = {
-            PositionID: selectedPosition.key, // Ensure this is 'PositionID' and matches the backend
+            PositionID: selectedPosition.key,
             PositionTitle: values.PositionTitle,
             RatePerHour: values.RatePerHour
-        };        
-          console.log("Edit Payload:", payload); // Log payload
+          };
+          console.log("Edit Payload:", payload);
           fetch("http://localhost/UserTableDB/UserDB/fetch_position.php", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
           })
             .then((res) => {
-              console.log("Edit Response Status:", res.status); // Log response status
-              if (!res.ok) {
-                return res.json().then(err => { throw new Error(err.error); }); // Throw error with backend message
-              }
+              if (!res.ok) return res.json().then(err => { throw new Error(err.error); });
               return res.json();
             })
-            .then((data) => {
-              console.log("Edit Response Data:", data); // Log response data
+            .then(() => {
               message.success("Position updated successfully!");
               setIsModalOpen(false);
               form.resetFields();
-              fetchData(); // Refetch data after editing
+              fetchData();
             })
-            .catch((err) => {
-              console.error("Error:", err.message); // Log the actual error message
-              message.error(`Failed to update position: ${err.message}`);
-            });
+            .catch((err) => message.error(`Failed to update position: ${err.message}`));
         })
-        .catch((errorInfo) => {
-          console.log("Validation Failed:", errorInfo); // Log validation errors
-        });
+        .catch((errorInfo) => console.log("Validation Failed:", errorInfo));
     } else if (modalType === "Delete" && selectedPosition) {
-      console.log("Delete Payload:", selectedPosition.key); // Log payload
+      console.log("Delete Payload:", selectedPosition.key);
       fetch("http://localhost/UserTableDB/UserDB/fetch_position.php", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ positionID: selectedPosition.key }), // Ensure this matches the key in the fetched data
+        body: JSON.stringify({ positionID: selectedPosition.key }),
       })
         .then((res) => {
-          console.log("Delete Response Status:", res.status); // Log response status
-          if (!res.ok) {
-            return res.json().then(err => { throw new Error(err.error); }); // Throw error with backend message
-          }
+          if (!res.ok) return res.json().then(err => { throw new Error(err.error); });
           return res.json();
         })
-        .then((data) => {
-          console.log("Delete Response Data:", data); // Log response data
+        .then(() => {
           message.success("Position deleted successfully!");
           setIsModalOpen(false);
-          fetchData(); // Refetch data after deleting
+          fetchData();
         })
-        .catch((err) => {
-          console.error("Error:", err.message); // Log the actual error message
-          message.error(`Failed to delete position: ${err.message}`);
-        });
+        .catch((err) => message.error(`Failed to delete position: ${err.message}`));
     }
   };
 
@@ -199,11 +159,12 @@ const PositionsTable = () => {
           style={{ 
             backgroundColor: '#2C3743', 
             borderColor: '#2C3743', 
-            color: 'white'
+            color: 'white',
+            fontFamily: 'Poppins, sans-serif'
           }}
-          onClick={() => openModal('Add')} // Add onClick handler
+          onClick={() => openModal('Add')}
         >
-          {showLabels && 'Add Position'} 
+          {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Add Position</span>}
         </Button>
         <Input
           placeholder="Search..."
@@ -211,32 +172,37 @@ const PositionsTable = () => {
           value={searchText}
           onChange={(e) => handleSearch(e.target.value)}
           prefix={<SearchOutlined />}
-          style={{ width: screenWidth < 480 ? '100%' : '250px', marginTop: screenWidth < 480 ? 10 : 0 }}
+          style={{ 
+            width: screenWidth < 480 ? '100%' : '250px', 
+            marginTop: screenWidth < 480 ? 10 : 0,
+            fontFamily: 'Poppins, sans-serif'
+          }}
         />
       </div>
 
-      <Table dataSource={filteredData} 
+      <Table 
+        dataSource={filteredData} 
         bordered
         scroll={{ x: true }}
-        pagination={{ 
-          responsive: true,
-          position: ['bottomCenter']
-        }}
+        pagination={{ responsive: true, position: ['bottomCenter'] }}
+        style={{ fontFamily: 'Poppins, sans-serif' }}
       >
         <Column 
-          title={<span>Position Title</span>} 
+          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Position Title</span>} 
           dataIndex="PositionTitle" 
           key="PositionTitle" 
           sorter={(a, b) => a.PositionTitle.localeCompare(b.PositionTitle)}
+          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
         />
         <Column 
-          title={<span>Rate per Hour</span>} 
+          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Rate per Hour</span>} 
           dataIndex="RatePerHour" 
           key="RatePerHour" 
-          sorter={(a, b) => a.RatePerHour - b.RatePerHour} 
+          sorter={(a, b) => a.RatePerHour - b.RatePerHour}
+          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
         />
         <Column
-          title="Action"
+          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Action</span>}
           key="action"
           render={(_, record) => (
             <Space size="middle" wrap>
@@ -246,11 +212,12 @@ const PositionsTable = () => {
                 style={{ 
                   backgroundColor: '#52c41a', 
                   borderColor: '#52c41a', 
-                  color: 'white'
+                  color: 'white',
+                  fontFamily: 'Poppins, sans-serif'
                 }}
                 onClick={() => openModal('View', record)}
               >
-                {showLabels && 'View'}
+                {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>View</span>}
               </Button>
               <Button
                 icon={<EditOutlined />}
@@ -258,11 +225,12 @@ const PositionsTable = () => {
                 style={{ 
                   backgroundColor: '#722ed1', 
                   borderColor: '#722ed1', 
-                  color: 'white'
+                  color: 'white',
+                  fontFamily: 'Poppins, sans-serif'
                 }}
                 onClick={() => openModal('Edit', record)}
               >
-                {showLabels && 'Edit'}
+                {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Edit</span>}
               </Button>
               <Button
                 icon={<DeleteOutlined />}
@@ -270,105 +238,92 @@ const PositionsTable = () => {
                 style={{ 
                   backgroundColor: '#ff4d4f', 
                   borderColor: '#ff4d4f', 
-                  color: 'white'
+                  color: 'white',
+                  fontFamily: 'Poppins, sans-serif'
                 }}
                 onClick={() => openModal('Delete', record)}
               >
-                {showLabels && 'Delete'}
+                {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Delete</span>}
               </Button>
             </Space>
           )}
         />
       </Table>
 
-      {/* Modal for Add, View, Edit, Delete */}
       <Modal 
         title={
           <div style={{ textAlign: 'center' }}>
-            <span style={{ fontSize: '22px', fontWeight: 'bold' }}>
+            <span style={{ fontSize: '22px', fontWeight: 'bold', fontFamily: 'Poppins, sans-serif' }}>
               {modalType === 'Add' ? 'Add New Job Position' :
               modalType === 'Edit' ? 'Edit Job Position Details' :
               modalType === 'View' ? 'View Job Position Information' :
-              'Confirm Employee Deletion'}
+              'Confirm Position Deletion'}
             </span>
           </div>
         }
-        visible={isModalOpen}  // Use 'visible' instead of 'open'
+        visible={isModalOpen}
         onOk={modalType === 'View' ? handleCancel : handleOk}
         onCancel={handleCancel}
         okText={modalType === 'Delete' ? 'Delete' : 'OK'}
-        okButtonProps={{ danger: modalType === 'Delete' }}
+        okButtonProps={{ 
+          danger: modalType === 'Delete', 
+          style: { fontFamily: 'Poppins, sans-serif' } 
+        }}
+        cancelButtonProps={{ style: { fontFamily: 'Poppins, sans-serif' } }}
         width={600}
         centered
-        bodyStyle={{ minHeight: '100px', padding: '20px', margin: 20 }}
+        bodyStyle={{ minHeight: '100px', padding: '20px', margin: 20, fontFamily: 'Poppins, sans-serif' }}
       >
+        {(modalType === 'Add' || modalType === 'Edit') && (
+          <Form form={form} layout="vertical" style={{ fontFamily: 'Poppins, sans-serif' }}>
+            <Form.Item
+              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Position Title</span>}
+              name="PositionTitle"
+              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please enter position title!</span> }]}
+            >
+              <Input 
+                placeholder="Enter Position Title" 
+                style={{ fontFamily: 'Poppins, sans-serif' }} 
+              />
+            </Form.Item>
+            <Form.Item
+              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Rate per Hour</span>}
+              name="RatePerHour"
+              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please enter rate per hour!</span> }]}
+            >
+              <Input 
+                type="number" 
+                placeholder="Enter Rate per Hour" 
+                style={{ fontFamily: 'Poppins, sans-serif' }} 
+              />
+            </Form.Item>
+          </Form>
+        )}
 
-      {modalType === 'Add' && (
-  <>
-    <Form form={form} layout="vertical">
-      <Form.Item
-        label="Position Title"
-        name="PositionTitle"
-        rules={[
-          { required: true, message: 'Please enter position title!' },
-        ]}
-      >
-        <Input placeholder="Enter Position Title" />
-      </Form.Item>
-      <Form.Item
-        label="Rate per Hour"
-        name="RatePerHour"
-        rules={[
-          { required: true, message: 'Please enter rate per hour!' },
-        ]}
-      >
-        <Input type="number" placeholder="Enter Rate per Hour" />
-      </Form.Item>
-    </Form>
-  </>
-)}
+        {modalType === 'View' && (
+          <div style={{ fontFamily: 'Poppins, sans-serif' }}>
+            <p style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: 10, fontFamily: 'Poppins, sans-serif' }}>
+              Position Details:
+            </p>
+            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
+              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Position Title:</strong> {selectedPosition?.PositionTitle}
+            </p>
+            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
+              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Rate per Hour:</strong> {selectedPosition?.RatePerHour}
+            </p>
+          </div>
+        )}
 
-{modalType === 'Edit' && (
-  <>
-    <Form form={form} layout="vertical">
-      <Form.Item
-        label="Position Title"
-        name="PositionTitle"
-        rules={[
-          { required: true, message: 'Please enter position title!' },
-        ]}
-      >
-        <Input placeholder="Enter Position Title" />
-      </Form.Item>
-      <Form.Item
-        label="Rate per Hour"
-        name="RatePerHour"
-        rules={[
-          { required: true, message: 'Please enter rate per hour!' },
-        ]}
-      >
-        <Input type="number" placeholder="Enter Rate per Hour" />
-      </Form.Item>
-    </Form>
-  </>
-)}
-
-    {modalType === 'View' && (
-      <div>
-        <p style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: 10}}>Position Details:</p>
-        <p><strong>Position Title:</strong> {selectedPosition?.PositionTitle}</p>
-        <p><strong>Rate per Hour:</strong> {selectedPosition?.RatePerHour}</p>
-      </div>
-    )}
-
-    {modalType === 'Delete' && (
-      <div>
-        <p style={{ fontSize: '18px', fontWeight: 'bold', color: '#ff4d4f' }}>
-          ⚠️ Are you sure you want to delete this position?
-        </p>
-        <p>This action <strong>cannot be undone</strong>. The position "<strong>{selectedPosition?.PositionTitle}</strong>" will be permanently removed.</p>
-      </div>
-    )}
+        {modalType === 'Delete' && (
+          <div style={{ fontFamily: 'Poppins, sans-serif' }}>
+            <p style={{ fontSize: '18px', fontWeight: 'bold', color: '#ff4d4f', fontFamily: 'Poppins, sans-serif' }}>
+              ⚠️ Are you sure you want to delete this position?
+            </p>
+            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
+              This action <strong style={{ fontFamily: 'Poppins, sans-serif' }}>cannot be undone</strong>. The position "<strong style={{ fontFamily: 'Poppins, sans-serif' }}>{selectedPosition?.PositionTitle}</strong>" will be permanently removed.
+            </p>
+          </div>
+        )}
       </Modal>
     </>
   );
