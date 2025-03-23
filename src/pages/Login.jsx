@@ -46,7 +46,15 @@ const Login = () => {
                 localStorage.setItem('userID', data.userID);
 
                 setTimeout(() => {
-                    navigate(data.role === 'admin' ? '/admin/' : '/user/');
+                    // Navigate based on the user's role
+                    if (data.role === 'System Administrator') {
+                        navigate('/admin/');
+                    } else if (data.role === 'Payroll Admin' || data.role === 'Payroll Staff') {
+                        navigate('/user/');
+                    } else {
+                        // Fallback in case an unexpected role is returned
+                        setError('Invalid role. Please contact support.');
+                    }
                 }, 100);
             } else {
                 setError(data.error || 'Login failed. Please try again.');
