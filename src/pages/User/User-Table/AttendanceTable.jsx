@@ -10,7 +10,7 @@ const { Title } = Typography;
 
 const AttendanceTable = () => {
   const [searchText, setSearchText] = useState('');
-  const [selectedBranch, setSelectedBranch] = useState('all'); // New state for branch filter, default to 'all'
+  const [selectedBranch, setSelectedBranch] = useState('all');
   const [filteredData, setFilteredData] = useState([]);
   const [originalData, setOriginalData] = useState([]);
   const [screenWidth, setScreenWidth] = useState(window.innerWidth);
@@ -40,7 +40,7 @@ const AttendanceTable = () => {
       setEmployees(employeesData);
     } catch (err) {
       console.error("Fetch Dropdown Error:", err.message);
-      message.error(`Failed to load dropdown options: ${err.message}`);
+      message.error(`Unable to load dropdown options. Please try again later or contact support.`);
     }
   };
 
@@ -62,15 +62,14 @@ const AttendanceTable = () => {
         status: attendance.TimeInStatus,
       }));
 
-      // Filter for today's date
       const today = moment().format('YYYY-MM-DD');
       const todayData = mappedData.filter(record => record.date === today);
 
-      setOriginalData(todayData); // Store only today's data
-      setFilteredData(todayData); // Set initial filtered data to today's records
+      setOriginalData(todayData);
+      setFilteredData(todayData);
     } catch (err) {
       console.error("Fetch Attendance Error:", err.message);
-      message.error(`Failed to load attendance data: ${err.message}`);
+      message.error(`Unable to load attendance data. Please try again later or contact support.`);
     }
   };
 
@@ -85,16 +84,13 @@ const AttendanceTable = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Combined filter function for search and branch
   const applyFilters = (data, search, branch) => {
     let result = [...data];
 
-    // Apply branch filter
     if (branch !== 'all') {
       result = result.filter(item => item.branchId === branch);
     }
 
-    // Apply search filter
     const lowerValue = search.toLowerCase().trim();
     if (lowerValue) {
       result = result.filter(item =>
@@ -141,7 +137,7 @@ const AttendanceTable = () => {
       });
     } else {
       form.resetFields();
-      form.setFieldsValue({ date: moment() }); // Set today's date as default for Add modal
+      form.setFieldsValue({ date: moment() });
     }
   };
 
@@ -184,15 +180,26 @@ const AttendanceTable = () => {
               if (!res.ok) throw new Error(`Server error: ${res.statusText}`);
               return res.json();
             })
-            .then(() => {
-              message.success(`Attendance ${modalType === "Add" ? "added" : "updated"} successfully!`);
-              setIsModalOpen(false);
-              form.resetFields();
-              fetchData();
+            .then((data) => {
+              if (data.success) {
+                message.success(`Attendance record ${modalType === "Add" ? "added" : "updated"} successfully.`);
+                setIsModalOpen(false);
+                form.resetFields();
+                fetchData();
+              } else {
+                throw new Error(data.error || "An unexpected error occurred.");
+              }
+            })
+            .catch((err) => {
+              message.error(
+                err.message.includes("already exists")
+                  ? `An attendance record for this employee on ${moment(values.date).format('MMMM Do, YYYY')} already exists.`
+                  : `Unable to ${modalType === "Add" ? "add" : "update"} the attendance record. Please try again or contact support.`
+              );
             });
         })
         .catch((err) => {
-          message.error(`Failed to ${modalType === "Add" ? "add" : "update"} attendance: ${err.message || 'Validation failed'}`);
+          message.error(`Please ensure all required fields are completed correctly.`);
         });
     } else if (modalType === "Delete" && selectedAttendance) {
       try {
@@ -211,15 +218,15 @@ const AttendanceTable = () => {
 
         const data = JSON.parse(responseText);
         if (data.success) {
-          message.success("Attendance deleted successfully!");
+          message.success("Attendance record deleted successfully.");
           setIsModalOpen(false);
           fetchData();
         } else {
-          throw new Error(data.error || "Unknown error during deletion");
+          throw new Error(data.error || "An unexpected error occurred during deletion.");
         }
       } catch (err) {
         console.error("Delete Error:", err.message);
-        message.error(`Failed to delete attendance: ${err.message}`);
+        message.error(`Unable to delete the attendance record. Please try again or contact support.`);
       }
     }
   };
@@ -235,21 +242,131 @@ const AttendanceTable = () => {
       Papa.parse(e.target.result, {
         header: true,
         complete: (results) => {
-          const data = results.data.map(row => ({
-            ...row,
-            TimeInStatus: moment(row.TimeIn, 'HH:mm:ss').isSameOrAfter(moment('08:11:00', 'HH:mm:ss')) ? 'Late' : 'On-Time'
-          }));
+          // Filter out rows that don't have the required fields
+          const data = results.data
+            .filter(row => row.Date && row.EmployeeName && row.BranchName && row.TimeIn && row.TimeOut)
+            .map((row, index) => {
+              const parsedDate = moment(row.Date, 'MM/DD/YYYY').format('YYYY-MM-DD');
+              const timeIn24 = moment(row.TimeIn, 'hh:mm A').format('HH:mm:ss');
+              const timeOut24 = moment(row.TimeOut, 'hh:mm A').format('HH:mm:ss');
+              const timeInMoment = moment(timeIn24, 'HH:mm:ss');
+              const timeInStatus = timeInMoment.isSameOrAfter(moment('08:11:00', 'HH:mm:ss')) ? 'Late' : 'On-Time';
+
+              // Resolve EmployeeID from EmployeeName
+              let employeeId = null;
+              if (row.EmployeeName) {
+                const employee = employees.find(emp => emp.EmployeeName.toLowerCase() === row.EmployeeName.toLowerCase());
+                if (employee) {
+                  employeeId = employee.EmployeeID;
+                } else {
+                  console.warn(`EmployeeName "${row.EmployeeName}" not found in employees list at row ${index + 1}`);
+                }
+              }
+
+              // Resolve BranchID from BranchName
+              let branchId = null;
+              if (row.BranchName) {
+                const branch = branches.find(br => br.BranchName.toLowerCase() === row.BranchName.toLowerCase());
+                if (branch) {
+                  branchId = branch.BranchID;
+                } else {
+                  console.warn(`BranchName "${row.BranchName}" not found in branches list at row ${index + 1}`);
+                }
+              }
+
+              return {
+                Date: parsedDate,
+                EmployeeID: employeeId,
+                BranchID: branchId,
+                TimeIn: timeIn24,
+                TimeOut: timeOut24,
+                TimeInStatus: timeInStatus,
+                EmployeeName: row.EmployeeName,
+                BranchName: row.BranchName,
+              };
+            })
+            // Filter out rows where EmployeeID or BranchID couldn't be resolved
+            .filter(row => {
+              if (!row.EmployeeID) {
+                message.error(`Row ${results.data.indexOf(row) + 1}: Employee "${row.EmployeeName}" not found in the system.`);
+                return false;
+              }
+              if (!row.BranchID) {
+                message.error(`Row ${results.data.indexOf(row) + 1}: Branch "${row.BranchName}" not found in the system.`);
+                return false;
+              }
+              return true;
+            });
+
+          console.log("Data being sent to backend:", data);
+
+          if (data.length === 0) {
+            message.error("No valid records found in the CSV file. Please ensure the file contains the required fields (Date, EmployeeName, BranchName, TimeIn, TimeOut) and that all names exist in the system.");
+            return;
+          }
+
           fetch(`${API_BASE_URL}/fetch_attendance.php`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(data),
           })
-            .then((res) => res.json())
-            .then(() => {
-              message.success("CSV data imported successfully!");
-              fetchData();
+            .then((res) => {
+              console.log("Response Status:", res.status);
+              return res.text().then(text => ({ status: res.status, text }));
             })
-            .catch(() => message.error("Failed to import CSV data"));
+            .then(({ status, text }) => {
+              console.log("Raw Response Text:", text);
+              if (status !== 200) {
+                throw new Error(`Server error: ${text}`);
+              }
+              let json;
+              try {
+                json = JSON.parse(text);
+              } catch (err) {
+                throw new Error(`Failed to parse server response: ${text}`);
+              }
+
+              if (json.success) {
+                let messageContent = [];
+                if (json.successCount > 0) {
+                  messageContent.push(`Successfully imported ${json.successCount} new attendance record(s).`);
+                }
+                if (json.updatedCount > 0) {
+                  messageContent.push(`${json.updatedCount} existing record(s) updated with new data. Unchanged fields remain the same.`);
+                }
+                if (messageContent.length > 0) {
+                  message.success({
+                    content: messageContent.join(" "),
+                    duration: 5,
+                  });
+                  fetchData();
+                } else if (json.allDuplicates) {
+                  message.warning({
+                    content: "All records in the CSV already exist in the system. No changes were made.",
+                    duration: 5,
+                  });
+                } else if (json.errors && json.errors.length > 0) {
+                  message.error({
+                    content: "No records were processed due to the following issues: " + json.errors.join(" "),
+                    duration: 5,
+                  });
+                } else {
+                  message.error({
+                    content: "No records were processed. Please check the CSV file and try again.",
+                    duration: 5,
+                  });
+                }
+              } else {
+                throw new Error(json.error || "An unexpected error occurred while importing the CSV.");
+              }
+            })
+            .catch((err) => {
+              console.error("CSV Import Error:", err.message);
+              message.error({
+                content: "Unable to import the CSV file. Please check the file format and try again, or contact support for assistance.",
+                duration: 5,
+              });
+            });
         },
       });
     };
@@ -431,7 +548,7 @@ const AttendanceTable = () => {
             >
               <DatePicker 
                 style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }} 
-                disabled={modalType === 'Add'} // Disable date picker for Add to enforce today
+                disabled={modalType === 'Add'}
               />
             </Form.Item>
             <Form.Item 
