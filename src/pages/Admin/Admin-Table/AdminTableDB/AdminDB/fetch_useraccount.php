@@ -27,17 +27,33 @@ if ($conn->connect_error) {
 $method = $_SERVER['REQUEST_METHOD'];
 
 if ($method == "GET") {
-    $sql = "SELECT UserID AS `key`, Name, Username, Role, Email FROM UserAccounts";
+    // Fetch user accounts with their branches and CreatedOn
+    $sql = "SELECT 
+                ua.UserID AS `key`, 
+                ua.Name, 
+                ua.Username, 
+                ua.Role, 
+                ua.Email, 
+                ua.CreatedOn,
+                GROUP_CONCAT(DISTINCT b.BranchName SEPARATOR '|') AS Branches
+            FROM UserAccounts ua
+            LEFT JOIN UserBranches ub ON ua.UserID = ub.UserID
+            LEFT JOIN Branches b ON ub.BranchID = b.BranchID
+            GROUP BY ua.UserID";
     $result = $conn->query($sql);
 
     if ($result) {
         $users = [];
         while ($row = $result->fetch_assoc()) {
+            // Format CreatedOn as a readable date
+            $row['CreatedOn'] = date('Y-m-d H:i:s', strtotime($row['CreatedOn']));
+            // If no branches are assigned, set Branches to "None"
+            $row['Branches'] = $row['Branches'] ? $row['Branches'] : 'None';
             $users[] = $row;
         }
         echo json_encode($users);
     } else {
-        echo json_encode(["error" => "Failed to fetch users"]);
+        echo json_encode(["error" => "Failed to fetch users: " . $conn->error]);
     }
 } elseif ($method == "POST") {
     $data = json_decode(file_get_contents("php://input"), true);
@@ -48,9 +64,21 @@ if ($method == "GET") {
         $stmt->bind_param("sssss", $data["name"], $data["username"], $data["role"], $data["email"], $hashedPassword);
 
         if ($stmt->execute()) {
+            $userID = $conn->insert_id; // Get the newly inserted UserID
+
+            // Insert branches into UserBranches (if provided)
+            if (!empty($data["branches"]) && is_array($data["branches"])) {
+                $stmtBranches = $conn->prepare("INSERT INTO UserBranches (UserID, BranchID) VALUES (?, ?)");
+                foreach ($data["branches"] as $branchID) {
+                    $stmtBranches->bind_param("ii", $userID, $branchID);
+                    $stmtBranches->execute();
+                }
+                $stmtBranches->close();
+            }
+
             echo json_encode(["success" => "User added"]);
         } else {
-            echo json_encode(["error" => "Failed to add user"]);
+            echo json_encode(["error" => "Failed to add user: " . $stmt->error]);
         }
         $stmt->close();
     } else {
@@ -60,6 +88,7 @@ if ($method == "GET") {
     $data = json_decode(file_get_contents("php://input"), true);
 
     if (!empty($data["UserID"])) {
+        // Update user details
         if (!empty($data["password"])) {
             $hashedPassword = password_hash($data["password"], PASSWORD_DEFAULT);
             $stmt = $conn->prepare("UPDATE UserAccounts SET Name = ?, Username = ?, Role = ?, Email = ?, Password = ? WHERE UserID = ?");
@@ -70,6 +99,23 @@ if ($method == "GET") {
         }
 
         if ($stmt->execute()) {
+            // Update branches in UserBranches
+            // First, delete existing branch assignments
+            $stmtDelete = $conn->prepare("DELETE FROM UserBranches WHERE UserID = ?");
+            $stmtDelete->bind_param("i", $data["UserID"]);
+            $stmtDelete->execute();
+            $stmtDelete->close();
+
+            // Insert new branch assignments (if provided)
+            if (!empty($data["branches"]) && is_array($data["branches"])) {
+                $stmtBranches = $conn->prepare("INSERT INTO UserBranches (UserID, BranchID) VALUES (?, ?)");
+                foreach ($data["branches"] as $branchID) {
+                    $stmtBranches->bind_param("ii", $data["UserID"], $branchID);
+                    $stmtBranches->execute();
+                }
+                $stmtBranches->close();
+            }
+
             echo json_encode(["success" => "User updated"]);
         } else {
             echo json_encode(["error" => "Failed to update user: " . $stmt->error]);
@@ -86,6 +132,7 @@ if ($method == "GET") {
         $stmt->bind_param("i", $data["UserID"]);
 
         if ($stmt->execute()) {
+            // Note: UserBranches entries are automatically deleted due to ON DELETE CASCADE
             echo json_encode(["success" => "User deleted"]);
         } else {
             echo json_encode(["error" => "Failed to delete user: " . $stmt->error]);

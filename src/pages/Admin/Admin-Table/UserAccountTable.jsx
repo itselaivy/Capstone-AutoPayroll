@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Modal, Space, Table, Button, Input, Form, message, Select } from 'antd';
+import { Modal, Space, Table, Button, Input, Form, message, Select, Typography, Tag } from 'antd';
 import { 
   EyeOutlined, EditOutlined, DeleteOutlined, PlusOutlined, 
   SearchOutlined 
@@ -8,18 +8,21 @@ import './AdminTable.css';
 
 const { Column } = Table;
 const { Option } = Select;
+const { Title } = Typography;
 
 const UserAccountTable = () => {
   const [searchText, setSearchText] = useState('');
   const [data, setData] = useState([]); // Original data
   const [filteredData, setFilteredData] = useState([]); // Filtered data
+  const [branches, setBranches] = useState([]); // List of branches for dropdown
   const [screenWidth, setScreenWidth] = useState(window.innerWidth);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalType, setModalType] = useState('');
   const [selectedUserAccount, setSelectedUserAccount] = useState(null);
+  const [selectedRole, setSelectedRole] = useState(''); // Track selected role in Add/Edit modal
   const [form] = Form.useForm();
 
-  // Fetch data from the database
+  // Fetch user accounts from the database
   const fetchData = () => {
     fetch("http://localhost/AdminTableDB/AdminDB/fetch_useraccount.php")
       .then((res) => res.json())
@@ -31,8 +34,20 @@ const UserAccountTable = () => {
       .catch((err) => console.error("Error fetching user accounts:", err));
   };
 
+  // Fetch branches for the dropdown
+  const fetchBranches = () => {
+    fetch("http://localhost/AdminTableDB/AdminDB/fetch_userbranches.php")
+      .then((res) => res.json())
+      .then((data) => {
+        console.log("Fetched Branches:", data);
+        setBranches(data);
+      })
+      .catch((err) => console.error("Error fetching branches:", err));
+  };
+
   useEffect(() => {
-    fetchData(); // Fetch data on component mount
+    fetchData(); // Fetch user accounts on component mount
+    fetchBranches(); // Fetch branches on component mount
   }, []);
 
   useEffect(() => {
@@ -59,20 +74,38 @@ const UserAccountTable = () => {
 
   // Open modal for Add, Edit, View, or Delete
   const openModal = (type, record = null) => {
-    console.log("Opening Modal:", type, record); // Log modal type and record
+    console.log("Opening Modal:", type, record);
     setModalType(type);
     setSelectedUserAccount(record);
     setIsModalOpen(true);
 
     if (type === 'Edit' && record) {
-      form.setFieldsValue({
-        name: record.Name,
-        username: record.Username,
-        role: record.Role,
-        email: record.Email,
-      });
+      // Fetch the user's branches
+      fetch(`http://localhost/AdminTableDB/AdminDB/fetch_useraccount.php?UserID=${record.key}`)
+        .then((res) => res.json())
+        .then((data) => {
+          const userBranches = data[0]?.Branches ? data[0].Branches.split('|') : [];
+          const branchIDs = branches
+            .filter(branch => userBranches.includes(branch.BranchName))
+            .map(branch => branch.BranchID.toString());
+          form.setFieldsValue({
+            name: record.Name,
+            username: record.Username,
+            role: record.Role,
+            email: record.Email,
+            branches: branchIDs,
+          });
+          setSelectedRole(record.Role); // Set the role for conditional branch selection
+          // Handle branch field based on role
+          if (record.Role === 'System Administrator') {
+            form.setFieldsValue({ branches: [] });
+          } else if (record.Role === 'Payroll Admin') {
+            form.setFieldsValue({ branches: branches.map(branch => branch.BranchID.toString()) });
+          }
+        });
     } else if (type === 'Add') {
-      form.resetFields(); // Clear form for Add modal
+      form.resetFields();
+      setSelectedRole(''); // Reset role for Add modal
     }
   };
 
@@ -89,6 +122,7 @@ const UserAccountTable = () => {
             role: values.role,
             email: values.email,
             password: values.password,
+            branches: values.branches, // Send selected branches
           }),
         })
           .then((res) => res.json())
@@ -96,6 +130,7 @@ const UserAccountTable = () => {
             message.success("User added successfully!");
             setIsModalOpen(false);
             form.resetFields();
+            setSelectedRole('');
             fetchData();
           })
           .catch(() => message.error("Failed to add user."));
@@ -107,32 +142,31 @@ const UserAccountTable = () => {
             message.error("Passwords do not match!");
             return;
           }
-          console.log("Edit Payload:", values); // Log payload
           fetch("http://localhost/AdminTableDB/AdminDB/fetch_useraccount.php", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              UserID: selectedUserAccount.key, // Ensure UserID is passed correctly
+              UserID: selectedUserAccount.key,
               name: values.name,
               username: values.username,
               role: values.role,
               email: values.email,
-              password: values.password, // Only include if password is provided
+              password: values.password,
+              branches: values.branches, // Send updated branches
             }),
           })
             .then((res) => {
-              console.log("Edit Response Status:", res.status); // Log response status
               if (!res.ok) {
                 throw new Error("Network response was not ok");
               }
               return res.json();
             })
             .then((data) => {
-              console.log("Edit Response Data:", data); // Log response data
               message.success("User updated successfully!");
               setIsModalOpen(false);
               form.resetFields();
-              fetchData(); // Refetch data after editing
+              setSelectedRole('');
+              fetchData();
             })
             .catch((err) => {
               console.error("Error:", err);
@@ -140,27 +174,24 @@ const UserAccountTable = () => {
             });
         })
         .catch((errorInfo) => {
-          console.log("Validation Failed:", errorInfo); // Log validation errors
+          console.log("Validation Failed:", errorInfo);
         });
     } else if (modalType === "Delete" && selectedUserAccount) {
-      console.log("Delete Payload:", selectedUserAccount.key); // Log payload
       fetch("http://localhost/AdminTableDB/AdminDB/fetch_useraccount.php", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ UserID: selectedUserAccount.key }), // Ensure UserID is passed correctly
+        body: JSON.stringify({ UserID: selectedUserAccount.key }),
       })
         .then((res) => {
-          console.log("Delete Response Status:", res.status); // Log response status
           if (!res.ok) {
             throw new Error("Network response was not ok");
           }
           return res.json();
         })
         .then((data) => {
-          console.log("Delete Response Data:", data); // Log response data
           message.success("User deleted successfully!");
           setIsModalOpen(false);
-          fetchData(); // Refetch data after deleting
+          fetchData();
         })
         .catch((err) => {
           console.error("Error:", err);
@@ -172,10 +203,28 @@ const UserAccountTable = () => {
   const handleCancel = () => {
     setIsModalOpen(false);
     form.resetFields();
+    setSelectedRole('');
+  };
+
+  // Handle role change to toggle branch selection mode
+  const handleRoleChange = (role) => {
+    setSelectedRole(role);
+    if (role === 'System Administrator') {
+      form.setFieldsValue({ branches: [] }); // Clear branches for System Administrator
+    } else if (role === 'Payroll Admin') {
+      form.setFieldsValue({ branches: branches.map(branch => branch.BranchID.toString()) }); // Select all branches
+    } else if (role === 'Payroll Staff') {
+      form.setFieldsValue({ branches: [] }); // Reset branches for Payroll Staff
+    }
   };
 
   return (
-    <>
+    <div className="user-account-table">
+      {/* Title */}
+      <Title level={2} style={{ marginBottom: 20 }}>
+        User Account List
+      </Title>
+
       <div style={{ 
         display: 'flex', 
         justifyContent: 'right', 
@@ -197,7 +246,7 @@ const UserAccountTable = () => {
           {showLabels && 'Add User'} 
         </Button>
         <Input
-          placeholder="Search..."
+          placeholder="Search user"
           allowClear
           value={searchText}
           onChange={(e) => handleSearch(e.target.value)}
@@ -238,6 +287,47 @@ const UserAccountTable = () => {
           dataIndex="Email" 
           key="Email" 
           sorter={(a, b) => a.Email.localeCompare(b.Email)}
+        />
+        <Column 
+          title="Branch" 
+          dataIndex="Branches" 
+          key="Branches" 
+          sorter={(a, b) => a.Branches.localeCompare(b.Branches)}
+          render={(branches, record) => {
+            // For System Administrator and Payroll Admin, show "All Branches" as a single tag
+            if (record.Role === 'System Administrator' || record.Role === 'Payroll Admin') {
+              return (
+                <Space wrap>
+                  <Tag color="blue" style={{ fontFamily: 'Poppins, sans-serif' }}>
+                    All Branches
+                  </Tag>
+                </Space>
+              );
+            }
+            // For Payroll Staff or when branches is "None", handle accordingly
+            if (branches === 'None') {
+              return (
+                <Space wrap>
+                  <Tag color="blue" style={{ fontFamily: 'Poppins, sans-serif' }}>
+                    None
+                  </Tag>
+                </Space>
+              );
+            }
+            // Split the branches string using the new delimiter and render each as a tag
+            console.log("Raw Branches string for", record.Name, ":", branches);
+            const branchList = branches.split('|').filter(branch => branch.trim() !== '');
+            console.log("Branch List after split for", record.Name, ":", branchList);
+            return (
+              <Space wrap>
+                {branchList.map((branch, index) => (
+                  <Tag key={index} color="blue" style={{ fontFamily: 'Poppins, sans-serif' }}>
+                    {branch}
+                  </Tag>
+                ))}
+              </Space>
+            );
+          }}
         />
         <Column 
           title="Created On" 
@@ -293,13 +383,14 @@ const UserAccountTable = () => {
 
       {/* Modal for Add, View, Edit, Delete */}
       <Modal 
-        title= <span style={{ fontSize: '22px', fontWeight: 'bold' }}>
+        title={<span style={{ fontSize: '22px', fontWeight: 'bold' }}>
           {
             modalType === 'Add' ? 'Add a New User' :
             modalType === 'Edit' ? 'Edit User Details' :
             modalType === 'View' ? 'View User Information' :
             'Confirm User Deletion'
-          } </span>
+          }
+        </span>}
         visible={isModalOpen} 
         onOk={modalType === 'View' ? handleCancel : handleOk}
         onCancel={handleCancel}
@@ -307,13 +398,11 @@ const UserAccountTable = () => {
         okButtonProps={{ danger: modalType === 'Delete' }}
         width={600}
         centered
+        className={modalType === 'Delete' ? 'delete-modal' : ''}
         bodyStyle={{ minHeight: '100px', padding: '20px', margin: 20 }}
       >
         {modalType === 'Add' && (
           <>
-            <p style={{ marginBottom: '15px', fontWeight: 'bold', fontSize: '18px' }}>
-              Enter the details of the new user:
-            </p>
             <Form form={form} layout="vertical">
               <Form.Item
                 label="Name"
@@ -334,9 +423,32 @@ const UserAccountTable = () => {
                 name="role"
                 rules={[{ required: true, message: 'Please select role!' }]}
               >
-                <Select placeholder="Select a role">
-                  <Option value="admin">Admin</Option>
-                  <Option value="user">User</Option>
+                <Select placeholder="Select a role" onChange={handleRoleChange}>
+                  <Option value="System Administrator">System Administrator</Option>
+                  <Option value="Payroll Admin">Payroll Admin</Option>
+                  <Option value="Payroll Staff">Payroll Staff</Option>
+                </Select>
+              </Form.Item>
+              <Form.Item
+                label="Branch"
+                name="branches"
+                rules={[{ required: selectedRole === 'Payroll Staff', message: 'Please select at least one branch!' }]}
+              >
+                <Select
+                  placeholder={
+                    selectedRole === 'System Administrator' ? 'All Branches (Disabled)' :
+                    selectedRole === 'Payroll Admin' ? 'All Branches (Auto-Selected)' :
+                    'Select branch(es)'
+                  }
+                  mode={selectedRole === 'Payroll Staff' ? 'multiple' : 'multiple'}
+                  allowClear={selectedRole === 'Payroll Staff'}
+                  disabled={selectedRole === 'System Administrator' || selectedRole === 'Payroll Admin'}
+                >
+                  {branches.map(branch => (
+                    <Option key={branch.BranchID} value={branch.BranchID.toString()}>
+                      {branch.BranchName}
+                    </Option>
+                  ))}
                 </Select>
               </Form.Item>
               <Form.Item
@@ -359,7 +471,6 @@ const UserAccountTable = () => {
 
         {modalType === 'Edit' && (
           <>
-            <p style={{ marginBottom: '15px', fontWeight: 'bold', fontSize: '18px' }}>Modify the user details below:</p>
             <Form form={form} layout="vertical">
               <Form.Item
                 label="Name"
@@ -380,9 +491,32 @@ const UserAccountTable = () => {
                 name="role"
                 rules={[{ required: true, message: 'Please select role!' }]}
               >
-                <Select placeholder="Select a role">
-                  <Option value="admin">Admin</Option>
-                  <Option value="user">User</Option>
+                <Select placeholder="Select a role" onChange={handleRoleChange}>
+                  <Option value="System Administrator">System Administrator</Option>
+                  <Option value="Payroll Admin">Payroll Admin</Option>
+                  <Option value="Payroll Staff">Payroll Staff</Option>
+                </Select>
+              </Form.Item>
+              <Form.Item
+                label="Branch"
+                name="branches"
+                rules={[{ required: selectedRole === 'Payroll Staff', message: 'Please select at least one branch!' }]}
+              >
+                <Select
+                  placeholder={
+                    selectedRole === 'System Administrator' ? 'All Branches (Disabled)' :
+                    selectedRole === 'Payroll Admin' ? 'All Branches (Auto-Selected)' :
+                    'Select branch(es)'
+                  }
+                  mode={selectedRole === 'Payroll Staff' ? 'multiple' : 'multiple'}
+                  allowClear={selectedRole === 'Payroll Staff'}
+                  disabled={selectedRole === 'System Administrator' || selectedRole === 'Payroll Admin'}
+                >
+                  {branches.map(branch => (
+                    <Option key={branch.BranchID} value={branch.BranchID.toString()}>
+                      {branch.BranchName}
+                    </Option>
+                  ))}
                 </Select>
               </Form.Item>
               <Form.Item
@@ -395,14 +529,22 @@ const UserAccountTable = () => {
               <Form.Item
                 label="Password"
                 name="password"
-                rules={[{ required: true, message: 'Please enter password!' }]}
               >
-                <Input.Password placeholder="Enter new password" />
+                <Input.Password placeholder="Enter new password (optional)" />
               </Form.Item>
               <Form.Item
                 label="Confirm Password"
                 name="confirmPassword"
-                rules={[{ required: true, message: 'Please confirm password!' }]}
+                rules={[
+                  ({ getFieldValue }) => ({
+                    validator(_, value) {
+                      if (!value || getFieldValue('password') === value) {
+                        return Promise.resolve();
+                      }
+                      return Promise.reject(new Error('Passwords do not match!'));
+                    },
+                  }),
+                ]}
               >
                 <Input.Password placeholder="Confirm new password" />
               </Form.Item>
@@ -412,10 +554,10 @@ const UserAccountTable = () => {
 
         {modalType === 'View' && (
           <div>
-            <p style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: 10}}>User Details:</p>
             <p><strong>Name:</strong> {selectedUserAccount?.Name}</p>
             <p><strong>Username:</strong> {selectedUserAccount?.Username}</p>
             <p><strong>Role:</strong> {selectedUserAccount?.Role}</p>
+            <p><strong>Branch:</strong> {selectedUserAccount?.Branches}</p>
             <p><strong>Email:</strong> {selectedUserAccount?.Email}</p>
             <p><strong>Created On:</strong> {selectedUserAccount?.CreatedOn}</p>
           </div>
@@ -430,7 +572,7 @@ const UserAccountTable = () => {
           </div>
         )}
       </Modal>
-    </>
+    </div>
   );
 };
 

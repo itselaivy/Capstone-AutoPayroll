@@ -1,3 +1,70 @@
+/* Import Poppins font */
+@import url('https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&display=swap');
+
+/* Apply Poppins font globally to the component */
+.user-account-table * {
+  font-family: 'Poppins', sans-serif !important;
+}
+
+/* Ensure Ant Design components use Poppins */
+.ant-table,
+.ant-table-title,
+.ant-table-header,
+.ant-table-cell,
+.ant-table-thead th,
+.ant-table-tbody td,
+.ant-btn,
+.ant-input,
+.ant-select,
+.ant-form-item-label label,
+.ant-modal,
+.ant-modal-title,
+.ant-modal-content,
+.ant-modal-body,
+.ant-message,
+.ant-typography {
+  font-family: 'Poppins', sans-serif !important;
+}
+
+/* Center the titles for Add, Edit, and View modals */
+.ant-modal-title {
+  text-align: center !important;
+}
+
+/* Center the entire Delete modal (title and content) */
+.delete-modal .ant-modal-title,
+.delete-modal .ant-modal-body {
+  text-align: center !important;
+}
+
+/* Ensure placeholder text uses Poppins */
+.ant-input::placeholder,
+.ant-select-placeholder,
+.ant-input-password::placeholder {
+  font-family: 'Poppins', sans-serif !important;
+}
+
+/* Style for disabled Select field */
+.ant-select-disabled .ant-select-selector {
+  background-color: #f5f5f5 !important;
+  color: #000 !important;
+}
+
+/* Adjust table header and cell alignment for better readability */
+.ant-table-thead th {
+  background-color: #f0f0f0;
+  font-weight: 600;
+}
+
+.ant-table-tbody td {
+  font-weight: 400;
+}
+
+/* Adjust modal body padding */
+.ant-modal-body {
+  padding: 20px !important;
+}
+
 .custom-input::placeholder {
     color: #5a5a5a; /* Medium Blackish Blue */
   }
