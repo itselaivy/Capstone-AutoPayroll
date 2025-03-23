@@ -1,8 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LockOutlined, UserOutlined, EyeInvisibleOutlined, EyeTwoTone } from '@ant-design/icons';
-import { Button, Form, Input, Card, Typography, Flex, Alert } from 'antd';
+import { Button, Form, Input, Card, Typography, Alert } from 'antd';
 import '/Users/Yvanne/Auto/src/index.css';
+
+// Import the background image and logo
+import loginBG from '/Users/Yvanne/Auto/src/assets/loginBG.jpg';
+import logo from '/Users/Yvanne/Auto/src/assets/logo.png';
 
 const { Title } = Typography;
 
@@ -43,7 +47,7 @@ const Login = () => {
 
                 setTimeout(() => {
                     navigate(data.role === 'admin' ? '/admin/' : '/user/');
-                }, 100); // Ensure state updates before navigating
+                }, 100);
             } else {
                 setError(data.error || 'Login failed. Please try again.');
             }
@@ -55,63 +59,197 @@ const Login = () => {
     };
 
     return (
-        <div style={{
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            height: '100vh',
-            background: '#DCEFFF',
-            fontFamily: 'Poppins, sans-serif'
-        }}>
-            <Card style={{ width: 600, textAlign: 'center', padding: 100 }}>
-                <Title level={3} style={{ fontFamily: 'Poppins, sans-serif', fontSize: 45 }}>Login</Title>
-
-                {error && <Alert message={error} type="error" showIcon style={{ marginBottom: 24 }} />}
-
-                <Form form={form} name="login" onFinish={onFinish} layout="vertical">
-                    <Form.Item
-                        label="Username"
-                        name="username"
-                        rules={[{ required: true, message: 'Please input your Username!' }]}
+        <div
+            className="login-container"
+            style={{
+                display: 'flex',
+                height: '100vh',
+                backgroundImage: `url(${loginBG})`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+                backgroundRepeat: 'no-repeat',
+                fontFamily: 'Poppins, sans-serif',
+            }}
+        >
+            {/* Left Section: Logo and Title */}
+            <div
+                className="left-section"
+                style={{
+                    flex: 1,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    padding: '2vw',
+                }}
+            >
+                <div
+                    style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'flex-start',
+                        width: '100%',
+                        maxWidth: '30vw',
+                    }}
+                >
+                    <img
+                        src={logo}
+                        alt="AutoPayroll Logo"
+                        className="logo"
+                        style={{
+                            width: '20vw',
+                            marginBottom: '1.5vw',
+                            marginLeft: '7vw',
+                        }}
+                    />
+                    <Title
+                        level={3}
+                        className="title"
+                        style={{
+                            fontFamily: 'Poppins, sans-serif',
+                            color: '#fff',
+                            margin: 0,
+                            marginLeft: '7vw',
+                        }}
                     >
-                        <Input prefix={<UserOutlined />} placeholder="Username" />
-                    </Form.Item>
+                        AutoPayroll
+                    </Title>
+                </div>
+            </div>
 
-                    <Form.Item
-                        label="Password"
-                        name="password"
-                        rules={[{ required: true, message: 'Please input your Password!' }]}
+            {/* Right Section: Login Form */}
+            <div
+                className="right-section"
+                style={{
+                    flex: 1,
+                    display: 'flex',
+                    justifyContent: 'flex-start',
+                    alignItems: 'center',
+                    padding: '2vw 5vw 2vw 2vw',
+                }}
+            >
+                <Card
+                    className="login-card"
+                    style={{
+                        width: '100%',
+                        maxWidth: '40vw',
+                        textAlign: 'center',
+                        padding: '2.5vw 2.5vw',
+                        boxShadow: '0 4px 8px rgba(0, 0, 0, 0.1)',
+                        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                        borderRadius: '15px',
+                        marginRight: '120px',
+                    }}
+                >
+                    <Title
+                        level={3}
+                        className="form-title"
+                        style={{
+                            fontFamily: 'Poppins, sans-serif',
+                            marginBottom: '3vw',
+                        }}
                     >
-                        <Input.Password
-                            prefix={<LockOutlined />}
-                            placeholder="Password"
-                            iconRender={(visible) => (visible ? <EyeTwoTone /> : <EyeInvisibleOutlined />)}
-                        />
-                    </Form.Item>
+                        Login to your Account
+                    </Title>
 
-                    <Form.Item>
-                        <Flex justify="flex-end">
-                            <a href="#" style={{ fontFamily: 'Poppins, sans-serif', color: '#605F5F' }}>Forgot password?</a>
-                        </Flex>
-                    </Form.Item>
+                    {error && (
+                        <div style={{ width: '70%', margin: '0 auto', marginBottom: '1.5vw' }}>
+                            <Alert
+                                message={error}
+                                type="error"
+                                showIcon
+                                style={{ width: '100%' }}
+                                className="centered-alert"
+                            />
+                        </div>
+                    )}
 
-                    <Form.Item>
-                        <Button
-                            block
-                            type="primary"
-                            htmlType="submit"
-                            loading={loading}
-                            style={{
-                                backgroundColor: '#019031',
-                                borderColor: '#019031',
-                                fontFamily: 'Poppins, sans-serif'
-                            }}
+                    <Form
+                        form={form}
+                        name="login"
+                        onFinish={onFinish}
+                        layout="vertical"
+                        style={{ width: '70%', margin: '0 auto' }}
+                        autoComplete="off"
+                    >
+                        <Form.Item
+                            name="username"
+                            label={
+                                <span className="form-label">
+                                    Username<span className="required-asterisk">*</span>
+                                </span>
+                            }
                         >
-                            Log in
-                        </Button>
-                    </Form.Item>
-                </Form>
-            </Card>
+                            <Input
+                                prefix={<UserOutlined />}
+                                placeholder=""
+                                autoComplete="off"
+                                style={{
+                                    fontFamily: 'Poppins, sans-serif',
+                                    borderRadius: '8px',
+                                    padding: '0.6vw',
+                                    width: '100%',
+                                }}
+                            />
+                        </Form.Item>
+
+                        <Form.Item
+                            name="password"
+                            label={
+                                <span className="form-label">
+                                    Password<span className="required-asterisk">*</span>
+                                </span>
+                            }
+                        >
+                            <Input.Password
+                                prefix={<LockOutlined />}
+                                placeholder=""
+                                autoComplete="new-password"
+                                iconRender={(visible) => (visible ? <EyeTwoTone /> : <EyeInvisibleOutlined />)}
+                                style={{
+                                    fontFamily: 'Poppins, sans-serif',
+                                    borderRadius: '8px',
+                                    padding: '0.6vw',
+                                    width: '100%',
+                                }}
+                            />
+                        </Form.Item>
+
+                        <Form.Item>
+                            <div style={{ width: '100%', textAlign: 'right' }}>
+                                <a
+                                    href="#"
+                                    style={{
+                                        fontFamily: 'Poppins, sans-serif',
+                                        color: '#000000',
+                                    }}
+                                >
+                                    Forgot password?
+                                </a>
+                            </div>
+                        </Form.Item>
+
+                        <Form.Item>
+                            <Button
+                                block
+                                type="primary"
+                                htmlType="submit"
+                                loading={loading}
+                                style={{
+                                    backgroundColor: '#019031',
+                                    borderColor: '#019031',
+                                    fontFamily: 'Poppins, sans-serif',
+                                    borderRadius: '8px',
+                                    padding: '1vw',
+                                    width: '100%',
+                                }}
+                            >
+                                Log in
+                            </Button>
+                        </Form.Item>
+                    </Form>
+                </Card>
+            </div>
         </div>
     );
 };

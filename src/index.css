@@ -7,9 +7,256 @@ body {
   background-color: #F5F5F5;
 }
 
-.custom-placeholder::placeholder {
-  color: #605F5F !important;
-  opacity: 1; /* Ensure full opacity */
+/* Ensure the login container takes up the full viewport width */
+.login-container {
+  min-width: 1024px; /* Minimum width for laptop/desktop screens */
+}
+
+/* Left Section: Logo and Title */
+.left-section {
+  padding: 2vw;
+}
+
+/* Logo */
+.logo {
+  width: 20vw; /* Base size */
+  max-width: 350px; /* Ensure it doesn't get too large on big screens */
+  min-width: 300px; /* Ensure it doesn't get too small on smaller screens */
+}
+
+/* Title */
+.title {
+  font-family: 'Poppins', sans-serif;
+  font-size: 3vw !important; /* Base size */
+  max-font-size: 50px; /* Cap the size for larger screens */
+  min-font-size: 40px; /* Minimum size for smaller screens */
+}
+
+/* Right Section: Login Form */
+.right-section {
+  padding: 2vw 5vw 2vw 2vw;
+}
+
+/* Login Card */
+.login-card {
+  max-width: 40vw;
+  padding: 2.5vw 2.5vw;
+}
+
+/* Form Title */
+.form-title {
+  font-family: 'Poppins', sans-serif;
+  font-size: 2.5vw !important;
+  max-font-size: 40px;
+  min-font-size: 32px;
+  margin-bottom: 3vw !important;
+}
+
+/* Form Labels */
+.form-label {
+  font-family: 'Poppins', sans-serif;
+  font-size: 1vw;
+  max-font-size: 16px;
+  min-font-size: 14px;
+  color: #000000;
+}
+
+/* Red Asterisk for Required Fields */
+.required-asterisk {
+  color: red;
+  font-family: 'Poppins', sans-serif;
+  margin-left: 2px; /* Small spacing between label text and asterisk */
+}
+
+/* Ensure the form labels align with the input fields */
+.ant-form-item-label {
+  text-align: left;
+  padding-bottom: 0.5vw;
+}
+
+/* Ensure consistent spacing */
+.ant-form-item {
+  margin-bottom: 1.5vw;
+}
+
+/* Style the Alert component for better alignment */
+.ant-alert {
+  font-family: 'Poppins', sans-serif;
+  font-size: 0.9vw;
+  max-font-size: 14px;
+  min-font-size: 12px;
+}
+
+/* Center the content of the Alert component */
+.centered-alert .ant-alert-content,
+.centered-alert .ant-alert-message,
+.centered-alert .ant-alert-description {
+  font-family: 'Poppins', sans-serif;
+  text-align: center;
+}
+
+.centered-alert .ant-alert-with-description {
+  padding: 1vw;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.centered-alert .ant-alert-with-description .ant-alert-icon {
+  position: static;
+  margin-right: 0.5vw;
+}
+
+.centered-alert .ant-alert-with-description .ant-alert-message {
+  flex: 1;
+}
+
+/* Ensure all input fields (including user input) use Poppins */
+.ant-input,
+.ant-input-password,
+.ant-input-affix-wrapper {
+  font-family: 'Poppins', sans-serif !important;
+}
+
+/* Ensure placeholder text uses Poppins */
+.ant-input::placeholder,
+.ant-input-password::placeholder,
+.ant-input-affix-wrapper input::placeholder {
+  font-family: 'Poppins', sans-serif !important;
+}
+
+/* Ensure the button text uses Poppins */
+.ant-btn {
+  font-family: 'Poppins', sans-serif !important;
+}
+
+/* Media Queries for Responsiveness */
+
+/* For screens 1366px and below (e.g., 1366x768) */
+@media (max-width: 1366px) {
+  .left-section {
+    padding: 1.5vw;
+  }
+
+  .logo {
+    width: 22vw;
+    min-width: 280px;
+  }
+
+  .title {
+    font-size: 3.2vw !important;
+    min-font-size: 36px;
+  }
+
+  .right-section {
+    padding: 1.5vw 4vw 1.5vw 1.5vw;
+    margin-left: 10vw; /* Adjusted for smaller screens */
+  }
+
+  .login-card {
+    max-width: 45vw;
+    padding: 3vw 2vw;
+  }
+
+  .form-title {
+    font-size: 2.8vw !important;
+    min-font-size: 28px;
+    margin-bottom: 2.5vw !important;
+  }
+
+  .form-label {
+    font-weight: 450;
+    font-size: 1.1vw;
+    min-font-size: 13px;
+  }
+
+  .ant-form-item {
+    margin-bottom: 1.2vw;
+  }
+
+  .ant-alert {
+    font-size: 1vw;
+    min-font-size: 11px;
+  }
+}
+
+/* For screens 1440px to 1920px (e.g., 1440x900, 1920x1080) */
+@media (min-width: 1440px) and (max-width: 1920px) {
+  .left-section {
+    padding: 2vw;
+  }
+
+  .logo {
+    width: 20vw;
+  }
+
+  .title {
+    font-size: 3vw !important;
+  }
+
+  .right-section {
+    margin-left: 8.3vw;
+  }
+
+  .login-card {
+    max-width: 40vw;
+  }
+
+  .form-title {
+    font-size: 2.4vw !important;
+  }
+
+  .form-label {
+    font-weight: 450;
+    font-size: 0.9vw;
+  }
+}
+
+/* For screens above 1920px (e.g., 2560x1440, 3840x2160) */
+@media (min-width: 1921px) {
+  .left-section {
+    padding: 2.5vw;
+  }
+
+  .logo {
+    width: 18vw;
+    max-width: 400px;
+  }
+
+  .title {
+    font-size: 2.8vw !important;
+    max-font-size: 60px;
+  }
+
+  .right-section {
+    margin-left: 20vw; /* Adjusted for larger screens */
+  }
+
+  .login-card {
+    max-width: 35vw;
+    padding: 3.5vw 2vw;
+  }
+
+  .form-title {
+    font-size: 2.2vw !important;
+    max-font-size: 48px;
+    margin-bottom: 2.5vw !important;
+  }
+
+  .form-label {
+    font-weight: 450;
+    font-size: 0.9vw;
+    max-font-size: 18px;
+  }
+
+  .ant-form-item {
+    margin-bottom: 1.8vw;
+  }
+
+  .ant-alert {
+    font-size: 0.8vw;
+    max-font-size: 16px;
+  }
 }
 
 /* Fade-out effect for error messages */
@@ -40,8 +287,8 @@ body {
   justify-content: center;
   align-items: center;
   z-index: 9999;
-  animation: fadeOut 0.6s ease forwards 10s; /* Fade out after 10s */
-  will-change: opacity; /* Hint to browser for optimization */
+  animation: fadeOut 0.6s ease forwards 10s;
+  will-change: opacity;
 }
 
 /* Loader container */
@@ -65,10 +312,10 @@ body {
   width: 100%;
   height: 100%;
   border: 4px solid transparent;
-  border-top-color: #52c41a; /* Green accent */
+  border-top-color: #52c41a;
   border-radius: 50%;
   animation: rotate 1.5s linear infinite;
-  will-change: transform; /* Optimize for GPU */
+  will-change: transform;
 }
 
 /* Pulsing arc */
@@ -82,7 +329,7 @@ body {
   border-radius: 50%;
   transform: translate(-50%, -50%);
   animation: pulse 2s ease-in-out infinite;
-  will-change: transform, opacity; /* Optimize for GPU */
+  will-change: transform, opacity;
 }
 
 /* Text below loader */
