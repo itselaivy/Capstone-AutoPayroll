@@ -22,7 +22,7 @@ import './Sidebar.css';
 
 const { Sider } = Layout;
 
-const Sidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysState }) => {
+const UserSidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysState }) => {
   const [selectedKey, setSelected] = useState('1');
   const [openKeys, setOpenKeys] = useState([]);
   const [isModalVisible, setIsModalVisible] = useState(false);
@@ -310,4 +310,4 @@ const Sidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysState
   );
 };
 
-export default Sidebar;
+export default UserSidebar;

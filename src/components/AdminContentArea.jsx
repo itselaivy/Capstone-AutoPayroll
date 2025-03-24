@@ -1,34 +1,22 @@
-import React from 'react'
-import { Layout } from 'antd'
+import React from 'react';
+import { Layout } from 'antd';
 
-import AdminDashboard from '../pages/Admin/AdminDashboard'
-import AdminUserAccount from '../pages/Admin/AdminUserAccount'
+const { Content } = Layout;
 
-const { Content } = Layout
-
-const AdminContentArea = ({ selectedKey, colorBgContainer, borderRadiusLG }) => {
-  // Map selected keys to components
-  const renderContent = () => {
-    switch (selectedKey) {
-      case '1': return <AdminDashboard />
-      case '2': return <AdminUserAccount />
-      default: return <h2>Select a menu item</h2>
-    }
-  }
-
+const AdminContentArea = ({ children, contentOverflow, headerHeight }) => {
   return (
     <Content
       style={{
-        margin: '24px 16px',
-        padding: 24,
-        minHeight: 280,
-        background: 'colorBgContainer',
-        borderRadius: '200px',
+        padding: '20px',
+        minHeight: `calc(100vh - ${headerHeight}px)`,
+        background: '#DCEFFF',
+        overflowY: contentOverflow,
+        position: 'relative',
       }}
     >
-      {renderContent()}
+      {children}
     </Content>
-  )
-}
+  );
+};
 
-export default AdminContentArea
+export default AdminContentArea;
