@@ -36,7 +36,7 @@ const UserAccountTable = () => {
 
   // Fetch branches for the dropdown
   const fetchBranches = () => {
-    fetch("http://localhost/AdminTableDB/AdminDB/fetch_userbranches.php")
+    fetch("http://localhost/AdminTableDB/AdminDB/fetch_branches.php") // Corrected endpoint
       .then((res) => res.json())
       .then((data) => {
         console.log("Fetched Branches:", data);
@@ -294,8 +294,18 @@ const UserAccountTable = () => {
           key="Branches" 
           sorter={(a, b) => a.Branches.localeCompare(b.Branches)}
           render={(branches, record) => {
-            // For System Administrator and Payroll Admin, show "All Branches" as a single tag
-            if (record.Role === 'System Administrator' || record.Role === 'Payroll Admin') {
+            // For System Administrator, show "No Branch"
+            if (record.Role === 'System Administrator') {
+              return (
+                <Space wrap>
+                  <Tag color="blue" style={{ fontFamily: 'Poppins, sans-serif' }}>
+                    No Branch
+                  </Tag>
+                </Space>
+              );
+            }
+            // For Payroll Admin, show "All Branches"
+            if (record.Role === 'Payroll Admin') {
               return (
                 <Space wrap>
                   <Tag color="blue" style={{ fontFamily: 'Poppins, sans-serif' }}>
