@@ -5,9 +5,9 @@ import Sidebar from './AdminSidebar';
 import HeaderBar from './AdminHeaderBar';
 import AdminContentArea from './AdminContentArea';
 import { Routes, Route } from 'react-router-dom';
-
 import AdminDashboard from '../pages/Admin/AdminDashboard';
 import AdminUserAccount from '../pages/Admin/AdminUserAccount';
+import UserActivityLogs from '../pages/Admin/UserActivityLogs';
 
 const { Content } = Layout;
 
@@ -46,12 +46,13 @@ const AdminMainLayout = () => {
 
   return (
     <Layout style={{ minHeight: '100vh', background: '#DCEFFF' }}>
-      <Sidebar collapsed={collapsed} setSelectedKey={setSelectedKey} />
+      <Sidebar collapsed={collapsed} setCollapsed={setCollapsed} setSelectedKey={setSelectedKey} />
       <Layout
         style={{
           marginLeft: collapsed ? 100 : 250,
           background: '#DCEFFF',
           minHeight: '100vh',
+          transition: 'margin-left 0.3s',
         }}
       >
         <HeaderBar collapsed={collapsed} setCollapsed={setCollapsed} />
@@ -59,6 +60,7 @@ const AdminMainLayout = () => {
           <Routes>
             <Route path="/" element={<AdminDashboard />} />
             <Route path="/adminuseraccount" element={<AdminUserAccount />} />
+            <Route path="/adminuseractivity" element={<UserActivityLogs />} />
           </Routes>
         </AdminContentArea>
       </Layout>

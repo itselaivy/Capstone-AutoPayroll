@@ -1,71 +1,239 @@
-/* Import Poppins font */
+/* Import Poppins font with a range of weights and styles */
 @import url('https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&display=swap');
 
-/* Apply Poppins font globally to the component */
-.user-account-table * {
+/* Define the fade-in animation for smooth transitions */
+.fade-in {
+  animation: fadeIn 0.3s ease-in;
+}
+
+/* Keyframes for the fade-in animation */
+@keyframes fadeIn {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+/* Style the user account table container */
+.user-account-table {
+  opacity: 0;
+  animation: fadeIn 0.3s ease-in forwards;
   font-family: 'Poppins', sans-serif !important;
 }
 
-/* Ensure Ant Design components use Poppins */
-.ant-table,
-.ant-table-title,
-.ant-table-header,
-.ant-table-cell,
-.ant-table-thead th,
-.ant-table-tbody td,
-.ant-btn,
-.ant-input,
-.ant-select,
-.ant-form-item-label label,
-.ant-modal,
-.ant-modal-title,
-.ant-modal-content,
-.ant-modal-body,
-.ant-message,
-.ant-typography {
+/* Style the user activity logs table container */
+.user-activity-logs-table {
   font-family: 'Poppins', sans-serif !important;
 }
 
-/* Center the titles for Add, Edit, and View modals */
+/* Ensure Ant Design components use Poppins font across both tables */
+.user-account-table .ant-table,
+.user-account-table .ant-table-thead > tr > th,
+.user-account-table .ant-table-tbody > tr > td,
+.user-account-table .ant-modal-content,
+.user-account-table .ant-modal-title,
+.user-account-table .ant-modal-body,
+.user-account-table .ant-form-item-label > label,
+.user-account-table .ant-btn,
+.user-account-table .ant-select-item,
+.user-account-table .ant-pagination-item,
+.user-account-table .ant-pagination-options,
+.user-account-table .ant-picker,
+.user-account-table .ant-typography,
+.user-account-table .ant-input,
+.user-account-table .ant-message,
+.user-activity-logs-table .ant-table,
+.user-activity-logs-table .ant-table-thead > tr > th,
+.user-activity-logs-table .ant-table-tbody > tr > td,
+.user-activity-logs-table .ant-pagination-total-text,
+.user-activity-logs-table .ant-select-selection-item,
+.user-activity-logs-table .ant-input,
+.user-activity-logs-table .ant-picker,
+.user-activity-logs-table .ant-alert-message,
+.user-activity-logs-table .ant-alert-description,
+.user-activity-logs-table .ant-empty-description {
+  font-family: 'Poppins', sans-serif !important;
+}
+
+/* Style placeholders to use Poppins font */
+.user-account-table input::placeholder,
+.user-account-table .ant-select-selection-placeholder,
+.user-activity-logs-table input::placeholder,
+.user-activity-logs-table .ant-select-selection-placeholder,
+.user-account-table .ant-input-password::placeholder {
+  font-family: 'Poppins', sans-serif !important;
+}
+
+/* Style validation messages in forms */
+.user-account-table .ant-form-item-explain {
+  font-family: 'Poppins', sans-serif !important;
+}
+
+/* Style the loading spinner text */
+.poppins-spin .ant-spin-text {
+  font-family: 'Poppins', sans-serif !important;
+}
+
+/* Center the modal title for Add, Edit, and View modals */
 .ant-modal-title {
   text-align: center !important;
 }
 
-/* Center the entire Delete modal (title and content) */
+/* Center both title and body content in the Delete modal */
 .delete-modal .ant-modal-title,
 .delete-modal .ant-modal-body {
   text-align: center !important;
 }
 
-/* Ensure placeholder text uses Poppins */
-.ant-input::placeholder,
-.ant-select-placeholder,
-.ant-input-password::placeholder {
-  font-family: 'Poppins', sans-serif !important;
-}
-
-/* Style for disabled Select field */
+/* Style disabled Select fields */
 .ant-select-disabled .ant-select-selector {
   background-color: #f5f5f5 !important;
   color: #000 !important;
 }
 
-/* Adjust table header and cell alignment for better readability */
+/* Enhance table header appearance */
 .ant-table-thead th {
   background-color: #f0f0f0;
   font-weight: 600;
 }
 
+/* Style table body cells */
 .ant-table-tbody td {
   font-weight: 400;
 }
 
-/* Adjust modal body padding */
+/* Adjust padding in modal body */
 .ant-modal-body {
   padding: 20px !important;
 }
 
+/* Customize placeholder color for specific inputs */
 .custom-input::placeholder {
-    color: #5a5a5a; /* Medium Blackish Blue */
-  }
-  
+  color: #5a5a5a;
+}
+
+/* Set gap between items in Space component */
+.user-activity-logs-table .ant-space {
+  gap: 16px;
+}
+
+/* Remove the default required asterisk from form labels */
+.ant-form-item-required::before {
+  display: none !important;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background: #F0F4F8 !important;
+  font-family: 'Poppins', sans-serif !important;
+}
+
+.dashboard-container {
+  padding: 24px;
+  background: #DCEFFF;
+  min-height: 100vh;
+  font-family: 'Poppins', sans-serif !important;
+}
+
+/* Ensure all Ant Design components inherit Poppins */
+.ant-typography,
+.ant-statistic-title,
+.ant-statistic-content,
+.ant-btn,
+.ant-select-item,
+.ant-select-selection-item,
+.ant-message-notice-content,
+.ant-spin-text {
+  font-family: 'Poppins', sans-serif !important;
+}
+
+/* Remove specific overrides for dashboard title to match UserAccountTable */
+.dashboard-container .ant-typography.ant-typography-level-2,
+.dashboard-container .dashboard-title {
+  font-weight: 600 !important;
+}
+
+.modern-card {
+  transition: transform 0.2s, box-shadow 0.2s;
+  border-radius: 12px;
+  overflow: hidden;
+  position: relative;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+.modern-card:hover {
+  transform: scale(1.02);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.attendance-widget {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+.attendance-widget .ant-table-wrapper {
+  flex: 1;
+  overflow: auto;
+}
+.attendance-widget .ant-table {
+  min-width: 0;
+}
+
+.card-content {
+  padding: 20px;
+  position: relative;
+  z-index: 1;
+}
+
+.card-footer-btn {
+  margin-top: 16px;
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  color: #fff;
+  font-weight: 500;
+}
+
+.card-footer-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+  color: #fff;
+}
+
+.activity-trend-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  background-color: transparent !important;
+}
+
+.activity-logs-header {
+  width: 100%;
+  padding: 16px;
+  display: 'flex';
+  justify-content: space-between;
+  align-items: center;
+  background-color: #ffffff !important;
+  color: #000000 !important;
+}
+
+.widget-title {
+  margin: 0;
+}
+
+/* Hover styles for specific buttons */
+.refresh-button:hover,
+.view-logs-button:hover {
+  background-color: #001a83 !important;
+  border-color: #001a83 !important;
+  color: #ffffff !important; /* Ensures text stays white on hover */
+}
+
+/* Prevent hover override on link button text color */
+.view-logs-button:hover span,
+.view-logs-button:hover .anticon {
+  color: #ffffff !important;
+}

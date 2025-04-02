@@ -294,7 +294,7 @@ const UserSidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysS
 
       <Modal
         title={<span style={{ fontSize: '22px', fontWeight: 'bold', fontFamily: 'Poppins, sans-serif' }}>Confirm Logout</span>}
-        visible={isModalVisible}
+        open={isModalVisible}
         onOk={handleLogoutConfirm}
         onCancel={handleLogoutCancel}
         okText="Yes, Logout"

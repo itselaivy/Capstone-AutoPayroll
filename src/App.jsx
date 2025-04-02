@@ -17,13 +17,13 @@ const App = () => {
     const initializeApp = async () => {
       const start = Date.now();
       try {
-        await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate delay (replace with real init)
+        await new Promise(resolve => setTimeout(resolve, 1000));
       } finally {
         const elapsed = Date.now() - start;
-        const minDuration = 1500; // 10 seconds minimum
+        const minDuration = 1500;
         const remaining = minDuration - elapsed;
         if (remaining > 0) {
-          await new Promise(resolve => setTimeout(resolve, remaining)); // Ensure at least 10s
+          await new Promise(resolve => setTimeout(resolve, remaining));
         }
         setLoading(false);
         setIsInitialLoad(false);

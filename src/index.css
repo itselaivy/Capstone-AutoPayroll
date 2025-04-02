@@ -65,7 +65,6 @@ body {
 .required-asterisk {
   color: red;
   font-family: 'Poppins', sans-serif;
-  margin-left: 2px; /* Small spacing between label text and asterisk */
 }
 
 /* Ensure the form labels align with the input fields */

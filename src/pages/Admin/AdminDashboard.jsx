@@ -1,7 +1,12 @@
 import React from 'react'
+import AdminDashboardContent from './Admin-Table/AdminDashboardContent';
 
 const AdminDashboard = () => {
-  return <h2>Welcome to the Admin Dashboard!</h2>
-}
+  return (
+      <div>
+        <AdminDashboardContent /> 
+      </div>
+    );
+  };
 
 export default AdminDashboard
