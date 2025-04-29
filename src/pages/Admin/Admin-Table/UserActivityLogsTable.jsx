@@ -283,7 +283,7 @@ const UserActivityLogsTable = () => {
             showSizeChanger: true, // Allow changing page size
             showQuickJumper: true, // Enable quick page jumping
             pageSizeOptions: ['10', '20', '50', '100', '200'], // Page size options
-            showTotal: (total) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>Total {total} items</span>, // Total items display
+            showTotal: (total) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>Total {total} user activity log records</span>, // Total items display
             responsive: true, // Make pagination responsive
             position: ['bottomCenter'], // Position pagination at bottom center
           }}

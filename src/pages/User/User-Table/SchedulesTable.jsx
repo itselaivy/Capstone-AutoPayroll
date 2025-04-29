@@ -19,14 +19,27 @@ const SchedulesTable = () => {
   const [modalType, setModalType] = useState('');
   const [selectedSchedule, setSelectedSchedule] = useState(null);
   const [form] = Form.useForm();
+  const userId = localStorage.getItem('userId'); // Retrieve userId for logging
+
+  const API_BASE_URL = "http://localhost/UserTableDB/UserDB/fetch_schedules.php";
 
   const fetchData = () => {
-    fetch("http://localhost/UserTableDB/UserDB/fetch_schedules.php")
+    fetch(API_BASE_URL)
       .then((res) => res.json())
       .then((data) => {
-        console.log("Fetched Data:", data);
-        setData(data);
-        setFilteredData(data);
+        // Convert 12-hour to 24-hour format if needed
+        const formattedData = data.map(item => ({
+          ...item,
+          ShiftStart: moment(item.ShiftStart, "h:mm A").isValid() 
+            ? moment(item.ShiftStart, "h:mm A").format("HH:mm") 
+            : item.ShiftStart,
+          ShiftEnd: moment(item.ShiftEnd, "h:mm A").isValid() 
+            ? moment(item.ShiftEnd, "h:mm A").format("HH:mm") 
+            : item.ShiftEnd
+        }));
+        console.log("Fetched Data:", formattedData);
+        setData(formattedData);
+        setFilteredData(formattedData);
       })
       .catch((err) => console.error("Error fetching schedules:", err));
   };
@@ -60,22 +73,35 @@ const SchedulesTable = () => {
     setIsModalOpen(true);
     if (type === 'Edit' && record) {
       form.setFieldsValue({
-        shiftStart: moment(record.ShiftStart, "h:mm A"),
-        shiftEnd: moment(record.ShiftEnd, "h:mm A")
+        shiftStart: moment(record.ShiftStart, "HH:mm"),
+        shiftEnd: moment(record.ShiftEnd, "HH:mm")
       });
+    } else if (type === 'Add') {
+      form.resetFields();
     }
   };
 
   const handleOk = () => {
+    if (!userId) {
+      message.error("User not logged in. Please log in to proceed.");
+      return;
+    }
+
+    if (modalType === "View") {
+      handleCancel();
+      return;
+    }
+
     if (modalType === "Add") {
       form.validateFields()
         .then((values) => {
           const payload = {
-            shiftStart: values.shiftStart.format("h:mm A"),
-            shiftEnd: values.shiftEnd.format("h:mm A"),
+            shiftStart: values.shiftStart.format("HH:mm"),
+            shiftEnd: values.shiftEnd.format("HH:mm"),
+            user_id: userId
           };
           console.log("Add Payload:", payload);
-          fetch("http://localhost/UserTableDB/UserDB/fetch_schedules.php", {
+          fetch(API_BASE_URL, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
@@ -98,11 +124,12 @@ const SchedulesTable = () => {
         .then((values) => {
           const payload = {
             scheduleID: selectedSchedule.key,
-            shiftStart: values.shiftStart.format("h:mm A"),
-            shiftEnd: values.shiftEnd.format("h:mm A"),
+            shiftStart: values.shiftStart.format("HH:mm"),
+            shiftEnd: values.shiftEnd.format("HH:mm"),
+            user_id: userId
           };
           console.log("Edit Payload:", payload);
-          fetch("http://localhost/UserTableDB/UserDB/fetch_schedules.php", {
+          fetch(API_BASE_URL, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
@@ -122,10 +149,10 @@ const SchedulesTable = () => {
         .catch((errorInfo) => console.log("Validation Failed:", errorInfo));
     } else if (modalType === "Delete" && selectedSchedule) {
       console.log("Delete Payload:", selectedSchedule.key);
-      fetch("http://localhost/UserTableDB/UserDB/fetch_schedules.php", {
+      fetch(API_BASE_URL, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scheduleID: selectedSchedule.key }),
+        body: JSON.stringify({ scheduleID: selectedSchedule.key, user_id: userId }),
       })
         .then((res) => {
           if (!res.ok) throw new Error("Network response was not ok");
@@ -146,9 +173,9 @@ const SchedulesTable = () => {
   };
 
   return (
-    <div style={{ padding: '20px' }}>
+    <div className="fade-in" style={{ padding: '20px' }}>
       <Title level={2} style={{ fontFamily: 'Poppins, sans-serif', marginBottom: '20px' }}>
-        Schedules
+        Company Schedules
       </Title>
 
       <div style={{ 
@@ -163,7 +190,7 @@ const SchedulesTable = () => {
           icon={<PlusOutlined />}
           size="middle"
           style={{ 
-            backgroundColor: '#2C3743', 
+            backgroundColor: '#2C374e', 
             borderColor: '#2C3743', 
             color: 'white',
             fontFamily: 'Poppins, sans-serif'
@@ -267,7 +294,7 @@ const SchedulesTable = () => {
             </span>
           </div>
         }
-        visible={isModalOpen}
+        open={isModalOpen}
         onOk={modalType === 'View' ? handleCancel : handleOk}
         onCancel={handleCancel}
         okText={modalType === 'Delete' ? 'Delete' : 'OK'}
@@ -278,30 +305,28 @@ const SchedulesTable = () => {
         cancelButtonProps={{ style: { fontFamily: 'Poppins, sans-serif' } }}
         width={600}
         centered
-        bodyStyle={{ minHeight: '100px', padding: '20px', margin: 20, fontFamily: 'Poppins, sans-serif' }}
+        styles={{ minHeight: '100px', padding: '20px', margin: 20, fontFamily: 'Poppins, sans-serif' }}
       >
         {(modalType === 'Add' || modalType === 'Edit') && (
           <Form form={form} layout="vertical" style={{ fontFamily: 'Poppins, sans-serif' }}>
             <Form.Item
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Shift Start</span>}
+              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Shift Start<span style={{ color: 'red' }}>*</span></span>}
               name="shiftStart"
               rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please enter start of the shift!</span> }]}
             >
               <TimePicker
-                use12Hours
-                format="h:mm A"
+                format="HH:mm"
                 placeholder="Select Shift Start"
                 style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }}
               />
             </Form.Item>
             <Form.Item
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Shift End</span>}
+              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Shift End<span style={{ color: 'red' }}>*</span></span>}
               name="shiftEnd"
               rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please enter end of the shift!</span> }]}
             >
               <TimePicker
-                use12Hours
-                format="h:mm A"
+                format="HH:mm"
                 placeholder="Select Shift End"
                 style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }}
               />
@@ -311,9 +336,6 @@ const SchedulesTable = () => {
 
         {modalType === 'View' && (
           <div style={{ fontFamily: 'Poppins, sans-serif' }}>
-            <p style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: 10, fontFamily: 'Poppins, sans-serif' }}>
-              Schedule Details:
-            </p>
             <p style={{ fontFamily: 'Poppins, sans-serif' }}>
               <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Shift Start:</strong> {selectedSchedule?.ShiftStart}
             </p>
@@ -324,7 +346,7 @@ const SchedulesTable = () => {
         )}
 
         {modalType === 'Delete' && (
-          <div style={{ fontFamily: 'Poppins, sans-serif' }}>
+          <div style={{ fontFamily: 'Poppins, sans-serif', textAlign: 'center' }}>
             <p style={{ fontSize: '18px', fontWeight: 'bold', color: '#ff4d4f', fontFamily: 'Poppins, sans-serif' }}>
               ⚠️ Are you sure you want to delete this schedule?
             </p>

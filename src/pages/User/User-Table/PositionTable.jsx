@@ -19,9 +19,12 @@ const PositionsTable = () => {
   const [selectedPosition, setSelectedPosition] = useState(null);
   const [form] = Form.useForm();
 
+  const API_BASE_URL = "http://localhost/UserTableDB/UserDB/fetch_position.php";
+  const userId = localStorage.getItem('userId'); // Retrieve userId for logging
+
   // Fetch data from the database
   const fetchData = () => {
-    fetch("http://localhost/UserTableDB/UserDB/fetch_position.php")
+    fetch(API_BASE_URL)
       .then((res) => res.json())
       .then((data) => {
         console.log("Fetched Data:", data);
@@ -51,6 +54,26 @@ const PositionsTable = () => {
     setFilteredData(filtered);
   };
 
+  // Validate if PositionTitle already exists
+  const checkDuplicatePosition = async (positionTitle, excludePositionId = null) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}?check_duplicate=true&PositionTitle=${encodeURIComponent(positionTitle)}`);
+      const result = await response.json();
+      if (result.exists) {
+        const existingPosition = result.position;
+        if (excludePositionId && existingPosition.PositionID === excludePositionId) {
+          return false; // Same record being edited, not a duplicate
+        }
+        return true; // Duplicate found
+      }
+      return false;
+    } catch (err) {
+      console.error("Error checking duplicate:", err);
+      message.error("Failed to check for duplicates. Please try again.");
+      return false;
+    }
+  };
+
   const openModal = (type, record = null) => {
     console.log("Opening Modal:", type, record);
     if (record) console.log("Selected PositionID:", record.PositionID);
@@ -62,80 +85,97 @@ const PositionsTable = () => {
         PositionTitle: record.PositionTitle,
         RatePerHour: record.RatePerHour
       });
+    } else if (type === 'Add') {
+      form.resetFields();
     }
   };
 
-  const handleOk = () => {
-    if (modalType === "Add") {
-      form.validateFields()
-        .then((values) => {
-          const payload = {
-            PositionTitle: values.PositionTitle,
-            RatePerHour: values.RatePerHour
-          };
-          console.log("Add Payload:", payload);
-          fetch("http://localhost/UserTableDB/UserDB/fetch_position.php", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          })
-            .then((res) => {
-              if (!res.ok) return res.json().then(err => { throw new Error(err.error); });
-              return res.json();
-            })
-            .then(() => {
-              message.success("Position added successfully!");
-              setIsModalOpen(false);
-              form.resetFields();
-              fetchData();
-            })
-            .catch((err) => message.error(`Failed to add position: ${err.message}`));
-        })
-        .catch((errorInfo) => console.log("Validation Failed:", errorInfo));
-    } else if (modalType === "Edit" && selectedPosition) {
-      form.validateFields()
-        .then((values) => {
-          const payload = {
-            PositionID: selectedPosition.key,
-            PositionTitle: values.PositionTitle,
-            RatePerHour: values.RatePerHour
-          };
-          console.log("Edit Payload:", payload);
-          fetch("http://localhost/UserTableDB/UserDB/fetch_position.php", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          })
-            .then((res) => {
-              if (!res.ok) return res.json().then(err => { throw new Error(err.error); });
-              return res.json();
-            })
-            .then(() => {
-              message.success("Position updated successfully!");
-              setIsModalOpen(false);
-              form.resetFields();
-              fetchData();
-            })
-            .catch((err) => message.error(`Failed to update position: ${err.message}`));
-        })
-        .catch((errorInfo) => console.log("Validation Failed:", errorInfo));
+  const handleOk = async () => {
+    if (!userId) {
+      message.error("User not logged in. Please log in to proceed.");
+      return;
+    }
+
+    if (modalType === "View") {
+      handleCancel();
+      return;
+    }
+
+    if (modalType === "Add" || modalType === "Edit") {
+      try {
+        const values = await form.validateFields();
+        if (!values.PositionTitle || !values.RatePerHour) {
+          message.error("Please fill in all required fields.");
+          return;
+        }
+
+        const isDuplicate = await checkDuplicatePosition(
+          values.PositionTitle,
+          modalType === "Edit" ? selectedPosition?.PositionID : null
+        );
+
+        if (isDuplicate) {
+          message.warning("Warning: A record with this position title already exists.");
+          return;
+        }
+
+        const payload = {
+          PositionTitle: values.PositionTitle.trim(),
+          RatePerHour: parseFloat(values.RatePerHour).toFixed(2),
+          user_id: userId
+        };
+
+        if (modalType === "Edit" && selectedPosition) {
+          payload.PositionID = selectedPosition.key;
+        }
+
+        console.log(`${modalType} Payload:`, payload);
+
+        const response = await fetch(API_BASE_URL, {
+          method: modalType === "Add" ? "POST" : "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(result.error || "Operation failed");
+        }
+
+        message.success(`Position ${modalType === "Add" ? "added" : "updated"} successfully!`);
+        setIsModalOpen(false);
+        form.resetFields();
+        fetchData();
+      } catch (err) {
+        console.error("Error:", err);
+        message.error(`Failed to ${modalType === "Add" ? "add" : "update"} position: ${err.message}`);
+      }
     } else if (modalType === "Delete" && selectedPosition) {
-      console.log("Delete Payload:", selectedPosition.key);
-      fetch("http://localhost/UserTableDB/UserDB/fetch_position.php", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ positionID: selectedPosition.key }),
-      })
-        .then((res) => {
-          if (!res.ok) return res.json().then(err => { throw new Error(err.error); });
-          return res.json();
-        })
-        .then(() => {
-          message.success("Position deleted successfully!");
-          setIsModalOpen(false);
-          fetchData();
-        })
-        .catch((err) => message.error(`Failed to delete position: ${err.message}`));
+      try {
+        const payload = {
+          positionID: selectedPosition.key,
+          user_id: userId
+        };
+        console.log("Delete Payload:", payload);
+
+        const response = await fetch(API_BASE_URL, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(result.error || "Delete failed");
+        }
+
+        message.success("Position deleted successfully!");
+        setIsModalOpen(false);
+        fetchData();
+      } catch (err) {
+        console.error("Delete Error:", err);
+        message.error(`Failed to delete position: ${err.message}`);
+      }
     }
   };
 
@@ -145,9 +185,9 @@ const PositionsTable = () => {
   };
 
   return (
-    <div style={{ padding: '20px' }}>
+    <div className="fade-in" style={{ padding: '20px' }}>
       <Title level={2} style={{ fontFamily: 'Poppins, sans-serif', marginBottom: '20px' }}>
-        Positions
+        Company Positions
       </Title>
 
       <div style={{ 
@@ -204,7 +244,7 @@ const PositionsTable = () => {
           dataIndex="RatePerHour" 
           key="RatePerHour" 
           sorter={(a, b) => a.RatePerHour - b.RatePerHour}
-          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
+          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>₱{parseFloat(text).toFixed(2)}</span>}
         />
         <Column
           title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Action</span>}
@@ -266,7 +306,7 @@ const PositionsTable = () => {
             </span>
           </div>
         }
-        visible={isModalOpen}
+        open={isModalOpen}
         onOk={modalType === 'View' ? handleCancel : handleOk}
         onCancel={handleCancel}
         okText={modalType === 'Delete' ? 'Delete' : 'OK'}
@@ -277,14 +317,18 @@ const PositionsTable = () => {
         cancelButtonProps={{ style: { fontFamily: 'Poppins, sans-serif' } }}
         width={600}
         centered
-        bodyStyle={{ minHeight: '100px', padding: '20px', margin: 20, fontFamily: 'Poppins, sans-serif' }}
+        styles={{ body: { minHeight: '100px', padding: '20px', margin: 20, fontFamily: 'Poppins, sans-serif' } }}
       >
         {(modalType === 'Add' || modalType === 'Edit') && (
           <Form form={form} layout="vertical" style={{ fontFamily: 'Poppins, sans-serif' }}>
             <Form.Item
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Position Title</span>}
+              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Position Title<span style={{ color: 'red' }}>*</span></span>}
               name="PositionTitle"
-              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please enter position title!</span> }]}
+              rules={[
+                { required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please enter position title!</span> },
+                { max: 255, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Position title cannot exceed 255 characters!</span> },
+                { whitespace: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Position title cannot be empty!</span> }
+              ]}
             >
               <Input 
                 placeholder="Enter Position Title" 
@@ -292,12 +336,17 @@ const PositionsTable = () => {
               />
             </Form.Item>
             <Form.Item
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Rate per Hour</span>}
+              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Rate per Hour<span style={{ color: 'red' }}>*</span></span>}
               name="RatePerHour"
-              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please enter rate per hour!</span> }]}
+              rules={[
+                { required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please enter rate per hour!</span> },
+                { validator: (_, value) => value && parseFloat(value) >= 0 ? Promise.resolve() : Promise.reject(<span style={{ fontFamily: 'Poppins, sans-serif' }}>Rate must be non-negative!</span>) }
+              ]}
             >
               <Input 
                 type="number" 
+                step="0.01"
+                min="0"
                 placeholder="Enter Rate per Hour" 
                 style={{ fontFamily: 'Poppins, sans-serif' }} 
               />
@@ -314,13 +363,13 @@ const PositionsTable = () => {
               <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Position Title:</strong> {selectedPosition?.PositionTitle}
             </p>
             <p style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Rate per Hour:</strong> {selectedPosition?.RatePerHour}
+              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Rate per Hour:</strong> ₱{parseFloat(selectedPosition?.RatePerHour).toFixed(2)}
             </p>
           </div>
         )}
 
         {modalType === 'Delete' && (
-          <div style={{ fontFamily: 'Poppins, sans-serif' }}>
+          <div style={{ fontFamily: 'Poppins, sans-serif', textAlign: 'center' }}>
             <p style={{ fontSize: '18px', fontWeight: 'bold', color: '#ff4d4f', fontFamily: 'Poppins, sans-serif' }}>
               ⚠️ Are you sure you want to delete this position?
             </p>

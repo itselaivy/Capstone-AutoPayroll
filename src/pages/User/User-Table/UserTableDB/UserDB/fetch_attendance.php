@@ -22,10 +22,26 @@ $dbname = "autopayrolldb";
 try {
     $conn = new mysqli($servername, $dbusername, $dbpassword, $dbname);
     if ($conn->connect_error) {
-        throw new Exception("Unable to connect to the database. Please try again later or contact support.");
+        throw new Exception("Unable to connect to the database: " . $conn->connect_error);
     }
 
-    // Function to check if a record exists by ID
+    function logUserActivity($conn, $user_id, $activity_type, $affected_table, $affected_record_id, $activity_description) {
+        $stmt = $conn->prepare("
+            INSERT INTO user_activity_logs (
+                user_id, activity_type, affected_table, affected_record_id, activity_description, created_at
+            ) VALUES (?, ?, ?, ?, ?, NOW())
+        ");
+        if (!$stmt) {
+            error_log("Prepare failed for log: " . $conn->error);
+            return false;
+        }
+        $stmt->bind_param("issis", $user_id, $activity_type, $affected_table, $affected_record_id, $activity_description);
+        $success = $stmt->execute();
+        if (!$success) error_log("Log insert failed: " . $stmt->error);
+        $stmt->close();
+        return $success;
+    }
+
     function recordExists($conn, $table, $id) {
         $idColumnMap = [
             'branches' => 'BranchID',
@@ -42,7 +58,6 @@ try {
         return $result;
     }
 
-    // Function to check if an attendance record exists for a specific employee on a specific date
     function attendanceExists($conn, $employeeId, $date) {
         $stmt = $conn->prepare("SELECT * FROM attendance WHERE EmployeeID = ? AND Date = ?");
         $stmt->bind_param("is", $employeeId, $date);
@@ -53,7 +68,6 @@ try {
         return $result;
     }
 
-    // Function to get the existing attendance record
     function getAttendanceRecord($conn, $employeeId, $date) {
         $stmt = $conn->prepare("SELECT AttendanceID, Date, EmployeeID, BranchID, TimeIn, TimeOut, TimeInStatus FROM attendance WHERE EmployeeID = ? AND Date = ?");
         $stmt->bind_param("is", $employeeId, $date);
@@ -67,7 +81,6 @@ try {
         return null;
     }
 
-    // Function to get EmployeeID by EmployeeName
     function getEmployeeIdByName($conn, $employeeName) {
         $stmt = $conn->prepare("SELECT EmployeeID FROM employees WHERE EmployeeName = ?");
         $stmt->bind_param("s", $employeeName);
@@ -82,7 +95,6 @@ try {
         return null;
     }
 
-    // Function to get EmployeeName by EmployeeID
     function getEmployeeNameById($conn, $employeeId) {
         $stmt = $conn->prepare("SELECT EmployeeName FROM employees WHERE EmployeeID = ?");
         $stmt->bind_param("i", $employeeId);
@@ -97,7 +109,6 @@ try {
         return "Employee ID $employeeId";
     }
 
-    // Function to get BranchID by BranchName
     function getBranchIdByName($conn, $branchName) {
         $stmt = $conn->prepare("SELECT BranchID FROM branches WHERE BranchName = ?");
         $stmt->bind_param("s", $branchName);
@@ -112,36 +123,149 @@ try {
         return null;
     }
 
+    function getBranchNameById($conn, $branchId) {
+        $stmt = $conn->prepare("SELECT BranchName FROM branches WHERE BranchID = ?");
+        $stmt->bind_param("i", $branchId);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        if ($row = $result->fetch_assoc()) {
+            $branchName = $row['BranchName'];
+            $stmt->close();
+            return $branchName;
+        }
+        $stmt->close();
+        return "Branch ID $branchId";
+    }
+
+    function formatDate($date) {
+        return (new DateTime($date))->format('m/d/Y');
+    }
+
+    function validateTime($time) {
+        return preg_match("/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/", $time);
+    }
+
     $method = $_SERVER['REQUEST_METHOD'];
 
     if ($method == "GET") {
         if (isset($_GET['type'])) {
             $type = $_GET['type'];
+            $user_id = isset($_GET['user_id']) ? (int)$_GET['user_id'] : null;
+            $role = isset($_GET['role']) ? $_GET['role'] : null;
+
             if ($type == 'branches') {
                 $sql = "SELECT BranchID, BranchName FROM branches";
+                $result = $conn->query($sql);
+                $data = [];
+                while ($row = $result->fetch_assoc()) {
+                    $data[] = $row;
+                }
+                echo json_encode($data);
             } elseif ($type == 'employees') {
-                $sql = "SELECT EmployeeID, EmployeeName, BranchID FROM employees";
+                if (!$user_id || !$role) {
+                    throw new Exception("user_id and role are required for fetching employees.");
+                }
+
+                if ($role === 'Payroll Staff') {
+                    $branchStmt = $conn->prepare("SELECT BranchID FROM UserBranches WHERE UserID = ?");
+                    if (!$branchStmt) throw new Exception("Prepare failed for branch query: " . $conn->error);
+                    $branchStmt->bind_param("i", $user_id);
+                    $branchStmt->execute();
+                    $branchResult = $branchStmt->get_result();
+                    $allowedBranches = [];
+                    while ($row = $branchResult->fetch_assoc()) {
+                        $allowedBranches[] = $row['BranchID'];
+                    }
+                    $branchStmt->close();
+
+                    if (empty($allowedBranches)) {
+                        echo json_encode([]);
+                        exit;
+                    }
+
+                    $placeholders = implode(',', array_fill(0, count($allowedBranches), '?'));
+                    $sql = "SELECT EmployeeID, EmployeeName, BranchID FROM employees WHERE BranchID IN ($placeholders)";
+                    $stmt = $conn->prepare($sql);
+                    if (!$stmt) throw new Exception("Prepare failed for employees query: " . $conn->error);
+                    $types = str_repeat('i', count($allowedBranches));
+                    $stmt->bind_param($types, ...$allowedBranches);
+                    $stmt->execute();
+                    $result = $stmt->get_result();
+                    $data = [];
+                    while ($row = $result->fetch_assoc()) {
+                        $data[] = $row;
+                    }
+                    $stmt->close();
+                    echo json_encode($data);
+                } else {
+                    $sql = "SELECT EmployeeID, EmployeeName, BranchID FROM employees";
+                    $result = $conn->query($sql);
+                    $data = [];
+                    while ($row = $result->fetch_assoc()) {
+                        $data[] = $row;
+                    }
+                    echo json_encode($data);
+                }
             } else {
                 throw new Exception("Invalid request type specified.");
             }
-            $result = $conn->query($sql);
-            $data = [];
-            while ($row = $result->fetch_assoc()) {
-                $data[] = $row;
-            }
-            echo json_encode($data);
         } elseif (isset($_GET['year'])) {
-            $year = $_GET['year'];
-            $month = isset($_GET['month']) && $_GET['month'] !== 'all' ? $_GET['month'] : null;
-            $branch = isset($_GET['branch']) && $_GET['branch'] !== 'all' ? $_GET['branch'] : null;
+            $year = (int)$_GET['year'];
+            $month = isset($_GET['month']) && $_GET['month'] !== 'all' ? (int)$_GET['month'] : null;
+            $branch = isset($_GET['branch']) && $_GET['branch'] !== 'all' ? (int)$_GET['branch'] : null;
+            $user_id = isset($_GET['user_id']) ? (int)$_GET['user_id'] : null;
+            $role = isset($_GET['role']) ? $_GET['role'] : null;
 
-            $sql = "SELECT DAY(Date) AS day, 
-                           SUM(CASE WHEN TimeInStatus = 'On-Time' THEN 1 ELSE 0 END) AS onTime, 
+            if (!$user_id || !$role) {
+                throw new Exception("user_id and role are required for attendance fetch.");
+            }
+
+            $sql = "SELECT DAY(Date) AS day,
+                           SUM(CASE WHEN TimeInStatus = 'On-Time' THEN 1 ELSE 0 END) AS onTime,
                            SUM(CASE WHEN TimeInStatus = 'Late' THEN 1 ELSE 0 END) AS late
-                    FROM attendance 
+                    FROM attendance
                     WHERE YEAR(Date) = ?";
             $types = "i";
             $params = [$year];
+
+            if ($role === 'Payroll Staff') {
+                $branchStmt = $conn->prepare("SELECT BranchID FROM UserBranches WHERE UserID = ?");
+                if (!$branchStmt) throw new Exception("Prepare failed for branch query: " . $conn->error);
+                $branchStmt->bind_param("i", $user_id);
+                $branchStmt->execute();
+                $branchResult = $branchStmt->get_result();
+                $allowedBranches = [];
+                while ($row = $branchResult->fetch_assoc()) {
+                    $allowedBranches[] = $row['BranchID'];
+                }
+                $branchStmt->close();
+
+                if (empty($allowedBranches)) {
+                    echo json_encode([]);
+                    exit;
+                }
+
+                if ($branch !== null) {
+                    if (!in_array($branch, $allowedBranches)) {
+                        echo json_encode([]);
+                        exit;
+                    }
+                    $sql .= " AND BranchID = ?";
+                    $types .= "i";
+                    $params[] = $branch;
+                } else {
+                    $placeholders = implode(',', array_fill(0, count($allowedBranches), '?'));
+                    $sql .= " AND BranchID IN ($placeholders)";
+                    $types .= str_repeat('i', count($allowedBranches));
+                    $params = array_merge($params, $allowedBranches);
+                }
+            } else {
+                if ($branch !== null) {
+                    $sql .= " AND BranchID = ?";
+                    $types .= "i";
+                    $params[] = $branch;
+                }
+            }
 
             if ($month !== null) {
                 $sql .= " AND MONTH(Date) = ?";
@@ -149,18 +273,10 @@ try {
                 $params[] = $month;
             }
 
-            if ($branch !== null) {
-                $sql .= " AND BranchID = ?";
-                $types .= "i";
-                $params[] = $branch;
-            }
-
             $sql .= " GROUP BY DAY(Date)";
 
             $stmt = $conn->prepare($sql);
-            if (!$stmt) {
-                throw new Exception("Failed to prepare the database query.");
-            }
+            if (!$stmt) throw new Exception("Failed to prepare the database query: " . $conn->error);
 
             if (count($params) > 1) {
                 $stmt->bind_param($types, ...$params);
@@ -193,25 +309,149 @@ try {
             echo json_encode($data);
             $stmt->close();
         } else {
-            $sql = "SELECT 
-                        a.AttendanceID,
-                        a.Date,
-                        a.EmployeeID,
-                        e.EmployeeName,
-                        b.BranchName,
-                        a.TimeIn,
-                        a.TimeOut,
-                        a.TimeInStatus,
-                        a.BranchID
-                    FROM attendance a
-                    JOIN employees e ON a.EmployeeID = e.EmployeeID
-                    JOIN branches b ON a.BranchID = b.BranchID";
-            $result = $conn->query($sql);
+            $user_id = isset($_GET['user_id']) ? (int)$_GET['user_id'] : null;
+            $role = isset($_GET['role']) ? $_GET['role'] : null;
+            $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+            $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 10;
+            $branch = isset($_GET['branch']) && $_GET['branch'] !== 'all' ? (int)$_GET['branch'] : null;
+
+            error_log("Received parameters: user_id=$user_id, role=$role, page=$page, limit=$limit, branch=$branch");
+
+            if (!$user_id || !$role) {
+                throw new Exception("user_id and role are required for attendance fetch.");
+            }
+
+            $offset = $page * $limit;
+
+            if ($role === 'Payroll Staff') {
+                $branchStmt = $conn->prepare("SELECT BranchID FROM UserBranches WHERE UserID = ?");
+                if (!$branchStmt) throw new Exception("Prepare failed for branch query: " . $conn->error);
+                $branchStmt->bind_param("i", $user_id);
+                $branchStmt->execute();
+                $branchResult = $branchStmt->get_result();
+                $allowedBranches = [];
+                while ($row = $branchResult->fetch_assoc()) {
+                    $allowedBranches[] = $row['BranchID'];
+                }
+                $branchStmt->close();
+
+                error_log("Allowed branches for user_id=$user_id: " . json_encode($allowedBranches));
+
+                if (empty($allowedBranches)) {
+                    echo json_encode([
+                        "success" => true,
+                        "data" => [],
+                        "total" => 0,
+                        "page" => $page,
+                        "limit" => $limit
+                    ]);
+                    error_log("No branches assigned to user_id=$user_id");
+                    exit;
+                }
+
+                $placeholders = implode(',', array_fill(0, count($allowedBranches), '?'));
+                $sql = "SELECT
+                            a.AttendanceID,
+                            a.Date,
+                            a.EmployeeID,
+                            e.EmployeeName,
+                            b.BranchName,
+                            a.TimeIn,
+                            a.TimeOut,
+                            a.TimeInStatus,
+                            a.BranchID
+                        FROM attendance a
+                        JOIN employees e ON a.EmployeeID = e.EmployeeID
+                        JOIN branches b ON a.BranchID = b.BranchID
+                        WHERE a.BranchID IN ($placeholders)";
+                $countSql = "SELECT COUNT(*) as total
+                            FROM attendance a
+                            WHERE a.BranchID IN ($placeholders)";
+                $types = str_repeat('i', count($allowedBranches));
+                $params = $allowedBranches;
+            } else {
+                $sql = "SELECT
+                            a.AttendanceID,
+                            a.Date,
+                            a.EmployeeID,
+                            e.EmployeeName,
+                            b.BranchName,
+                            a.TimeIn,
+                            a.TimeOut,
+                            a.TimeInStatus,
+                            a.BranchID
+                        FROM attendance a
+                        JOIN employees e ON a.EmployeeID = e.EmployeeID
+                        JOIN branches b ON a.BranchID = b.BranchID
+                        WHERE 1=1";
+                $countSql = "SELECT COUNT(*) as total
+                            FROM attendance a
+                            WHERE 1=1";
+                $types = "";
+                $params = [];
+            }
+
+            if ($branch !== null) {
+                $sql .= " AND a.BranchID = ?";
+                $countSql .= " AND a.BranchID = ?";
+                $types .= "i";
+                $params[] = $branch;
+            }
+
+            $sql .= " ORDER BY a.Date DESC LIMIT ? OFFSET ?";
+            $types .= "ii";
+            $params[] = $limit;
+            $params[] = $offset;
+
+            error_log("SQL Query: $sql");
+            error_log("Parameter Types: $types");
+            error_log("Parameters: " . json_encode($params));
+
+            $stmt = $conn->prepare($sql);
+            if (!$stmt) throw new Exception("Prepare failed for main query: " . $conn->error);
+
+            $countStmt = $conn->prepare($countSql);
+            if (!$countStmt) throw new Exception("Prepare failed for count query: " . $conn->error);
+
+            if ($types) {
+                $stmt->bind_param($types, ...$params);
+                $countTypes = substr($types, 0, -2);
+                $countParams = array_slice($params, 0, -2);
+                if ($countTypes) {
+                    if (!$countStmt->bind_param($countTypes, ...$countParams)) {
+                        throw new Exception("Count query bind failed: " . $countStmt->error);
+                    }
+                }
+            }
+
+            if (!$countStmt->execute()) {
+                throw new Exception("Count query execution failed: " . $countStmt->error);
+            }
+            $countResult = $countStmt->get_result();
+            $total = $countResult->fetch_assoc()['total'];
+            $countStmt->close();
+
+            if (!$stmt->execute()) {
+                throw new Exception("Main query execution failed: " . $stmt->error);
+            }
+            $result = $stmt->get_result();
             $data = [];
             while ($row = $result->fetch_assoc()) {
                 $data[] = $row;
             }
-            echo json_encode($data);
+
+            error_log("Fetched " . count($data) . " records");
+            error_log("Sample data (first 2 records): " . (count($data) > 0 ? json_encode(array_slice($data, 0, 2)) : "No records"));
+            error_log("Total matching records: $total");
+
+            echo json_encode([
+                "success" => true,
+                "data" => $data,
+                "total" => $total,
+                "page" => $page,
+                "limit" => $limit
+            ]);
+            $stmt->close();
         }
     } elseif ($method == "POST") {
         $data = json_decode(file_get_contents("php://input"), true);
@@ -219,135 +459,151 @@ try {
             throw new Exception("Invalid data format. Please ensure the request contains valid JSON.");
         }
 
-        // Check if the data is an array (bulk insert/update from CSV) or a single record (from Add modal)
+        $user_id = isset($_GET['user_id']) ? (int)$_GET['user_id'] : 1;
+
         if (is_array($data) && isset($data[0])) {
-            $successCount = 0; // Count of new records inserted
-            $updatedCount = 0; // Count of existing records updated
-            $duplicateCount = 0; // Count of records that are duplicates with no changes
+            $successCount = 0;
+            $updatedCount = 0;
+            $duplicateCount = 0;
             $errors = [];
             $validRecords = 0;
 
-            foreach ($data as $index => $record) {
-                // Validate required fields
-                if (!isset($record["Date"]) || empty($record["Date"]) ||
-                    !isset($record["TimeIn"]) || empty($record["TimeIn"]) ||
-                    !isset($record["TimeOut"]) || empty($record["TimeOut"]) ||
-                    !isset($record["TimeInStatus"]) || empty($record["TimeInStatus"])) {
-                    $errors[] = "Row " . ($index + 1) . ": Missing required fields (Date, TimeIn, TimeOut, TimeInStatus).";
-                    continue;
-                }
-
-                // Resolve EmployeeID
-                $employeeId = null;
-                if (isset($record["EmployeeID"]) && !empty($record["EmployeeID"])) {
-                    $employeeId = $record["EmployeeID"];
-                } elseif (isset($record["EmployeeName"]) && !empty($record["EmployeeName"])) {
-                    $employeeId = getEmployeeIdByName($conn, $record["EmployeeName"]);
-                    if (!$employeeId) {
-                        $errors[] = "Row " . ($index + 1) . ": Employee '" . $record["EmployeeName"] . "' not found.";
-                        continue;
-                    }
-                } else {
-                    $errors[] = "Row " . ($index + 1) . ": Employee information is required (either EmployeeID or EmployeeName).";
-                    continue;
-                }
-
-                // Resolve BranchID
-                $branchId = null;
-                if (isset($record["BranchID"]) && !empty($record["BranchID"])) {
-                    $branchId = $record["BranchID"];
-                } elseif (isset($record["BranchName"]) && !empty($record["BranchName"])) {
-                    $branchId = getBranchIdByName($conn, $record["BranchName"]);
-                    if (!$branchId) {
-                        $errors[] = "Row " . ($index + 1) . ": Branch '" . $record["BranchName"] . "' not found.";
-                        continue;
-                    }
-                } else {
-                    $errors[] = "Row " . ($index + 1) . ": Branch information is required (either BranchID or BranchName).";
-                    continue;
-                }
-
-                // Validate EmployeeID and BranchID
-                if (!recordExists($conn, "employees", $employeeId)) {
-                    $errors[] = "Row " . ($index + 1) . ": Invalid Employee ID: $employeeId.";
-                    continue;
-                }
-                if (!recordExists($conn, "branches", $branchId)) {
-                    $errors[] = "Row " . ($index + 1) . ": Invalid Branch ID: $branchId.";
-                    continue;
-                }
-
-                $validRecords++;
-
-                // Check if the record already exists
-                if (attendanceExists($conn, $employeeId, $record["Date"])) {
-                    // Fetch the existing record
-                    $existingRecord = getAttendanceRecord($conn, $employeeId, $record["Date"]);
-
-                    // Compare fields to determine if an update is needed
-                    $fieldsToUpdate = [];
-                    if ($existingRecord["BranchID"] != $branchId) {
-                        $fieldsToUpdate[] = "BranchID";
-                    }
-                    if ($existingRecord["TimeIn"] != $record["TimeIn"]) {
-                        $fieldsToUpdate[] = "TimeIn";
-                    }
-                    if ($existingRecord["TimeOut"] != $record["TimeOut"]) {
-                        $fieldsToUpdate[] = "TimeOut";
-                    }
-                    if ($existingRecord["TimeInStatus"] != $record["TimeInStatus"]) {
-                        $fieldsToUpdate[] = "TimeInStatus";
-                    }
-
-                    if (empty($fieldsToUpdate)) {
-                        // No changes needed; the record is a duplicate
-                        $duplicateCount++;
+            $conn->begin_transaction();
+            try {
+                foreach ($data as $index => $record) {
+                    if (!isset($record["Date"]) || empty($record["Date"]) ||
+                        !isset($record["TimeIn"]) || empty($record["TimeIn"]) ||
+                        !isset($record["TimeOut"]) || empty($record["TimeOut"]) ||
+                        !isset($record["TimeInStatus"]) || empty($record["TimeInStatus"])) {
+                        $errors[] = "Row " . ($index + 1) . ": Missing required fields (Date, TimeIn, TimeOut, TimeInStatus).";
                         continue;
                     }
 
-                    // Update the existing record
-                    $stmt = $conn->prepare("UPDATE attendance SET BranchID = ?, TimeIn = ?, TimeOut = ?, TimeInStatus = ? WHERE AttendanceID = ?");
-                    $stmt->bind_param("isssi", $branchId, $record["TimeIn"], $record["TimeOut"], $record["TimeInStatus"], $existingRecord["AttendanceID"]);
+                    if (!validateTime($record["TimeIn"]) || !validateTime($record["TimeOut"])) {
+                        $errors[] = "Row " . ($index + 1) . ": TimeIn and TimeOut must be in HH:mm format.";
+                        continue;
+                    }
 
-                    if ($stmt->execute()) {
-                        $updatedCount++;
+                    $employeeId = null;
+                    if (isset($record["EmployeeID"]) && !empty($record["EmployeeID"])) {
+                        $employeeId = $record["EmployeeID"];
+                    } elseif (isset($record["EmployeeName"]) && !empty($record["EmployeeName"])) {
+                        $employeeId = getEmployeeIdByName($conn, $record["EmployeeName"]);
+                        if (!$employeeId) {
+                            $errors[] = "Row " . ($index + 1) . ": Employee '" . $record["EmployeeName"] . "' not found.";
+                            continue;
+                        }
                     } else {
-                        $errors[] = "Row " . ($index + 1) . ": Unable to update attendance record due to a database error.";
+                        $errors[] = "Row " . ($index + 1) . ": Employee information is required (either EmployeeID or EmployeeName).";
+                        continue;
                     }
-                    $stmt->close();
-                } else {
-                    // Insert the new record
-                    $stmt = $conn->prepare("INSERT INTO attendance (Date, EmployeeID, BranchID, TimeIn, TimeOut, TimeInStatus) VALUES (?, ?, ?, ?, ?, ?)");
-                    $stmt->bind_param("siisss", $record["Date"], $employeeId, $branchId, $record["TimeIn"], $record["TimeOut"], $record["TimeInStatus"]);
 
-                    if ($stmt->execute()) {
-                        $successCount++;
+                    $branchId = null;
+                    if (isset($record["BranchID"]) && !empty($record["BranchID"])) {
+                        $branchId = $record["BranchID"];
+                    } elseif (isset($record["BranchName"]) && !empty($record["BranchName"])) {
+                        $branchId = getBranchIdByName($conn, $record["BranchName"]);
+                        if (!$branchId) {
+                            $errors[] = "Row " . ($index + 1) . ": Branch '" . $record["BranchName"] . "' not found.";
+                            continue;
+                        }
                     } else {
-                        $errors[] = "Row " . ($index + 1) . ": Unable to add attendance record due to a database error.";
+                        $errors[] = "Row " . ($index + 1) . ": Branch information is required (either BranchID or BranchName).";
+                        continue;
                     }
-                    $stmt->close();
+
+                    if (!recordExists($conn, "employees", $employeeId)) {
+                        $errors[] = "Row " . ($index + 1) . ": Invalid Employee ID: $employeeId.";
+                        continue;
+                    }
+                    if (!recordExists($conn, "branches", $branchId)) {
+                        $errors[] = "Row " . ($index + 1) . ": Invalid Branch ID: $branchId.";
+                        continue;
+                    }
+
+                    $validRecords++;
+
+                    if (attendanceExists($conn, $employeeId, $record["Date"])) {
+                        $existingRecord = getAttendanceRecord($conn, $employeeId, $record["Date"]);
+                        $changes = [];
+                        if ($existingRecord["BranchID"] != $branchId) {
+                            $oldBranchName = getBranchNameById($conn, $existingRecord["BranchID"]);
+                            $newBranchName = getBranchNameById($conn, $branchId);
+                            $changes[] = "Branch from '$oldBranchName' to '$newBranchName'";
+                        }
+                        if ($existingRecord["TimeIn"] != $record["TimeIn"]) {
+                            $changes[] = "TimeIn from '{$existingRecord["TimeIn"]}' to '{$record["TimeIn"]}'";
+                        }
+                        if ($existingRecord["TimeOut"] != $record["TimeOut"]) {
+                            $changes[] = "TimeOut from '{$existingRecord["TimeOut"]}' to '{$record["TimeOut"]}'";
+                        }
+                        if ($existingRecord["TimeInStatus"] != $record["TimeInStatus"]) {
+                            $changes[] = "TimeInStatus from '{$existingRecord["TimeInStatus"]}' to '{$record["TimeInStatus"]}'";
+                        }
+
+                        if (empty($changes)) {
+                            $duplicateCount++;
+                            continue;
+                        }
+
+                        $stmt = $conn->prepare("UPDATE attendance SET BranchID = ?, TimeIn = ?, TimeOut = ?, TimeInStatus = ? WHERE AttendanceID = ?");
+                        $stmt->bind_param("isssi", $branchId, $record["TimeIn"], $record["TimeOut"], $record["TimeInStatus"], $existingRecord["AttendanceID"]);
+
+                        if ($stmt->execute()) {
+                            $updatedCount++;
+                            $employeeName = getEmployeeNameById($conn, $employeeId);
+                            $formattedDate = formatDate($record["Date"]);
+                            $description = "Attendance for '$employeeName' on '$formattedDate' updated: " . implode('/ ', $changes);
+                            logUserActivity($conn, $user_id, "UPDATE_DATA", "Attendance", $existingRecord["AttendanceID"], $description);
+                        } else {
+                            $errors[] = "Row " . ($index + 1) . ": Unable to update attendance record due to a database error.";
+                        }
+                        $stmt->close();
+                    } else {
+                        $stmt = $conn->prepare("INSERT INTO attendance (Date, EmployeeID, BranchID, TimeIn, TimeOut, TimeInStatus) VALUES (?, ?, ?, ?, ?, ?)");
+                        $stmt->bind_param("siisss", $record["Date"], $employeeId, $branchId, $record["TimeIn"], $record["TimeOut"], $record["TimeInStatus"]);
+
+                        if ($stmt->execute()) {
+                            $successCount++;
+                            $attendanceId = $conn->insert_id;
+                            $employeeName = getEmployeeNameById($conn, $employeeId);
+                            $formattedDate = formatDate($record["Date"]);
+                            $description = "Attendance for '$employeeName' on '$formattedDate' added";
+                            logUserActivity($conn, $user_id, "ADD_DATA", "Attendance", $attendanceId, $description);
+                        } else {
+                            $errors[] = "Row " . ($index + 1) . ": Unable to add attendance record due to a database error.";
+                        }
+                        $stmt->close();
+                    }
                 }
-            }
 
-            $response = [
-                "success" => true,
-                "successCount" => $successCount,
-                "updatedCount" => $updatedCount,
-            ];
+                $description = "CSV upload: $successCount records added, $updatedCount records updated";
+                logUserActivity($conn, $user_id, "UPLOAD_DATA", "Attendance", null, $description);
 
-            if ($successCount === 0 && $updatedCount === 0) {
-                if ($validRecords > 0 && $duplicateCount === $validRecords) {
-                    $response["allDuplicates"] = true;
-                } elseif (!empty($errors)) {
-                    $response["errors"] = $errors;
-                } else {
-                    $response["errors"] = ["No valid records were processed."];
+                $conn->commit();
+
+                $response = [
+                    "success" => true,
+                    "successCount" => $successCount,
+                    "updatedCount" => $updatedCount,
+                ];
+
+                if ($successCount === 0 && $updatedCount === 0) {
+                    if ($validRecords > 0 && $duplicateCount === $validRecords) {
+                        $response["allDuplicates"] = true;
+                    } elseif (!empty($errors)) {
+                        $response["errors"] = $errors;
+                    } else {
+                        $response["errors"] = ["No valid records were processed."];
+                    }
                 }
-            }
 
-            echo json_encode($response);
+                echo json_encode($response);
+            } catch (Exception $e) {
+                $conn->rollback();
+                throw new Exception("CSV upload failed: " . $e->getMessage());
+            }
         } else {
-            // Single record insert (for Add modal)
             if (!isset($data["Date"]) || empty($data["Date"]) ||
                 !isset($data["EmployeeID"]) || empty($data["EmployeeID"]) ||
                 !isset($data["BranchID"]) || empty($data["BranchID"]) ||
@@ -357,6 +613,10 @@ try {
                 throw new Exception("All fields are required to add an attendance record.");
             }
 
+            if (!validateTime($data["TimeIn"]) || !validateTime($data["TimeOut"])) {
+                throw new Exception("TimeIn and TimeOut must be in HH:mm format.");
+            }
+
             if (!recordExists($conn, "employees", $data["EmployeeID"])) {
                 throw new Exception("The specified Employee ID does not exist.");
             }
@@ -364,21 +624,33 @@ try {
                 throw new Exception("The specified Branch ID does not exist.");
             }
 
-            // Check for duplicate attendance record
             if (attendanceExists($conn, $data["EmployeeID"], $data["Date"])) {
                 $employeeName = getEmployeeNameById($conn, $data["EmployeeID"]);
-                throw new Exception("An attendance record for $employeeName on {$data["Date"]} already exists.");
+                $formattedDate = formatDate($data["Date"]);
+                throw new Exception("An attendance record for $employeeName on $formattedDate already exists.");
             }
 
-            $stmt = $conn->prepare("INSERT INTO attendance (Date, EmployeeID, BranchID, TimeIn, TimeOut, TimeInStatus) VALUES (?, ?, ?, ?, ?, ?)");
-            $stmt->bind_param("siisss", $data["Date"], $data["EmployeeID"], $data["BranchID"], $data["TimeIn"], $data["TimeOut"], $data["TimeInStatus"]);
+            $conn->begin_transaction();
+            try {
+                $stmt = $conn->prepare("INSERT INTO attendance (Date, EmployeeID, BranchID, TimeIn, TimeOut, TimeInStatus) VALUES (?, ?, ?, ?, ?, ?)");
+                $stmt->bind_param("siisss", $data["Date"], $data["EmployeeID"], $data["BranchID"], $data["TimeIn"], $data["TimeOut"], $data["TimeInStatus"]);
 
-            if ($stmt->execute()) {
-                echo json_encode(["success" => true, "message" => "Attendance record added successfully.", "id" => $stmt->insert_id]);
-            } else {
-                throw new Exception("Unable to add the attendance record due to a database error.");
+                if ($stmt->execute()) {
+                    $attendanceId = $conn->insert_id;
+                    $employeeName = getEmployeeNameById($conn, $data["EmployeeID"]);
+                    $formattedDate = formatDate($data["Date"]);
+                    $description = "Attendance for '$employeeName' on '$formattedDate' added";
+                    logUserActivity($conn, $user_id, "ADD_DATA", "Attendance", $attendanceId, $description);
+                    $conn->commit();
+                    echo json_encode(["success" => true, "message" => "Attendance record added successfully.", "id" => $attendanceId]);
+                } else {
+                    throw new Exception("Unable to add the attendance record due to a database error.");
+                }
+                $stmt->close();
+            } catch (Exception $e) {
+                $conn->rollback();
+                throw $e;
             }
-            $stmt->close();
         }
     } elseif ($method == "PUT") {
         $data = json_decode(file_get_contents("php://input"), true);
@@ -386,14 +658,20 @@ try {
             throw new Exception("Invalid data format. Please ensure the request contains valid JSON.");
         }
 
-        if (!empty($data["AttendanceID"]) && 
-            !empty($data["Date"]) && 
-            isset($data["EmployeeID"]) && 
-            isset($data["BranchID"]) && 
-            !empty($data["TimeIn"]) && 
-            !empty($data["TimeOut"]) && 
+        $user_id = isset($_GET['user_id']) ? (int)$_GET['user_id'] : 1;
+
+        if (!empty($data["AttendanceID"]) &&
+            !empty($data["Date"]) &&
+            isset($data["EmployeeID"]) &&
+            isset($data["BranchID"]) &&
+            !empty($data["TimeIn"]) &&
+            !empty($data["TimeOut"]) &&
             !empty($data["TimeInStatus"])) {
-            
+
+            if (!validateTime($data["TimeIn"]) || !validateTime($data["TimeOut"])) {
+                throw new Exception("TimeIn and TimeOut must be in HH:mm format.");
+            }
+
             if (!recordExists($conn, "employees", $data["EmployeeID"])) {
                 throw new Exception("The specified Employee ID does not exist.");
             }
@@ -401,55 +679,126 @@ try {
                 throw new Exception("The specified Branch ID does not exist.");
             }
 
-            // Check for duplicate attendance record (excluding the current record being updated)
             $stmt = $conn->prepare("SELECT * FROM attendance WHERE EmployeeID = ? AND Date = ? AND AttendanceID != ?");
             $stmt->bind_param("isi", $data["EmployeeID"], $data["Date"], $data["AttendanceID"]);
             $stmt->execute();
             $stmt->store_result();
             if ($stmt->num_rows > 0) {
                 $employeeName = getEmployeeNameById($conn, $data["EmployeeID"]);
-                throw new Exception("An attendance record for $employeeName on {$data["Date"]} already exists.");
+                $formattedDate = formatDate($data["Date"]);
+                throw new Exception("An attendance record for $employeeName on $formattedDate already exists.");
             }
             $stmt->close();
 
-            $stmt = $conn->prepare("UPDATE attendance SET Date = ?, EmployeeID = ?, BranchID = ?, TimeIn = ?, TimeOut = ?, TimeInStatus = ? WHERE AttendanceID = ?");
-            $stmt->bind_param("siisssi", $data["Date"], $data["EmployeeID"], $data["BranchID"], $data["TimeIn"], $data["TimeOut"], $data["TimeInStatus"], $data["AttendanceID"]);
+            $conn->begin_transaction();
+            try {
+                $stmt = $conn->prepare("SELECT Date, EmployeeID, BranchID, TimeIn, TimeOut, TimeInStatus FROM attendance WHERE AttendanceID = ?");
+                $stmt->bind_param("i", $data["AttendanceID"]);
+                $stmt->execute();
+                $result = $stmt->get_result();
+                $currentRecord = $result->fetch_assoc();
+                $stmt->close();
 
-            if ($stmt->execute()) {
-                echo json_encode(["success" => true, "message" => "Attendance record updated successfully."]);
-            } else {
-                throw new Exception("Unable to update the attendance record due to a database error.");
+                if (!$currentRecord) {
+                    throw new Exception("Attendance record with ID {$data["AttendanceID"]} not found.");
+                }
+
+                $changes = [];
+                if ($currentRecord["Date"] != $data["Date"]) {
+                    $oldDate = formatDate($currentRecord["Date"]);
+                    $newDate = formatDate($data["Date"]);
+                    $changes[] = "Date from '$oldDate' to '$newDate'";
+                }
+                if ($currentRecord["EmployeeID"] != $data["EmployeeID"]) {
+                    $oldEmployeeName = getEmployeeNameById($conn, $currentRecord["EmployeeID"]);
+                    $newEmployeeName = getEmployeeNameById($conn, $data["EmployeeID"]);
+                    $changes[] = "Employee from '$oldEmployeeName' to '$newEmployeeName'";
+                }
+                if ($currentRecord["BranchID"] != $data["BranchID"]) {
+                    $oldBranchName = getBranchNameById($conn, $currentRecord["BranchID"]);
+                    $newBranchName = getBranchNameById($conn, $data["BranchID"]);
+                    $changes[] = "Branch from '$oldBranchName' to '$newBranchName'";
+                }
+                if ($currentRecord["TimeIn"] != $data["TimeIn"]) {
+                    $changes[] = "TimeIn from '{$currentRecord["TimeIn"]}' to '{$data["TimeIn"]}'";
+                }
+                if ($currentRecord["TimeOut"] != $data["TimeOut"]) {
+                    $changes[] = "TimeOut from '{$currentRecord["TimeOut"]}' to '{$data["TimeOut"]}'";
+                }
+                if ($currentRecord["TimeInStatus"] != $data["TimeInStatus"]) {
+                    $changes[] = "TimeInStatus from '{$currentRecord["TimeInStatus"]}' to '{$data["TimeInStatus"]}'";
+                }
+
+                $stmt = $conn->prepare("UPDATE attendance SET Date = ?, EmployeeID = ?, BranchID = ?, TimeIn = ?, TimeOut = ?, TimeInStatus = ? WHERE AttendanceID = ?");
+                $stmt->bind_param("siisssi", $data["Date"], $data["EmployeeID"], $data["BranchID"], $data["TimeIn"], $data["TimeOut"], $data["TimeInStatus"], $data["AttendanceID"]);
+
+                if ($stmt->execute()) {
+                    $employeeName = getEmployeeNameById($conn, $data["EmployeeID"]);
+                    $formattedDate = formatDate($data["Date"]);
+                    $description = empty($changes)
+                        ? "Attendance for '$employeeName' on '$formattedDate' updated: No changes made"
+                        : "Attendance for '$employeeName' on '$formattedDate' updated: " . implode('/ ', $changes);
+                    logUserActivity($conn, $user_id, "UPDATE_DATA", "Attendance", $data["AttendanceID"], $description);
+                    $conn->commit();
+                    echo json_encode(["success" => true, "message" => "Attendance record updated successfully."]);
+                } else {
+                    throw new Exception("Unable to update the attendance record due to a database error.");
+                }
+                $stmt->close();
+            } catch (Exception $e) {
+                $conn->rollback();
+                throw $e;
             }
-            $stmt->close();
         } else {
             throw new Exception("All fields are required to update an attendance record.");
         }
     } elseif ($method == "DELETE") {
         $data = json_decode(file_get_contents("php://input"), true);
-        if (!$data) {
-            throw new Exception("Invalid data format. Please ensure the request contains valid JSON.");
+        if (!$data || empty($data["AttendanceID"])) {
+            throw new Exception("AttendanceID is required to delete an attendance record.");
         }
 
-        if (!empty($data["AttendanceID"])) {
+        $user_id = isset($_GET['user_id']) ? (int)$_GET['user_id'] : 1;
+
+        $conn->begin_transaction();
+        try {
+            $stmt = $conn->prepare("SELECT EmployeeID, Date FROM attendance WHERE AttendanceID = ?");
+            $stmt->bind_param("i", $data["AttendanceID"]);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            $record = $result->fetch_assoc();
+            $stmt->close();
+
+            if (!$record) {
+                throw new Exception("Attendance record with ID {$data["AttendanceID"]} not found.");
+            }
+
             $stmt = $conn->prepare("DELETE FROM attendance WHERE AttendanceID = ?");
             $stmt->bind_param("i", $data["AttendanceID"]);
 
             if ($stmt->execute()) {
+                $employeeName = getEmployeeNameById($conn, $record["EmployeeID"]);
+                $formattedDate = formatDate($record["Date"]);
+                $description = "Attendance for '$employeeName' on '$formattedDate' deleted";
+                logUserActivity($conn, $user_id, "DELETE_DATA", "Attendance", $data["AttendanceID"], $description);
+                $conn->commit();
                 echo json_encode(["success" => true, "message" => "Attendance record deleted successfully."]);
             } else {
                 throw new Exception("Unable to delete the attendance record due to a database error.");
             }
             $stmt->close();
-        } else {
-            throw new Exception("Attendance ID is required to delete a record.");
+        } catch (Exception $e) {
+            $conn->rollback();
+            throw $e;
         }
     } else {
-        throw new Exception("Invalid request method. Only GET, POST, PUT, and DELETE are supported.");
+        throw new Exception("Invalid request method.");
     }
-} catch (Exception $e) {
-    http_response_code(500);
-    echo json_encode(["success" => false, "error" => $e->getMessage()]);
-}
 
-$conn->close();
+    $conn->close();
+} catch (Exception $e) {
+    http_response_code(400);
+    echo json_encode(["success" => false, "error" => $e->getMessage()]);
+    error_log("Error: " . $e->getMessage());
+}
 ?>

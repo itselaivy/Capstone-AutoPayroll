@@ -23,13 +23,29 @@ try {
         throw new Exception("Connection failed: " . $conn->connect_error);
     }
 
+    function logUserActivity($conn, $user_id, $activity_type, $affected_table, $affected_record_id, $activity_description) {
+        $stmt = $conn->prepare("
+            INSERT INTO user_activity_logs (
+                user_id, activity_type, affected_table, affected_record_id, activity_description, created_at
+            ) VALUES (?, ?, ?, ?, ?, NOW())
+        ");
+        if (!$stmt) {
+            error_log("Prepare failed for log: " . $conn->error);
+            return false;
+        }
+        $stmt->bind_param("issis", $user_id, $activity_type, $affected_table, $affected_record_id, $activity_description);
+        $success = $stmt->execute();
+        if (!$success) error_log("Log insert failed: " . $stmt->error);
+        $stmt->close();
+        return $success;
+    }
+
     function recordExists($conn, $table, $id) {
         $idColumnMap = [
             'employees' => 'EmployeeID',
             'branches' => 'BranchID',
             'cashadvance' => 'CashAdvanceID'
         ];
-
         $idColumn = $idColumnMap[$table] ?? 'ID';
         $stmt = $conn->prepare("SELECT * FROM $table WHERE $idColumn = ?");
         $stmt->bind_param("i", $id);
@@ -38,48 +54,268 @@ try {
         return $stmt->num_rows > 0;
     }
 
+    function formatDate($date) {
+        return (new DateTime($date))->format('m/d/Y');
+    }
+
+    function getEmployeeNameById($conn, $employeeId) {
+        $stmt = $conn->prepare("SELECT EmployeeName FROM employees WHERE EmployeeID = ?");
+        $stmt->bind_param("i", $employeeId);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        if ($row = $result->fetch_assoc()) {
+            $employeeName = $row['EmployeeName'];
+            $stmt->close();
+            return $employeeName;
+        }
+        $stmt->close();
+        return "Employee ID $employeeId";
+    }
+
+    function getBranchNameById($conn, $branchId) {
+        $stmt = $conn->prepare("SELECT BranchName FROM branches WHERE BranchID = ?");
+        $stmt->bind_param("i", $branchId);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        if ($row = $result->fetch_assoc()) {
+            $branchName = $row['BranchName'];
+            $stmt->close();
+            return $branchName;
+        }
+        $stmt->close();
+        return "Branch ID $branchId";
+    }
+
     $method = $_SERVER['REQUEST_METHOD'];
 
     if ($method == "GET") {
         if (isset($_GET['type'])) {
             $type = $_GET['type'];
+            $user_id = isset($_GET['user_id']) ? (int)$_GET['user_id'] : null;
+            $role = isset($_GET['role']) ? $_GET['role'] : null;
+
             if ($type == 'branches') {
                 $sql = "SELECT BranchID, BranchName FROM branches";
+                $result = $conn->query($sql);
+                $data = [];
+                while ($row = $result->fetch_assoc()) {
+                    $data[] = $row;
+                }
+                echo json_encode($data);
             } elseif ($type == 'employees') {
-                $sql = "SELECT EmployeeID, EmployeeName, BranchID FROM employees";
+                if (!$user_id || !$role) {
+                    throw new Exception("user_id and role are required for fetching employees.");
+                }
+
+                if ($role === 'Payroll Staff') {
+                    $branchStmt = $conn->prepare("SELECT BranchID FROM UserBranches WHERE UserID = ?");
+                    if (!$branchStmt) throw new Exception("Prepare failed for branch query: " . $conn->error);
+                    $branchStmt->bind_param("i", $user_id);
+                    $branchStmt->execute();
+                    $branchResult = $branchStmt->get_result();
+                    $allowedBranches = [];
+                    while ($row = $branchResult->fetch_assoc()) {
+                        $allowedBranches[] = $row['BranchID'];
+                    }
+                    $branchStmt->close();
+
+                    if (empty($allowedBranches)) {
+                        echo json_encode([]);
+                        exit;
+                    }
+
+                    $placeholders = implode(',', array_fill(0, count($allowedBranches), '?'));
+                    $sql = "SELECT EmployeeID, EmployeeName, BranchID FROM employees WHERE BranchID IN ($placeholders)";
+                    $stmt = $conn->prepare($sql);
+                    if (!$stmt) throw new Exception("Prepare failed for employees query: " . $conn->error);
+                    $types = str_repeat('i', count($allowedBranches));
+                    $stmt->bind_param($types, ...$allowedBranches);
+                    $stmt->execute();
+                    $result = $stmt->get_result();
+                    $data = [];
+                    while ($row = $result->fetch_assoc()) {
+                        $data[] = $row;
+                    }
+                    $stmt->close();
+                    echo json_encode($data);
+                } else {
+                    $sql = "SELECT EmployeeID, EmployeeName, BranchID FROM employees";
+                    $result = $conn->query($sql);
+                    $data = [];
+                    while ($row = $result->fetch_assoc()) {
+                        $data[] = $row;
+                    }
+                    echo json_encode($data);
+                }
+            } elseif ($type == 'check_duplicate') {
+                $date = isset($_GET['date']) ? $_GET['date'] : null;
+                $employee_id = isset($_GET['employee_id']) ? (int)$_GET['employee_id'] : null;
+                $exclude_id = isset($_GET['exclude_id']) ? (int)$_GET['exclude_id'] : null;
+
+                if (!$date || !$employee_id) {
+                    throw new Exception("Date and employee_id are required for duplicate check.");
+                }
+
+                $sql = "SELECT COUNT(*) as count FROM cashadvance WHERE Date = ? AND EmployeeID = ?";
+                $params = [$date, $employee_id];
+                $types = "si";
+
+                if ($exclude_id !== null) {
+                    $sql .= " AND CashAdvanceID != ?";
+                    $params[] = $exclude_id;
+                    $types .= "i";
+                }
+
+                $stmt = $conn->prepare($sql);
+                if (!$stmt) throw new Exception("Prepare failed for duplicate check: " . $conn->error);
+                $stmt->bind_param($types, ...$params);
+                $stmt->execute();
+                $result = $stmt->get_result();
+                $row = $result->fetch_assoc();
+                $exists = $row['count'] > 0;
+                $stmt->close();
+
+                echo json_encode(["exists" => $exists]);
             } else {
                 throw new Exception("Invalid type specified");
             }
-
-            $result = $conn->query($sql);
-            $data = [];
-            while ($row = $result->fetch_assoc()) {
-                $data[] = $row;
-            }
-            echo json_encode($data);
         } else {
-            $sql = "SELECT 
-                        ca.CashAdvanceID,
-                        ca.Date,
-                        ca.EmployeeID,
-                        e.EmployeeName,
-                        ca.BranchID,
-                        b.BranchName,
-                        ca.Amount
-                    FROM cashadvance ca
-                    JOIN employees e ON ca.EmployeeID = e.EmployeeID
-                    JOIN branches b ON ca.BranchID = b.BranchID";
-            $result = $conn->query($sql);
+            $user_id = isset($_GET['user_id']) ? (int)$_GET['user_id'] : null;
+            $role = isset($_GET['role']) ? $_GET['role'] : null;
+            $page = isset($_GET['page']) ? (int)$_GET['page'] : 0;
+            $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 10;
+            $branch_id = isset($_GET['branch_id']) ? (int)$_GET['branch_id'] : null;
+
+            if (!$user_id || !$role) {
+                throw new Exception("user_id and role are required for cash advance fetch.");
+            }
+
+            $offset = $page * $limit;
+
+            if ($role === 'Payroll Staff') {
+                $branchStmt = $conn->prepare("SELECT BranchID FROM UserBranches WHERE UserID = ?");
+                if (!$branchStmt) throw new Exception("Prepare failed for branch query: " . $conn->error);
+                $branchStmt->bind_param("i", $user_id);
+                $branchStmt->execute();
+                $branchResult = $branchStmt->get_result();
+                $allowedBranches = [];
+                while ($row = $branchResult->fetch_assoc()) {
+                    $allowedBranches[] = $row['BranchID'];
+                }
+                $branchStmt->close();
+
+                if (empty($allowedBranches)) {
+                    echo json_encode([
+                        "success" => true,
+                        "data" => [],
+                        "total" => 0,
+                        "page" => $page,
+                        "limit" => $limit
+                    ]);
+                    exit;
+                }
+
+                $sql = "SELECT 
+                            ca.CashAdvanceID,
+                            ca.Date,
+                            ca.EmployeeID,
+                            e.EmployeeName,
+                            ca.BranchID,
+                            b.BranchName,
+                            ca.Amount
+                        FROM cashadvance ca
+                        JOIN employees e ON ca.EmployeeID = e.EmployeeID
+                        JOIN branches b ON ca.BranchID = b.BranchID
+                        WHERE ca.BranchID IN (" . implode(',', array_fill(0, count($allowedBranches), '?')) . ")";
+                $countSql = "SELECT COUNT(*) as total 
+                            FROM cashadvance ca
+                            WHERE ca.BranchID IN (" . implode(',', array_fill(0, count($allowedBranches), '?')) . ")";
+                $types = str_repeat('i', count($allowedBranches));
+                $params = $allowedBranches;
+
+                if ($branch_id !== null) {
+                    if (!in_array($branch_id, $allowedBranches)) {
+                        throw new Exception("Selected branch is not assigned to this user.");
+                    }
+                    $sql .= " AND ca.BranchID = ?";
+                    $countSql .= " AND ca.BranchID = ?";
+                    $types .= "i";
+                    $params[] = $branch_id;
+                }
+            } else {
+                $sql = "SELECT 
+                            ca.CashAdvanceID,
+                            ca.Date,
+                            ca.EmployeeID,
+                            e.EmployeeName,
+                            ca.BranchID,
+                            b.BranchName,
+                            ca.Amount
+                        FROM cashadvance ca
+                        JOIN employees e ON ca.EmployeeID = e.EmployeeID
+                        JOIN branches b ON ca.BranchID = b.BranchID";
+                $countSql = "SELECT COUNT(*) as total FROM cashadvance ca";
+                $types = "";
+                $params = [];
+
+                if ($branch_id !== null) {
+                    $sql .= " WHERE ca.BranchID = ?";
+                    $countSql .= " WHERE ca.BranchID = ?";
+                    $types .= "i";
+                    $params[] = $branch_id;
+                }
+            }
+
+            $sql .= " ORDER BY ca.Date DESC LIMIT ? OFFSET ?";
+            $types .= "ii";
+            $params[] = $limit;
+            $params[] = $offset;
+
+            $stmt = $conn->prepare($sql);
+            if (!$stmt) throw new Exception("Prepare failed for main query: " . $conn->error);
+
+            $countStmt = $conn->prepare($countSql);
+            if (!$countStmt) throw new Exception("Prepare failed for count query: " . $conn->error);
+
+            if ($types) {
+                $stmt->bind_param($types, ...$params);
+                $countTypes = substr($types, 0, -2);
+                $countParams = array_slice($params, 0, -2);
+                if ($countTypes) {
+                    $countStmt->bind_param($countTypes, ...$countParams);
+                }
+            }
+
+            $countStmt->execute();
+            $countResult = $countStmt->get_result();
+            $total = $countResult->fetch_assoc()['total'];
+            $countStmt->close();
+
+            $stmt->execute();
+            $result = $stmt->get_result();
             $data = [];
             while ($row = $result->fetch_assoc()) {
                 $data[] = $row;
             }
-            echo json_encode($data);
+            $stmt->close();
+
+            echo json_encode([
+                "success" => true,
+                "data" => $data,
+                "total" => $total,
+                "page" => $page,
+                "limit" => $limit
+            ]);
         }
     } elseif ($method == "POST") {
         $data = json_decode(file_get_contents("php://input"), true);
         if (!$data) {
             throw new Exception("Invalid JSON data");
+        }
+
+        $user_id = isset($data['user_id']) ? (int)$data['user_id'] : null;
+        if (!$user_id) {
+            throw new Exception("User ID is required");
         }
 
         if (!empty($data["Date"]) && 
@@ -94,15 +330,27 @@ try {
                 throw new Exception("Invalid BranchID");
             }
 
-            $stmt = $conn->prepare("INSERT INTO cashadvance (Date, EmployeeID, BranchID, Amount) VALUES (?, ?, ?, ?)");
-            $stmt->bind_param("siid", $data["Date"], $data["EmployeeID"], $data["BranchID"], $data["Amount"]);
+            $conn->begin_transaction();
+            try {
+                $stmt = $conn->prepare("INSERT INTO cashadvance (Date, EmployeeID, BranchID, Amount) VALUES (?, ?, ?, ?)");
+                $stmt->bind_param("siid", $data["Date"], $data["EmployeeID"], $data["BranchID"], $data["Amount"]);
 
-            if ($stmt->execute()) {
-                echo json_encode(["success" => "Cash Advance added", "id" => $stmt->insert_id]);
-            } else {
-                throw new Exception("Failed to add cash advance: " . $stmt->error);
+                if ($stmt->execute()) {
+                    $cashAdvanceId = $conn->insert_id;
+                    $employeeName = getEmployeeNameById($conn, $data["EmployeeID"]);
+                    $formattedDate = formatDate($data["Date"]);
+                    $description = "Cash Advance for '$employeeName' on '$formattedDate' added: Amount: ₱{$data['Amount']}";
+                    logUserActivity($conn, $user_id, "ADD_DATA", "Cash Advance", $cashAdvanceId, $description);
+                    $conn->commit();
+                    echo json_encode(["success" => true, "id" => $cashAdvanceId]);
+                } else {
+                    throw new Exception("Failed to add cash advance: " . $stmt->error);
+                }
+                $stmt->close();
+            } catch (Exception $e) {
+                $conn->rollback();
+                throw $e;
             }
-            $stmt->close();
         } else {
             throw new Exception("All fields are required");
         }
@@ -110,6 +358,11 @@ try {
         $data = json_decode(file_get_contents("php://input"), true);
         if (!$data) {
             throw new Exception("Invalid JSON data");
+        }
+
+        $user_id = isset($data['user_id']) ? (int)$data['user_id'] : null;
+        if (!$user_id) {
+            throw new Exception("User ID is required");
         }
 
         if (!empty($data["CashAdvanceID"]) && 
@@ -125,15 +378,59 @@ try {
                 throw new Exception("Invalid BranchID");
             }
 
-            $stmt = $conn->prepare("UPDATE cashadvance SET Date = ?, EmployeeID = ?, BranchID = ?, Amount = ? WHERE CashAdvanceID = ?");
-            $stmt->bind_param("siidi", $data["Date"], $data["EmployeeID"], $data["BranchID"], $data["Amount"], $data["CashAdvanceID"]);
+            $conn->begin_transaction();
+            try {
+                $stmt = $conn->prepare("SELECT Date, EmployeeID, BranchID, Amount FROM cashadvance WHERE CashAdvanceID = ?");
+                $stmt->bind_param("i", $data["CashAdvanceID"]);
+                $stmt->execute();
+                $result = $stmt->get_result();
+                $currentRecord = $result->fetch_assoc();
+                $stmt->close();
 
-            if ($stmt->execute()) {
-                echo json_encode(["success" => "Cash Advance updated"]);
-            } else {
-                throw new Exception("Failed to update cash advance: " . $stmt->error);
+                if (!$currentRecord) {
+                    throw new Exception("Cash Advance record with ID {$data['CashAdvanceID']} not found.");
+                }
+
+                $changes = [];
+                if ($currentRecord["Date"] != $data["Date"]) {
+                    $oldDate = formatDate($currentRecord["Date"]);
+                    $newDate = formatDate($data["Date"]);
+                    $changes[] = "Date from '$oldDate' to '$newDate'";
+                }
+                if ($currentRecord["EmployeeID"] != $data["EmployeeID"]) {
+                    $oldEmployeeName = getEmployeeNameById($conn, $currentRecord["EmployeeID"]);
+                    $newEmployeeName = getEmployeeNameById($conn, $data["EmployeeID"]);
+                    $changes[] = "Employee from '$oldEmployeeName' to '$newEmployeeName'";
+                }
+                if ($currentRecord["BranchID"] != $data["BranchID"]) {
+                    $oldBranchName = getBranchNameById($conn, $currentRecord["BranchID"]);
+                    $newBranchName = getBranchNameById($conn, $data["BranchID"]);
+                    $changes[] = "Branch from '$oldBranchName' to '$newBranchName'";
+                }
+                if ($currentRecord["Amount"] != $data["Amount"]) {
+                    $changes[] = "Amount from '₱{$currentRecord['Amount']}' to '₱{$data['Amount']}'";
+                }
+
+                $stmt = $conn->prepare("UPDATE cashadvance SET Date = ?, EmployeeID = ?, BranchID = ?, Amount = ? WHERE CashAdvanceID = ?");
+                $stmt->bind_param("siidi", $data["Date"], $data["EmployeeID"], $data["BranchID"], $data["Amount"], $data["CashAdvanceID"]);
+
+                if ($stmt->execute()) {
+                    $employeeName = getEmployeeNameById($conn, $data["EmployeeID"]);
+                    $formattedDate = formatDate($data["Date"]);
+                    $description = empty($changes)
+                        ? "Cash Advance for '$employeeName' on '$formattedDate' updated: No changes made"
+                        : "Cash Advance for '$employeeName' on '$formattedDate' updated: " . implode('/ ', $changes);
+                    logUserActivity($conn, $user_id, "UPDATE_DATA", "Cash Advance", $data["CashAdvanceID"], $description);
+                    $conn->commit();
+                    echo json_encode(["success" => true]);
+                } else {
+                    throw new Exception("Failed to update cash advance: " . $stmt->error);
+                }
+                $stmt->close();
+            } catch (Exception $e) {
+                $conn->rollback();
+                throw $e;
             }
-            $stmt->close();
         } else {
             throw new Exception("All fields are required");
         }
@@ -143,16 +440,43 @@ try {
             throw new Exception("Invalid JSON data");
         }
 
-        if (!empty($data["CashAdvanceID"])) {
-            $stmt = $conn->prepare("DELETE FROM cashadvance WHERE CashAdvanceID = ?");
-            $stmt->bind_param("i", $data["CashAdvanceID"]);
+        $user_id = isset($data['user_id']) ? (int)$data['user_id'] : null;
+        if (!$user_id) {
+            throw new Exception("User ID is required");
+        }
 
-            if ($stmt->execute()) {
-                echo json_encode(["success" => "Cash Advance deleted"]);
-            } else {
-                throw new Exception("Failed to delete cash advance: " . $stmt->error);
+        if (!empty($data["CashAdvanceID"])) {
+            $conn->begin_transaction();
+            try {
+                $stmt = $conn->prepare("SELECT Date, EmployeeID, Amount FROM cashadvance WHERE CashAdvanceID = ?");
+                $stmt->bind_param("i", $data["CashAdvanceID"]);
+                $stmt->execute();
+                $result = $stmt->get_result();
+                $record = $result->fetch_assoc();
+                $stmt->close();
+
+                if (!$record) {
+                    throw new Exception("Cash Advance record with ID {$data['CashAdvanceID']} not found.");
+                }
+
+                $stmt = $conn->prepare("DELETE FROM cashadvance WHERE CashAdvanceID = ?");
+                $stmt->bind_param("i", $data["CashAdvanceID"]);
+
+                if ($stmt->execute()) {
+                    $employeeName = getEmployeeNameById($conn, $record["EmployeeID"]);
+                    $formattedDate = formatDate($record["Date"]);
+                    $description = "Cash Advance for '$employeeName' on '$formattedDate' deleted: Amount: ₱{$record['Amount']}";
+                    logUserActivity($conn, $user_id, "DELETE_DATA", "Cash Advance", $data["CashAdvanceID"], $description);
+                    $conn->commit();
+                    echo json_encode(["success" => true]);
+                } else {
+                    throw new Exception("Failed to delete cash advance: " . $stmt->error);
+                }
+                $stmt->close();
+            } catch (Exception $e) {
+                $conn->rollback();
+                throw $e;
             }
-            $stmt->close();
         } else {
             throw new Exception("Cash Advance ID is required");
         }

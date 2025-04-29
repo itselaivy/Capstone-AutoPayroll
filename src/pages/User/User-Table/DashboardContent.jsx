@@ -1,48 +1,96 @@
+// Import React hooks for state and lifecycle management
 import React, { useState, useEffect } from 'react';
+// Import Ant Design components for UI
 import { Card, Row, Col, Statistic, Typography, Select, Space, Button, message, Spin, Modal } from 'antd';
+// Import Recharts components for charts
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   PieChart, Pie, Cell, LineChart, Line,
 } from 'recharts';
-import { ShopOutlined, TeamOutlined, ClockCircleOutlined, WarningOutlined, RightOutlined, DownloadOutlined } from '@ant-design/icons';
+// Import Ant Design icons
+import { ShopOutlined, TeamOutlined, ClockCircleOutlined, WarningOutlined, RightOutlined, DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
+// Import React Router hook for navigation
 import { useNavigate } from 'react-router-dom';
+// Import CountUp for animated number counting
 import CountUp from 'react-countup';
+// Import jsPDF and autoTable for PDF generation
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+// Import custom CSS for styling
 import './DashboardDesign.css';
 
+// Destructure Typography components from Ant Design
 const { Title, Text } = Typography;
+// Destructure Option from Select component
 const { Option } = Select;
 
+// Define the Dashboard component
 const Dashboard = () => {
+  // State for dashboard statistics (branches, employees, on-time, late)
   const [dashboardStats, setDashboardStats] = useState({
     branches: 0,
     employees: 0,
     onTimeToday: 0,
     lateToday: 0,
   });
+  // State for monthly attendance data
   const [monthlyAttendance, setMonthlyAttendance] = useState([]);
+  // State for yearly trend data
   const [trendData, setTrendData] = useState([]);
-  const [topPerformers, setTopPerformers] = useState([]);
-  const [modalData, setModalData] = useState(null);
+  // State for branch data
   const [branches, setBranches] = useState([]);
+  // State for selected year filter
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  // State for selected month filter
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
+  // State for selected branch filter
   const [selectedBranch, setSelectedBranch] = useState('all');
+  // State for sort order of attendance data
   const [sortOrder, setSortOrder] = useState('asc');
-  const [topPerformersYear, setTopPerformersYear] = useState(new Date().getFullYear());
-  const [topPerformersMonth, setTopPerformersMonth] = useState(new Date().getMonth() + 1);
-  const [topPerformersBranch, setTopPerformersBranch] = useState('all');
+  // State for modal data (attendance details)
+  const [modalData, setModalData] = useState(null);
+  // State for loading indicator
   const [loading, setLoading] = useState(false);
+  // State for error messages
   const [error, setError] = useState(null);
+  // State for last refresh time
+  const [lastRefresh, setLastRefresh] = useState(null);
 
+  // Base URL for API requests
   const API_BASE_URL = "http://localhost/UserTableDB/UserDB";
+  // Get user role from localStorage
+  const role = localStorage.getItem('role');
+  // Get user ID from localStorage
+  const userId = localStorage.getItem('userId');
+  // Hook for navigation
   const navigate = useNavigate();
 
+  // Function to handle refreshing all dashboard data
+  const handleRefresh = () => {
+    setLoading(true);
+    Promise.all([
+      fetchDashboardStats(),
+      fetchBranches(),
+      fetchMonthlyAttendance(),
+      fetchTrends(),
+    ])
+      .then(() => {
+        setLastRefresh(new Date().toLocaleTimeString('en-US', { hour12: true }));
+        message.success("Dashboard refreshed");
+      })
+      .catch((err) => {
+        console.error("Refresh Error:", err);
+        message.error("Failed to refresh dashboard");
+      })
+      .finally(() => setLoading(false));
+  };
+
+  // Function to fetch dashboard statistics
   const fetchDashboardStats = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/fetch_dashboard_stats.php`, { cache: 'no-store' });
+      const url = `${API_BASE_URL}/fetch_dashboard_stats.php?user_id=${userId}&role=${encodeURIComponent(role)}`;
+      const res = await fetch(url, { cache: 'no-store' });
       if (!res.ok) throw new Error(`Stats fetch failed: ${res.statusText}`);
       const data = await res.json();
       setDashboardStats({
@@ -61,56 +109,100 @@ const Dashboard = () => {
     }
   };
 
+  // Function to fetch branch data
   const fetchBranches = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/fetch_branches.php`, { cache: 'no-store' });
+      const res = await fetch(`${API_BASE_URL}/fetch_branches.php?user_id=${userId}&role=${encodeURIComponent(role)}`, {
+        cache: 'no-store',
+      });
       if (!res.ok) throw new Error(`Branches fetch failed: ${res.statusText}`);
-      const data = await res.json();
-      setBranches(data || []);
+      const response = await res.json();
+      if (!response.success || !Array.isArray(response.data)) {
+        throw new Error(response.error || 'Invalid branches data format');
+      }
+      const formattedBranches = response.data.map(branch => ({
+        BranchID: branch.BranchID,
+        BranchName: branch.BranchName || 'Unknown Branch',
+      })).filter(branch => branch.BranchID != null);
+      setBranches(formattedBranches);
       setError(null);
     } catch (err) {
       console.error("Fetch Branches Error:", err.message);
       setError("Failed to fetch branches");
       message.error("Error fetching branches");
+      setBranches([]);
     } finally {
       setLoading(false);
     }
   };
 
+  // Function to fetch monthly attendance
   const fetchMonthlyAttendance = async () => {
     setLoading(true);
     try {
-      const url = selectedMonth === 'all'
-        ? `${API_BASE_URL}/fetch_attendance.php?year=${selectedYear}&branch=${selectedBranch}`
-        : `${API_BASE_URL}/fetch_attendance.php?month=${selectedMonth}&year=${selectedYear}&branch=${selectedBranch}`;
-      const res = await fetch(url, { cache: 'no-store' });
+      const url = new URL(`${API_BASE_URL}/fetch_attendance.php`);
+      url.searchParams.append('year', selectedYear);
+      if (selectedMonth !== 'all') {
+        url.searchParams.append('month', selectedMonth);
+      }
+      if (selectedBranch !== 'all') {
+        url.searchParams.append('branch', selectedBranch);
+      }
+      url.searchParams.append('user_id', userId);
+      url.searchParams.append('role', encodeURIComponent(role));
+
+      const res = await fetch(url, {
+        cache: 'no-store',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
       if (!res.ok) throw new Error(`Attendance fetch failed: ${res.statusText}`);
       const data = await res.json();
-      const attendance = (data || []).map(item => ({
+      console.log('Monthly Attendance Response:', data);
+
+      if (!Array.isArray(data)) {
+        throw new Error('Invalid response format from server: expected array');
+      }
+
+      const attendance = data.map(item => ({
         date: item.date || 'Unknown',
-        onTime: item.onTime || 0,
-        late: item.late || 0,
+        onTime: Number(item.onTime) || 0,
+        late: Number(item.late) || 0,
       }));
-      attendance.sort((a, b) => (sortOrder === 'asc' ? a.date.localeCompare(b.date) : b.date.localeCompare(a.date)));
+
+      attendance.sort((a, b) =>
+        sortOrder === 'asc'
+          ? a.date.localeCompare(b.date)
+          : b.date.localeCompare(a.date)
+      );
+
       setMonthlyAttendance(attendance);
       setError(null);
     } catch (err) {
       console.error("Fetch Attendance Error:", err.message);
-      setError("Failed to fetch attendance data");
-      message.error("Error fetching attendance");
+      setError(`Failed to fetch attendance data: ${err.message}`);
+      message.error("Error fetching attendance data");
+      setMonthlyAttendance([]);
     } finally {
       setLoading(false);
     }
   };
 
+  // Function to fetch yearly attendance trends
   const fetchTrends = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/fetch_trends.php?year=${selectedYear}&branch=${selectedBranch}`, { cache: 'no-store' });
+      const res = await fetch(`${API_BASE_URL}/fetch_trends.php?year=${selectedYear}&branch=${selectedBranch}&user_id=${userId}&role=${encodeURIComponent(role)}`, { cache: 'no-store' });
       if (!res.ok) throw new Error(`Trends fetch failed: ${res.statusText}`);
       const data = await res.json();
-      setTrendData((data || []).map(item => ({ month: item.month || '', onTime: item.onTime || 0, late: item.late || 0 })));
+      setTrendData((data || []).map(item => ({
+        month: item.month || '',
+        onTime: item.onTime || 0,
+        late: item.late || 0,
+      })));
       setError(null);
     } catch (err) {
       console.error("Fetch Trends Error:", err.message);
@@ -121,30 +213,11 @@ const Dashboard = () => {
     }
   };
 
-  const fetchTopPerformers = async () => {
-    setLoading(true);
-    try {
-      const url = topPerformersMonth === 'all'
-        ? `${API_BASE_URL}/top_performers.php?year=${topPerformersYear}&branch=${topPerformersBranch}`
-        : `${API_BASE_URL}/top_performers.php?month=${topPerformersMonth}&year=${topPerformersYear}&branch=${topPerformersBranch}`;
-      const res = await fetch(url, { cache: 'no-store' });
-      if (!res.ok) throw new Error(`Top performers fetch failed: ${res.statusText}`);
-      const data = await res.json();
-      setTopPerformers(data || []);
-      setError(null);
-    } catch (err) {
-      console.error("Fetch Top Performers Error:", err.message);
-      setError("Failed to fetch top performers");
-      message.error("Error fetching top performers");
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // Function to fetch detailed attendance for a specific date
   const fetchDetails = async (date) => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/details.php?date=${date}&branch=${selectedBranch}`, { cache: 'no-store' });
+      const res = await fetch(`${API_BASE_URL}/details.php?date=${date}&branch=${selectedBranch}&user_id=${userId}&role=${encodeURIComponent(role)}`, { cache: 'no-store' });
       if (!res.ok) throw new Error(`Details fetch failed: ${res.statusText}`);
       const data = await res.json();
       setModalData(data || { date, employees: [] });
@@ -157,23 +230,12 @@ const Dashboard = () => {
     }
   };
 
+  // Effect hook to fetch data on mount and when filters change
   useEffect(() => {
-    fetchDashboardStats();
-    fetchBranches();
-    fetchMonthlyAttendance();
-    fetchTrends();
-    fetchTopPerformers();
+    handleRefresh();
+  }, [selectedYear, selectedMonth, selectedBranch, sortOrder]);
 
-    const interval = setInterval(() => {
-      fetchDashboardStats();
-      fetchMonthlyAttendance();
-      fetchTrends();
-      fetchTopPerformers();
-    }, 30000);
-
-    return () => clearInterval(interval);
-  }, [selectedYear, selectedMonth, selectedBranch, sortOrder, topPerformersYear, topPerformersMonth, topPerformersBranch]);
-
+  // Styles for card icons
   const iconStyles = {
     position: 'absolute',
     top: 10,
@@ -183,13 +245,16 @@ const Dashboard = () => {
     color: '#fff',
   };
 
+  // Data for the PieChart (today's attendance summary)
   const pieData = [
     { name: 'On-Time', value: dashboardStats.onTimeToday },
     { name: 'Late', value: dashboardStats.lateToday },
   ];
 
+  // Colors for PieChart segments
   const COLORS = ['#52c41a', '#ff4d4f'];
 
+  // Function to generate and download attendance report PDF
   const downloadAttendancePDF = () => {
     if (monthlyAttendance.length === 0) {
       message.warning("No attendance data available to download");
@@ -202,7 +267,7 @@ const Dashboard = () => {
       doc.text('Attendance Report', 14, 20);
       doc.setFontSize(12);
       doc.text(`Period: ${selectedMonth === 'all' ? 'All Months' : new Date(0, selectedMonth - 1).toLocaleString('default', { month: 'long' })} ${selectedYear}`, 14, 30);
-      doc.text(`Branch: ${selectedBranch === 'all' ? 'All Branches' : branches.find(b => b.key === selectedBranch)?.BranchName || 'Unknown'}`, 14, 40);
+      doc.text(`Branch: ${selectedBranch === 'all' ? 'All Branches' : branches.find(b => b.BranchID === parseInt(selectedBranch))?.BranchName || 'Unknown'}`, 14, 40);
       doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 50);
 
       autoTable(doc, {
@@ -227,6 +292,7 @@ const Dashboard = () => {
     }
   };
 
+  // Function to handle BarChart click (fetch details)
   const handleBarClick = (data) => {
     if (data && data.activePayload && data.activePayload[0]) {
       const date = data.activePayload[0].payload.date;
@@ -234,12 +300,38 @@ const Dashboard = () => {
     }
   };
 
+  // Render the component
   return (
-    <div className="dashboard-container">
-      <Title level={2} className="dashboard-title" style={{ fontFamily: 'Poppins, sans-serif' }}>Dashboard</Title>
+    <div className="dashboard-container fade-in" style={{ fontFamily: 'Poppins, sans-serif' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <Title level={2} className="dashboard-title" style={{ fontFamily: 'Poppins, sans-serif', margin: 0 }}>
+          Dashboard
+        </Title>
+        <Space>
+          {lastRefresh && (
+            <Text type="secondary" style={{ fontFamily: 'Poppins, sans-serif' }}>
+              Last refreshed: {lastRefresh}
+            </Text>
+          )}
+          <Button
+            icon={<ReloadOutlined />}
+            onClick={handleRefresh}
+            loading={loading}
+            style={{
+              backgroundColor: '#001569',
+              borderColor: '#001569',
+              color: '#fff',
+              fontFamily: 'Poppins, sans-serif',
+            }}
+          >
+            Refresh
+          </Button>
+        </Space>
+      </div>
       {loading && <Spin tip="Loading data..." style={{ display: 'block', textAlign: 'center', margin: '20px 0', fontFamily: 'Poppins, sans-serif' }} />}
       {error && <Text type="danger" style={{ display: 'block', textAlign: 'center', margin: '20px 0', fontFamily: 'Poppins, sans-serif' }}>{error}</Text>}
 
+      {/* Dashboard Cards */}
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={12} md={6}>
           <Card className="modern-card" style={{ background: 'linear-gradient(135deg, #055DAF 0%, #054a8f 100%)' }}>
@@ -311,11 +403,14 @@ const Dashboard = () => {
         </Col>
       </Row>
 
+      {/* Yearly Attendance Trends */}
       <Row gutter={[16, 16]} style={{ marginTop: 24 }}>
         <Col xs={24}>
           <Card className="attendance-widget full-width">
-            <div className="widget-header">
-              <Title level={4} className="widget-title" style={{ fontFamily: 'Poppins, sans-serif' }}>Yearly Attendance Trends ({selectedYear})</Title>
+            <div className="widget-header" style={{ backgroundColor: '#1A3C6D' }}>
+              <Title level={3} className="widget-title" style={{ fontFamily: 'Poppins, sans-serif', color: '#fff' }}>
+                Yearly Attendance Trends ({selectedYear})
+              </Title>
             </div>
             <ResponsiveContainer width="100%" height={350}>
               <LineChart data={trendData} margin={{ top: 20, right: 30, left: 20, bottom: 10 }}>
@@ -332,37 +427,59 @@ const Dashboard = () => {
         </Col>
       </Row>
 
+      {/* Monthly Attendance Overview and Today's Summary */}
       <Row gutter={[16, 16]} style={{ marginTop: 24 }}>
         <Col xs={24} lg={16}>
-          <Card className="attendance-widget">
-            <div className="widget-header">
-              <Title level={4} className="widget-title" style={{ fontFamily: 'Poppins, sans-serif' }}>
+          <Card className="monthly-attendance-widget">
+            <div className="monthly-widget-header" style={{ backgroundColor: '#1A3C6D' }}>
+              <Title level={3} className="widget-title" style={{ fontFamily: 'Poppins, sans-serif', color: '#fff' }}>
                 {selectedMonth === 'all' ? 'Yearly' : 'Monthly'} Attendance Overview
               </Title>
               <Space>
-                <Select value={selectedYear} onChange={setSelectedYear} style={{ width: 100, fontFamily: 'Poppins, sans-serif' }}>
+                <Select
+                  value={selectedYear}
+                  onChange={setSelectedYear}
+                  style={{ width: 100, fontFamily: 'Poppins, sans-serif' }}
+                >
                   {Array.from({ length: 5 }, (_, i) => {
                     const year = new Date().getFullYear() - i;
-                    return <Option key={year} value={year} style={{ fontFamily: 'Poppins, sans-serif' }}>{year}</Option>;
+                    return <Option key={year} value={year}>{year}</Option>;
                   })}
                 </Select>
-                <Select value={selectedMonth} onChange={setSelectedMonth} style={{ width: 120, fontFamily: 'Poppins, sans-serif' }}>
-                  <Option value="all" style={{ fontFamily: 'Poppins, sans-serif' }}>All Months</Option>
+                <Select
+                  value={selectedMonth}
+                  onChange={setSelectedMonth}
+                  style={{ width: 120, fontFamily: 'Poppins, sans-serif' }}
+                >
+                  <Option value="all">All Months</Option>
                   {Array.from({ length: 12 }, (_, i) => (
-                    <Option key={i + 1} value={i + 1} style={{ fontFamily: 'Poppins, sans-serif' }}>
+                    <Option key={i + 1} value={i + 1}>
                       {new Date(0, i).toLocaleString('default', { month: 'long' })}
                     </Option>
                   ))}
                 </Select>
-                <Select value={selectedBranch} onChange={setSelectedBranch} style={{ width: 150, fontFamily: 'Poppins, sans-serif' }}>
-                  <Option value="all" style={{ fontFamily: 'Poppins, sans-serif' }}>All Branches</Option>
+                <Select
+                  value={selectedBranch}
+                  onChange={(value) => {
+                    setSelectedBranch(value);
+                  }}
+                  style={{ width: 150, fontFamily: 'Poppins, sans-serif' }}
+                  placeholder="Select Branch"
+                >
+                  <Option value="all">All Branches</Option>
                   {branches.map(branch => (
-                    <Option key={branch.key} value={branch.key} style={{ fontFamily: 'Poppins, sans-serif' }}>{branch.BranchName}</Option>
+                    <Option key={branch.BranchID} value={String(branch.BranchID)}>
+                      {branch.BranchName}
+                    </Option>
                   ))}
                 </Select>
-                <Select value={sortOrder} onChange={setSortOrder} style={{ width: 100, fontFamily: 'Poppins, sans-serif' }}>
-                  <Option value="asc" style={{ fontFamily: 'Poppins, sans-serif' }}>Date Asc</Option>
-                  <Option value="desc" style={{ fontFamily: 'Poppins, sans-serif' }}>Date Desc</Option>
+                <Select
+                  value={sortOrder}
+                  onChange={setSortOrder}
+                  style={{ width: 100, fontFamily: 'Poppins, sans-serif' }}
+                >
+                  <Option value="asc">Date Asc</Option>
+                  <Option value="desc">Date Desc</Option>
                 </Select>
                 <Button
                   icon={<DownloadOutlined />}
@@ -374,14 +491,17 @@ const Dashboard = () => {
                     color: '#fff',
                     fontFamily: 'Poppins, sans-serif',
                   }}
-                  className="custom-download-btn"
                 >
                   Download
                 </Button>
               </Space>
             </div>
-            <ResponsiveContainer width="100%" height={350}>
-              <BarChart data={monthlyAttendance} margin={{ top: 20, right: 30, left: 20, bottom: 10 }} onClick={handleBarClick}>
+            <ResponsiveContainer width="100%" height={350} style={{ marginTop: 30 }}>
+              <BarChart
+                data={monthlyAttendance}
+                margin={{ top: 20, right: 30, left: 20, bottom: 10 }}
+                onClick={handleBarClick}
+              >
                 <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
                 <XAxis dataKey="date" stroke="#6B7280" fontSize={12} tick={{ fontFamily: 'Poppins, sans-serif' }} />
                 <YAxis stroke="#6B7280" fontSize={12} tick={{ fontFamily: 'Poppins, sans-serif' }} />
@@ -394,11 +514,13 @@ const Dashboard = () => {
           </Card>
         </Col>
         <Col xs={24} lg={8}>
-          <Card className="attendance-widget">
-            <div className="widget-header">
-              <Title level={4} className="widget-title" style={{ fontFamily: 'Poppins, sans-serif' }}>Today's Attendance Summary</Title>
+          <Card className="monthly-attendance-widget">
+            <div className="monthly-widget-header" style={{ backgroundColor: '#1A3C6D' }}>
+              <Title level={3} className="widget-title" style={{ fontFamily: 'Poppins, sans-serif', color: '#fff' }}>
+                Today's Attendance Summary
+              </Title>
             </div>
-            <ResponsiveContainer width="100%" height={350}>
+            <ResponsiveContainer width="100%" height={350} style={{ marginTop: 30 }}>
               <PieChart>
                 <Pie data={pieData} cx="50%" cy="50%" outerRadius={100} dataKey="value" label={{ fontFamily: 'Poppins, sans-serif' }}>
                   {pieData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
@@ -411,89 +533,14 @@ const Dashboard = () => {
         </Col>
       </Row>
 
-      <Row gutter={[16, 16]} style={{ marginTop: 24 }}>
-        <Col xs={24}>
-          <Card className="attendance-widget">
-            <div className="widget-header">
-              <Title level={4} className="widget-title" style={{ fontFamily: 'Poppins, sans-serif' }}>Top Performers</Title>
-              <Space>
-                <Select
-                  value={topPerformersYear}
-                  onChange={setTopPerformersYear}
-                  style={{ width: 100, fontFamily: 'Poppins, sans-serif' }}
-                >
-                  {Array.from({ length: 5 }, (_, i) => {
-                    const year = new Date().getFullYear() - i;
-                    return <Option key={year} value={year} style={{ fontFamily: 'Poppins, sans-serif' }}>{year}</Option>;
-                  })}
-                </Select>
-                <Select
-                  value={topPerformersMonth}
-                  onChange={setTopPerformersMonth}
-                  style={{ width: 120, fontFamily: 'Poppins, sans-serif' }}
-                >
-                  <Option value="all" style={{ fontFamily: 'Poppins, sans-serif' }}>All Months</Option>
-                  {Array.from({ length: 12 }, (_, i) => (
-                    <Option key={i + 1} value={i + 1} style={{ fontFamily: 'Poppins, sans-serif' }}>
-                      {new Date(0, i).toLocaleString('default', { month: 'long' })}
-                    </Option>
-                  ))}
-                </Select>
-                <Select
-                  value={topPerformersBranch}
-                  onChange={setTopPerformersBranch}
-                  style={{ width: 150, fontFamily: 'Poppins, sans-serif' }}
-                >
-                  <Option value="all" style={{ fontFamily: 'Poppins, sans-serif' }}>All Branches</Option>
-                  {branches.map(branch => (
-                    <Option key={branch.key} value={branch.key} style={{ fontFamily: 'Poppins, sans-serif' }}>{branch.BranchName}</Option>
-                  ))}
-                </Select>
-              </Space>
-            </div>
-            <div style={{ marginTop: 16 }}>
-              {topPerformers.length > 0 ? (
-                <div style={{ border: '1px solid #E5E7EB', borderRadius: 4, overflow: 'hidden' }}>
-                  <Row style={{ background: '#1A3C6D', color: '#fff', padding: '8px 16px', fontFamily: 'Poppins, sans-serif', fontWeight: 500 }}>
-                    <Col span={16}>Employee Name</Col>
-                    <Col span={8} style={{ textAlign: 'right' }}>On-Time Rate</Col>
-                  </Row>
-                  {topPerformers.map((p, index) => (
-                    <Row
-                      key={index}
-                      style={{
-                        padding: '12px 16px',
-                        background: index % 2 === 0 ? '#fff' : '#F9FAFB',
-                        borderTop: '1px solid #E5E7EB',
-                        fontFamily: 'Poppins, sans-serif',
-                      }}
-                    >
-                      <Col span={16}>{p.name || 'Unknown'}</Col>
-                      <Col span={8} style={{ textAlign: 'right' }}>
-                        <Text strong type={p.onTimeRate >= 90 ? 'success' : p.onTimeRate >= 75 ? 'warning' : 'danger'} style={{ fontFamily: 'Poppins, sans-serif' }}>
-                          {p.onTimeRate || 0}%
-                        </Text>
-                      </Col>
-                    </Row>
-                  ))}
-                </div>
-              ) : (
-                <Text style={{ fontFamily: 'Poppins, sans-serif', display: 'block', textAlign: 'center', padding: 16 }}>
-                  No data available
-                </Text>
-              )}
-            </div>
-          </Card>
-        </Col>
-      </Row>
-
+      {/* Modal for Attendance Details */}
       <Modal
         title={<span style={{ fontSize: '22px', fontWeight: 'bold', fontFamily: 'Poppins, sans-serif' }}>{`Attendance Details - ${modalData?.date || ''}`}</span>}
         open={!!modalData}
         onCancel={() => setModalData(null)}
         footer={null}
         centered
-        bodyStyle={{ padding: '20px', fontFamily: 'Poppins, sans-serif' }}
+        styles={{ body: { padding: '20px', fontFamily: 'Poppins, sans-serif' } }}
       >
         {modalData && modalData.employees ? (
           <ul style={{ fontFamily: 'Poppins, sans-serif', listStyleType: 'none', padding: 0 }}>
@@ -511,4 +558,5 @@ const Dashboard = () => {
   );
 };
 
+// Export the component
 export default Dashboard;

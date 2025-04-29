@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Layout, Menu, Modal } from 'antd';
+import { Layout, Menu, Modal, message } from 'antd';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   UserOutlined,
@@ -64,10 +64,45 @@ const UserSidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysS
     setIsModalVisible(true);
   };
 
-  const handleLogoutConfirm = () => {
-    localStorage.removeItem('authToken');
-    navigate('/login');
-    setIsModalVisible(false);
+  const logLogout = async (userId) => {
+    if (!userId) {
+      console.error('User ID not found in localStorage');
+      return false;
+    }
+
+    try {
+      const response = await fetch('http://localhost/UserTableDB/UserDB/fetch_logout.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to log logout');
+      }
+      console.log('Logout logged:', data);
+      return true;
+    } catch (error) {
+      console.error('Error logging logout:', error.message);
+      return false;
+    }
+  };
+
+  const handleLogoutConfirm = async () => {
+    const userId = localStorage.getItem('userId');
+    const loggedOut = await logLogout(userId);
+
+    if (loggedOut) {
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('userId');
+      navigate('/login');
+      setIsModalVisible(false);
+      message.success('Logged out successfully!');
+    } else {
+      message.error('Failed to log logout activity. Please try again.');
+    }
   };
 
   const handleLogoutCancel = () => {

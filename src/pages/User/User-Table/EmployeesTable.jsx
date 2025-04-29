@@ -1,9 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Modal, Space, Table, Button, Input, Form, message, Select, Typography } from 'antd';
-import { 
-  EyeOutlined, EditOutlined, DeleteOutlined, PlusOutlined, 
-  SearchOutlined 
-} from '@ant-design/icons';
+import { Modal, Space, Table, Button, Input, Form, message, Select, Typography, Pagination, DatePicker, Tooltip } from 'antd';
+import { EyeOutlined, EditOutlined, DeleteOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons';
+import moment from 'moment';
 import './UserTable.css';
 
 const { Column } = Table;
@@ -11,592 +9,756 @@ const { Option } = Select;
 const { Title } = Typography;
 
 const EmployeesTable = () => {
-  const [searchText, setSearchText] = useState('');
-  const [selectedBranch, setSelectedBranch] = useState('all');
-  const [selectedPosition, setSelectedPosition] = useState('all');
-  const [selectedMemberSinceMonth, setSelectedMemberSinceMonth] = useState('all');
-  const [selectedMemberSinceDay, setSelectedMemberSinceDay] = useState('all');
-  const [selectedMemberSinceYear, setSelectedMemberSinceYear] = useState('all');
-  const [data, setData] = useState([]);
-  const [filteredData, setFilteredData] = useState([]);
-  const [screenWidth, setScreenWidth] = useState(window.innerWidth);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [modalType, setModalType] = useState('');
-  const [selectedEmployee, setSelectedEmployee] = useState(null);
-  const [form] = Form.useForm();
-  const [branches, setBranches] = useState([]);
-  const [positions, setPositions] = useState([]);
-  const [schedules, setSchedules] = useState([]);
-  const [dropdownsLoaded, setDropdownsLoaded] = useState(false);
+    const [searchText, setSearchText] = useState('');
+    const [selectedBranch, setSelectedBranch] = useState(null);
+    const [selectedPosition, setSelectedPosition] = useState(null);
+    const [data, setData] = useState([]);
+    const [filteredData, setFilteredData] = useState([]);
+    const [screenWidth, setScreenWidth] = useState(window.innerWidth);
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [modalType, setModalType] = useState('');
+    const [selectedEmployee, setSelectedEmployee] = useState(null);
+    const [form] = Form.useForm();
+    const [branches, setBranches] = useState([]);
+    const [positions, setPositions] = useState([]);
+    const [schedules, setSchedules] = useState([]);
+    const [assignedBranches, setAssignedBranches] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [pageSize, setPageSize] = useState(10);
+    const [paginationTotal, setPaginationTotal] = useState(0);
+    const [allowances, setAllowances] = useState([]);
+    const [deductions, setDeductions] = useState([]);
 
-  const API_BASE_URL = "http://localhost/UserTableDB/UserDB";
+    const API_BASE_URL = "http://localhost/UserTableDB/UserDB";
+    const userId = localStorage.getItem('userId');
+    const role = localStorage.getItem('role');
 
-  const fetchDropdownData = async () => {
-    try {
-      const [branchesRes, positionsRes, schedulesRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/fetch_employees.php?type=branches`),
-        fetch(`${API_BASE_URL}/fetch_employees.php?type=positions`),
-        fetch(`${API_BASE_URL}/fetch_employees.php?type=schedules`)
-      ]);
+    const formatDateToMMDDYYYY = (dateString) => {
+        if (!dateString) return 'N/A';
+        const [year, month, day] = dateString.split('-');
+        return `${month}/${day.padStart(2, '0')}/${year}`;
+    };
 
-      const branchesData = await branchesRes.json();
-      const positionsData = await positionsRes.json();
-      const schedulesData = await schedulesRes.json();
+    const formatMoney = (amount) => {
+        return Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    };
 
-      console.log('Branches:', branchesData);
-      console.log('Positions:', positionsData);
-      console.log('Schedules:', schedulesData);
+    const fetchDropdownData = async () => {
+        setLoading(true);
+        try {
+            if (!userId || isNaN(parseInt(userId)) || !role || role.trim() === '') {
+                throw new Error('Missing or invalid userId or role. Please log in again.');
+            }
 
-      setBranches(branchesData);
-      setPositions(positionsData);
-      setSchedules(schedulesData);
-      setDropdownsLoaded(true);
-    } catch (err) {
-      console.error("Error fetching dropdown data:", err);
-      message.error("Failed to load dropdown options. Please refresh.");
-    }
-  };
+            const fetchBranches = async () => {
+                try {
+                    let url;
+                    if (role === 'Payroll Staff') {
+                        url = `${API_BASE_URL}/fetch_branches.php?user_id=${encodeURIComponent(userId)}&role=${encodeURIComponent(role)}`;
+                    } else {
+                        url = `${API_BASE_URL}/fetch_employees.php?type=branches&user_id=${encodeURIComponent(userId)}&role=${encodeURIComponent(role)}`;
+                    }
+                    const res = await fetch(url);
+                    if (!res.ok) {
+                        throw new Error(`Failed to fetch branches: ${res.status}`);
+                    }
+                    const response = await res.json();
 
-  useEffect(() => {
-    fetchDropdownData();
-  }, []);
+                    console.log("Fetch Branches Response:", response);
 
-  const fetchData = () => {
-    fetch(`${API_BASE_URL}/fetch_employees.php`)
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to fetch data");
-        return res.json();
-      })
-      .then((data) => {
-        const mappedData = data.map(employee => ({
-          "Employee ID": employee.key,
-          "Employee Name": employee.EmployeeName,
-          "Branch Name": employee.BranchName,
-          "Position Title": employee.PositionTitle,
-          "Schedule": employee.Schedule,
-          "Member Since": employee.MemberSince,
-          key: employee.key,
-          EmployeeName: employee.EmployeeName,
-          BranchID: Number(employee.BranchID),
-          PositionID: Number(employee.PositionID),
-          ScheduleID: Number(employee.ScheduleID),
-          MemberSince: employee.MemberSince
-        }));
-        console.log('Mapped Employee Data:', mappedData);
-        setData(mappedData);
-        setFilteredData(mappedData);
-      })
-      .catch((err) => {
-        console.error("Error fetching data:", err);
-        message.error("Failed to load employee data. Please refresh.");
-      });
-  };
+                    if (role === 'Payroll Staff' && !response.success) {
+                        throw new Error(response.error || 'Failed to fetch assigned branches');
+                    }
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+                    const branchesData = role === 'Payroll Staff' ? response.data : response;
+                    if (!Array.isArray(branchesData)) {
+                        throw new Error('Invalid response format for branches');
+                    }
 
-  useEffect(() => {
-    const handleResize = () => setScreenWidth(window.innerWidth);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
+                    const mappedBranches = branchesData.map(branch => ({
+                        BranchID: Number(branch.BranchID),
+                        BranchName: branch.BranchName
+                    }));
 
-  const monthNames = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December"
-  ];
+                    console.log("Mapped Branches:", mappedBranches);
+                    setBranches(mappedBranches);
+                    setAssignedBranches(mappedBranches);
+                } catch (err) {
+                    console.error("Fetch Branches Error:", err.message);
+                    setBranches([]);
+                    setAssignedBranches([]);
+                    throw err;
+                }
+            };
 
-  const monthToNumber = (monthName) => {
-    const index = monthNames.indexOf(monthName);
-    return index !== -1 ? (index + 1).toString().padStart(2, '0') : null;
-  };
+            const fetchPositions = async () => {
+                try {
+                    const url = `${API_BASE_URL}/fetch_employees.php?type=positions&user_id=${encodeURIComponent(userId)}&role=${encodeURIComponent(role)}`;
+                    const res = await fetch(url);
+                    if (!res.ok) {
+                        throw new Error(`Failed to fetch positions: ${res.status}`);
+                    }
+                    const response = await res.json();
 
-  const applyFilters = (data, search, branch, position, month, day, year) => {
-    let result = [...data];
+                    console.log("Fetch Positions Response:", response);
 
-    if (branch !== 'all') {
-      result = result.filter(item => item.BranchID === Number(branch));
-    }
+                    if (!Array.isArray(response)) {
+                        throw new Error('Invalid response format for positions');
+                    }
 
-    if (position !== 'all') {
-      result = result.filter(item => item.PositionID === Number(position));
-    }
+                    setPositions(response);
+                } catch (err) {
+                    console.error("Fetch Positions Error:", err.message);
+                    setPositions([]);
+                    throw err;
+                }
+            };
 
-    if (month !== 'all' || day !== 'all' || year !== 'all') {
-      result = result.filter(item => {
-        const [itemYear, itemMonth, itemDay] = item["Member Since"].split('-');
-        const monthNumber = month === 'all' ? null : monthToNumber(month);
-        return (
-          (month === 'all' || itemMonth === monthNumber) &&
-          (day === 'all' || itemDay === day.padStart(2, '0')) &&
-          (year === 'all' || itemYear === year)
-        );
-      });
-    }
+            const fetchSchedules = async () => {
+                try {
+                    const url = `${API_BASE_URL}/fetch_employees.php?type=schedules&user_id=${encodeURIComponent(userId)}&role=${encodeURIComponent(role)}`;
+                    const res = await fetch(url);
+                    if (!res.ok) {
+                        throw new Error(`Failed to fetch schedules: ${res.status}`);
+                    }
+                    const response = await res.json();
 
-    const searchValue = search.toLowerCase().trim();
-    if (searchValue) {
-      result = result.filter(item =>
-        item["Employee ID"].toString().includes(searchValue) ||
-        item["Employee Name"].toLowerCase().includes(searchValue) ||
-        item["Branch Name"].toLowerCase().includes(searchValue) ||
-        item["Position Title"].toLowerCase().includes(searchValue) ||
-        item["Schedule"].toLowerCase().includes(searchValue) ||
-        item["Member Since"].toLowerCase().includes(searchValue)
-      );
-    }
+                    console.log("Fetch Schedules Response:", response);
 
-    return result;
-  };
+                    if (!Array.isArray(response)) {
+                        throw new Error('Invalid response format for schedules');
+                    }
 
-  const handleSearch = (value) => {
-    setSearchText(value);
-    setFilteredData(applyFilters(data, value, selectedBranch, selectedPosition, selectedMemberSinceMonth, selectedMemberSinceDay, selectedMemberSinceYear));
-  };
+                    setSchedules(response);
+                } catch (err) {
+                    console.error("Fetch Schedules Error:", err.message);
+                    setSchedules([]);
+                    throw err;
+                }
+            };
 
-  const handleBranchChange = (value) => {
-    setSelectedBranch(value);
-    setFilteredData(applyFilters(data, searchText, value, selectedPosition, selectedMemberSinceMonth, selectedMemberSinceDay, selectedMemberSinceYear));
-  };
-
-  const handlePositionChange = (value) => {
-    setSelectedPosition(value);
-    setFilteredData(applyFilters(data, searchText, selectedBranch, value, selectedMemberSinceMonth, selectedMemberSinceDay, selectedMemberSinceYear));
-  };
-
-  const handleMonthChange = (value) => {
-    setSelectedMemberSinceMonth(value);
-    setFilteredData(applyFilters(data, searchText, selectedBranch, selectedPosition, value, selectedMemberSinceDay, selectedMemberSinceYear));
-  };
-
-  const handleDayChange = (value) => {
-    setSelectedMemberSinceDay(value);
-    setFilteredData(applyFilters(data, searchText, selectedBranch, selectedPosition, selectedMemberSinceMonth, value, selectedMemberSinceYear));
-  };
-
-  const handleYearChange = (value) => {
-    setSelectedMemberSinceYear(value);
-    setFilteredData(applyFilters(data, searchText, selectedBranch, selectedPosition, selectedMemberSinceMonth, selectedMemberSinceDay, value));
-  };
-
-  const openModal = (type, record = null) => {
-    setModalType(type);
-    setSelectedEmployee(record);
-    setIsModalOpen(true);
-
-    if (type === 'Edit' && record) {
-      console.log('Editing Employee:', record);
-      const initializeForm = () => {
-        form.setFieldsValue({
-          EmployeeName: record["Employee Name"],
-          BranchID: record["Branch Name"], // Set to name initially
-          PositionID: record["Position Title"], // Set to title initially
-          ScheduleID: record["Schedule"], // Set to schedule string initially
-          MemberSince: record["Member Since"]
-        });
-        console.log('Form Values After Set:', form.getFieldsValue());
-      };
-
-      if (dropdownsLoaded) {
-        initializeForm();
-      } else {
-        const interval = setInterval(() => {
-          if (dropdownsLoaded) {
-            initializeForm();
-            clearInterval(interval);
-          }
-        }, 100);
-      }
-    } else if (type === 'Add') {
-      form.resetFields();
-    }
-  };
-
-  const handleOk = () => {
-    if (modalType === "View") {
-      handleCancel();
-      return;
-    }
-
-    if (modalType === "Add" || modalType === "Edit") {
-      form.validateFields()
-        .then((values) => {
-          // Convert names/titles back to IDs for the payload
-          const branch = branches.find(b => b.BranchName === values.BranchID);
-          const position = positions.find(p => p.PositionTitle === values.PositionID);
-          const schedule = schedules.find(s => `${s.ShiftStart} - ${s.ShiftEnd}` === values.ScheduleID);
-
-          const payload = {
-            EmployeeName: values.EmployeeName,
-            BranchID: branch ? Number(branch.BranchID) : null,
-            PositionID: position ? Number(position.PositionID) : null,
-            ScheduleID: schedule ? Number(schedule.ScheduleID) : null,
-            MemberSince: values.MemberSince
-          };
-
-          if (modalType === "Edit" && selectedEmployee) {
-            payload.EmployeeID = selectedEmployee.key;
-          }
-
-          if (!payload.BranchID || !payload.PositionID || !payload.ScheduleID) {
-            throw new Error("Invalid selection for Branch, Position, or Schedule");
-          }
-
-          const url = `${API_BASE_URL}/fetch_employees.php`;
-          const method = modalType === "Add" ? "POST" : "PUT";
-
-          fetch(url, {
-            method: method,
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          })
-            .then((res) => {
-              if (!res.ok) throw new Error("Server error");
-              return res.json();
-            })
-            .then(() => {
-              message.success(`Employee ${modalType === "Add" ? "added" : "updated"} successfully!`);
-              setIsModalOpen(false);
-              form.resetFields();
-              fetchData();
-            })
-            .catch((err) => {
-              message.error(`Failed to ${modalType === "Add" ? "add" : "update"} employee: ${err.message}`);
-            });
-        })
-        .catch((errorInfo) => {
-          message.error("Please fill all required fields correctly");
-        });
-    } else if (modalType === "Delete" && selectedEmployee) {
-      fetch(`${API_BASE_URL}/fetch_employees.php`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ employeeID: selectedEmployee.key }),
-      })
-        .then((res) => {
-          if (!res.ok) throw new Error("Failed to delete employee");
-          return res.json();
-        })
-        .then(() => {
-          message.success("Employee deleted successfully!");
-          setIsModalOpen(false);
-          fetchData();
-        })
-        .catch((err) => {
-          message.error(`Failed to delete employee: ${err.message}`);
-        });
-    }
-  };
-
-  const handleCancel = () => {
-    setIsModalOpen(false);
-    form.resetFields();
-  };
-
-  const showLabels = screenWidth >= 600;
-
-  const days = Array.from({ length: 31 }, (_, i) => (i + 1).toString());
-  const years = Array.from({ length: 50 }, (_, i) => (new Date().getFullYear() - i).toString());
-
-  return (
-    <div style={{ padding: '20px' }}>
-      <Title level={2} style={{ fontFamily: 'Poppins, sans-serif', marginBottom: '20px' }}>
-        Employees
-      </Title>
-
-      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
-        <Button
-          icon={<PlusOutlined />}
-          size="middle"
-          style={{ backgroundColor: '#2C3743', borderColor: '#2C3743', color: 'white', fontFamily: 'Poppins, sans-serif' }}
-          onClick={() => openModal('Add')}
-        >
-          {showLabels && 'Add Employee'}
-        </Button>
-        <Select
-          value={selectedBranch}
-          onChange={handleBranchChange}
-          style={{ width: screenWidth < 480 ? '100%' : '200px', marginTop: screenWidth < 480 ? 10 : 0, fontFamily: 'Poppins, sans-serif' }}
-          placeholder="Filter by Branch"
-        >
-          <Option value="all" style={{ fontFamily: 'Poppins, sans-serif' }}>All Branches</Option>
-          {branches.map(branch => (
-            <Option key={branch.BranchID} value={branch.BranchID} style={{ fontFamily: 'Poppins, sans-serif' }}>
-              {branch.BranchName}
-            </Option>
-          ))}
-        </Select>
-        <Select
-          value={selectedPosition}
-          onChange={handlePositionChange}
-          style={{ width: screenWidth < 480 ? '100%' : '200px', marginTop: screenWidth < 480 ? 10 : 0, fontFamily: 'Poppins, sans-serif' }}
-          placeholder="Filter by Position"
-        >
-          <Option value="all" style={{ fontFamily: 'Poppins, sans-serif' }}>All Positions</Option>
-          {positions.map(position => (
-            <Option key={position.PositionID} value={position.PositionID} style={{ fontFamily: 'Poppins, sans-serif' }}>
-              {position.PositionTitle}
-            </Option>
-          ))}
-        </Select>
-        <Select
-          value={selectedMemberSinceMonth}
-          onChange={handleMonthChange}
-          style={{ width: screenWidth < 480 ? '100%' : '120px', marginTop: screenWidth < 480 ? 10 : 0, fontFamily: 'Poppins, sans-serif' }}
-          placeholder="Month"
-        >
-          <Option value="all" style={{ fontFamily: 'Poppins, sans-serif' }}>All Months</Option>
-          {monthNames.map((month, index) => (
-            <Option key={index} value={month} style={{ fontFamily: 'Poppins, sans-serif' }}>
-              {month}
-            </Option>
-          ))}
-        </Select>
-        <Select
-          value={selectedMemberSinceDay}
-          onChange={handleDayChange}
-          style={{ width: screenWidth < 480 ? '100%' : '120px', marginTop: screenWidth < 480 ? 10 : 0, fontFamily: 'Poppins, sans-serif' }}
-          placeholder="Day"
-        >
-          <Option value="all" style={{ fontFamily: 'Poppins, sans-serif' }}>All Days</Option>
-          {days.map(day => (
-            <Option key={day} value={day} style={{ fontFamily: 'Poppins, sans-serif' }}>
-              {day.padStart(2, '0')}
-            </Option>
-          ))}
-        </Select>
-        <Select
-          value={selectedMemberSinceYear}
-          onChange={handleYearChange}
-          style={{ width: screenWidth < 480 ? '100%' : '120px', marginTop: screenWidth < 480 ? 10 : 0, fontFamily: 'Poppins, sans-serif' }}
-          placeholder="Year"
-        >
-          <Option value="all" style={{ fontFamily: 'Poppins, sans-serif' }}>All Years</Option>
-          {years.map(year => (
-            <Option key={year} value={year} style={{ fontFamily: 'Poppins, sans-serif' }}>
-              {year}
-            </Option>
-          ))}
-        </Select>
-        <Input
-          placeholder="Search..."
-          allowClear
-          value={searchText}
-          onChange={(e) => handleSearch(e.target.value)}
-          prefix={<SearchOutlined />}
-          style={{ width: screenWidth < 480 ? '100%' : '250px', marginTop: screenWidth < 480 ? 10 : 0, fontFamily: 'Poppins, sans-serif' }}
-        />
-      </div>
-
-      <Table 
-        dataSource={filteredData} 
-        bordered
-        scroll={{ x: true }}
-        pagination={{ responsive: true, position: ['bottomCenter'] }}
-        style={{ fontFamily: 'Poppins, sans-serif' }}
-      >
-        <Column 
-          title="Employee ID" 
-          dataIndex="Employee ID" 
-          key="Employee ID" 
-          sorter={(a, b) => a["Employee ID"] - b["Employee ID"]}
-          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
-        />
-        <Column 
-          title="Employee Name" 
-          dataIndex="Employee Name" 
-          key="Employee Name" 
-          sorter={(a, b) => a["Employee Name"].localeCompare(b["Employee Name"])} 
-          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
-        />
-        <Column 
-          title="Branch Name" 
-          dataIndex="Branch Name" 
-          key="Branch Name" 
-          sorter={(a, b) => a["Branch Name"].localeCompare(b["Branch Name"])} 
-          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
-        />
-        <Column 
-          title="Position Title" 
-          dataIndex="Position Title" 
-          key="Position Title" 
-          sorter={(a, b) => a["Position Title"].localeCompare(b["Position Title"])} 
-          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
-        />
-        <Column 
-          title="Schedule" 
-          dataIndex="Schedule" 
-          key="Schedule" 
-          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
-        />
-        <Column 
-          title="Member Since" 
-          dataIndex="Member Since" 
-          key="Member Since" 
-          sorter={(a, b) => new Date(a["Member Since"]) - new Date(b["Member Since"])}
-          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
-        />
-        <Column
-          title="Action"
-          key="action"
-          render={(_, record) => (
-            <Space size="middle">
-              <Button
-                icon={<EyeOutlined />}
-                size="small"
-                style={{ backgroundColor: '#52c41a', borderColor: '#52c41a', color: 'white', padding: 15, fontFamily: 'Poppins, sans-serif' }}
-                onClick={() => openModal('View', record)}
-              >
-                View
-              </Button>
-              <Button
-                icon={<EditOutlined />}
-                size="small"
-                style={{ backgroundColor: '#722ed1', borderColor: '#722ed1', color: 'white', padding: 15, fontFamily: 'Poppins, sans-serif' }}
-                onClick={() => openModal('Edit', record)}
-              >
-                Edit
-              </Button>
-              <Button
-                icon={<DeleteOutlined />}
-                size="small"
-                style={{ backgroundColor: '#ff4d4f', borderColor: '#ff4d4f', color: 'white', padding: 15, fontFamily: 'Poppins, sans-serif' }}
-                onClick={() => openModal('Delete', record)}
-              >
-                Delete
-              </Button>
-            </Space>
-          )}
-        />
-      </Table>
-
-      <Modal 
-        title={
-          <div style={{ textAlign: 'center' }}>
-            <span style={{ fontSize: '22px', fontWeight: 'bold', fontFamily: 'Poppins, sans-serif' }}>
-              {modalType === 'Add' ? 'Add New Employee' :
-              modalType === 'Edit' ? 'Edit Employee Details' :
-              modalType === 'View' ? 'View Employee Information' :
-              'Confirm Employee Deletion'}
-            </span>
-          </div>
+            await Promise.all([fetchBranches(), fetchPositions(), fetchSchedules()]);
+            await fetchData();
+        } catch (err) {
+            console.error("Fetch Dropdown Error:", err.message);
+            message.error(`Failed to load dropdown options: ${err.message}`);
+            setBranches([]);
+            setPositions([]);
+            setSchedules([]);
+            setAssignedBranches([]);
+        } finally {
+            setLoading(false);
         }
-        open={isModalOpen}
-        onOk={modalType === 'View' ? handleCancel : handleOk}
-        onCancel={handleCancel}
-        okText={modalType === 'Delete' ? 'Delete' : 'OK'}
-        okButtonProps={{ danger: modalType === 'Delete', style: { fontFamily: 'Poppins, sans-serif' } }}
-        cancelButtonProps={{ style: { fontFamily: 'Poppins, sans-serif' } }}
-        width={600}
-        centered
-        style={{ minHeight: '100px', padding: '20px', margin: 20, fontFamily: 'Poppins, sans-serif' }}
-      >
-        {(modalType === 'Add' || modalType === 'Edit') && (
-          <Form form={form} layout="vertical" style={{ fontFamily: 'Poppins, sans-serif' }}>
-            <Form.Item 
-              label="Employee Name" 
-              name="EmployeeName" 
-              rules={[{ required: true, message: 'Please enter employee name!' }]}
-              initialValue={selectedEmployee ? selectedEmployee["Employee Name"] : undefined}
-            >
-              <Input placeholder="Enter Employee Name" style={{ fontFamily: 'Poppins, sans-serif' }} />
-            </Form.Item>
-            <Form.Item 
-              label="Branch" 
-              name="BranchID" 
-              rules={[{ required: true, message: 'Please select a branch!' }]}
-              initialValue={selectedEmployee ? selectedEmployee["Branch Name"] : undefined}
-            >
-              <Select 
-                placeholder="Select Branch" 
-                style={{ fontFamily: 'Poppins, sans-serif' }}
-                loading={!dropdownsLoaded}
-                showSearch
-                optionFilterProp="children"
-                disabled={!dropdownsLoaded}
-              >
-                {branches.map((branch) => (
-                  <Option key={branch.BranchID} value={branch.BranchName} style={{ fontFamily: 'Poppins, sans-serif' }}>
-                    {branch.BranchName}
-                  </Option>
-                ))}
-              </Select>
-            </Form.Item>
-            <Form.Item 
-              label="Position" 
-              name="PositionID" 
-              rules={[{ required: true, message: 'Please select a position!' }]}
-              initialValue={selectedEmployee ? selectedEmployee["Position Title"] : undefined}
-            >
-              <Select 
-                placeholder="Select Position" 
-                style={{ fontFamily: 'Poppins, sans-serif' }}
-                loading={!dropdownsLoaded}
-                showSearch
-                optionFilterProp="children"
-                disabled={!dropdownsLoaded}
-              >
-                {positions.map((position) => (
-                  <Option key={position.PositionID} value={position.PositionTitle} style={{ fontFamily: 'Poppins, sans-serif' }}>
-                    {position.PositionTitle}
-                  </Option>
-                ))}
-              </Select>
-            </Form.Item>
-            <Form.Item 
-              label="Schedule" 
-              name="ScheduleID" 
-              rules={[{ required: true, message: 'Please select a schedule!' }]}
-              initialValue={selectedEmployee ? selectedEmployee["Schedule"] : undefined}
-            >
-              <Select 
-                placeholder="Select Schedule" 
-                style={{ fontFamily: 'Poppins, sans-serif' }}
-                loading={!dropdownsLoaded}
-                showSearch
-                optionFilterProp="children"
-                disabled={!dropdownsLoaded}
-              >
-                {schedules.map((schedule) => (
-                  <Option key={schedule.ScheduleID} value={`${schedule.ShiftStart} - ${schedule.ShiftEnd}`} style={{ fontFamily: 'Poppins, sans-serif' }}>
-                    {`${schedule.ShiftStart} - ${schedule.ShiftEnd}`}
-                  </Option>
-                ))}
-              </Select>
-            </Form.Item>
-            <Form.Item 
-              label="Member Since" 
-              name="MemberSince" 
-              rules={[{ required: true, message: 'Please enter member since date!' }]}
-              initialValue={selectedEmployee ? selectedEmployee["Member Since"] : undefined}
-            >
-              <Input type="date" placeholder="Enter Member Since Date" style={{ fontFamily: 'Poppins, sans-serif' }} />
-            </Form.Item>
-          </Form>
-        )}
+    };
 
-        {modalType === 'View' && selectedEmployee && (
-          <div style={{ fontFamily: 'Poppins, sans-serif' }}>
-             <p><strong>Employee Name:</strong> {selectedEmployee["Employee Name"]}</p>
-            <p><strong>Branch Name:</strong> {selectedEmployee["Branch Name"]}</p>
-            <p><strong>Position Title:</strong> {selectedEmployee["Position Title"]}</p>
-            <p><strong>Schedule:</strong> {selectedEmployee.Schedule}</p>
-            <p><strong>Member Since:</strong> {selectedEmployee["Member Since"]}</p>
-          </div>
-        )}
+    const fetchData = async () => {
+        setLoading(true);
+        try {
+            if (!userId || isNaN(parseInt(userId)) || !role || role.trim() === '') {
+                message.error('Please log in to view employees');
+                return;
+            }
 
-        {modalType === 'Delete' && selectedEmployee && (
-          <div style={{ fontFamily: 'Poppins, sans-serif' }}>
-            <p style={{ fontSize: '18px', fontWeight: 'bold', color: '#ff4d4f' }}>
-              ⚠️ Are you sure you want to delete this employee?
-            </p>
-            <p>This action <strong>cannot be undone</strong>. The employee "<strong>{selectedEmployee["Employee Name"]}</strong>" will be permanently removed.</p>
-          </div>
-        )}
-      </Modal>
-    </div>
-  );
+            let url = `${API_BASE_URL}/fetch_employees.php?user_id=${encodeURIComponent(userId)}&role=${encodeURIComponent(role)}&page=${currentPage - 1}&limit=${pageSize}`;
+            
+            if (searchText) {
+                url += `&search=${encodeURIComponent(searchText)}`;
+            }
+            
+            if (selectedBranch) {
+                url += `&branch=${encodeURIComponent(selectedBranch)}`;
+            }
+            
+            if (selectedPosition) {
+                url += `&position=${encodeURIComponent(selectedPosition)}`;
+            }
+
+            console.log('Fetching URL:', url);
+            const res = await fetch(url);
+            
+            if (!res.ok) {
+                throw new Error(`Employees fetch failed: ${res.statusText}`);
+            }
+            
+            const response = await res.json();
+            console.log("Fetch Employees Response:", response);
+
+            if (!response.success) {
+                throw new Error(response.error || 'Failed to fetch employees');
+            }
+
+            const mappedData = response.employees.map(employee => ({
+                key: employee.key,
+                "Employee ID": employee.key,
+                "Employee Name": employee.EmployeeName,
+                "Branch Name": employee.BranchName,
+                "Position Title": employee.PositionTitle,
+                "Schedule": employee.Schedule,
+                "Member Since": formatDateToMMDDYYYY(employee.MemberSince),
+                BranchID: Number(employee.BranchID),
+                PositionID: Number(employee.PositionID),
+                ScheduleID: Number(employee.ScheduleID),
+                EmployeeName: employee.EmployeeName,
+                MemberSince: employee.MemberSince
+            }));
+
+            console.log("Mapped Data:", mappedData);
+            
+            setData(mappedData);
+            setFilteredData(mappedData);
+            setPaginationTotal(response.total || 0);
+        } catch (err) {
+            console.error("Fetch Employees Error:", err.message);
+            message.error(`Failed to load employee data: ${err.message}`);
+            setData([]);
+            setFilteredData([]);
+            setPaginationTotal(0);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const fetchAllowancesAndDeductions = async (employeeId) => {
+        setLoading(true);
+        try {
+            const url = `${API_BASE_URL}/fetch_employees.php?type=allowances_deductions&employee_id=${employeeId}&user_id=${encodeURIComponent(userId)}&role=${encodeURIComponent(role)}`;
+            const res = await fetch(url);
+            if (!res.ok) {
+                throw new Error("Failed to fetch allowances and deductions");
+            }
+            const response = await res.json();
+
+            console.log("Allowances and Deductions Response:", response);
+
+            if (!response.success) {
+                throw new Error(response.error || "Failed to fetch data");
+            }
+            setAllowances(response.allowances || []);
+            setDeductions(response.deductions || []);
+        } catch (err) {
+            console.error("Fetch Allowances/Deductions Error:", err.message);
+            message.error("Failed to load allowances and deductions.");
+            setAllowances([]);
+            setDeductions([]);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchDropdownData();
+    }, []);
+
+    useEffect(() => {
+        fetchData();
+    }, [currentPage, pageSize, selectedBranch, selectedPosition, searchText]);
+
+    useEffect(() => {
+        const handleResize = () => setScreenWidth(window.innerWidth);
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
+
+    const handleSearch = (value) => {
+        const sanitizedValue = value.replace(/[<>]/g, '');
+        setSearchText(sanitizedValue);
+        setCurrentPage(1);
+    };
+
+    const handleBranchChange = (value) => {
+        setSelectedBranch(value === 'all' ? null : Number(value));
+        setCurrentPage(1);
+    };
+
+    const handlePositionChange = (value) => {
+        setSelectedPosition(value === 'all' ? null : Number(value));
+        setCurrentPage(1);
+    };
+
+    const handlePaginationChange = (page, newPageSize) => {
+        setCurrentPage(page);
+        if (newPageSize !== pageSize) {
+            setPageSize(newPageSize);
+            setCurrentPage(1);
+        }
+    };
+
+    const openModal = (type, record = null) => {
+        setModalType(type);
+        setSelectedEmployee(record);
+        setIsModalOpen(true);
+
+        if (type === 'Edit' && record) {
+            form.setFieldsValue({
+                EmployeeName: record["Employee Name"],
+                BranchID: String(record.BranchID),
+                PositionID: String(record.PositionID),
+                ScheduleID: String(record.ScheduleID),
+                MemberSince: record["Member Since"] ? moment(record["Member Since"], 'MM/DD/YYYY') : null
+            });
+        } else if (type === 'Add') {
+            form.resetFields();
+        } else if (type === 'View' && record) {
+            fetchAllowancesAndDeductions(record.key);
+        }
+    };
+
+    const handleOk = async () => {
+        if (modalType === "View") {
+            handleCancel();
+            return;
+        }
+
+        try {
+            console.log("Local Storage:", { userId, role });
+
+            if (!userId || isNaN(parseInt(userId)) || !role || role.trim() === '') {
+                throw new Error("Invalid or missing user ID or role. Please log in again.");
+            }
+
+            if (modalType === "Add" || modalType === "Edit") {
+                await form.validateFields();
+                const values = form.getFieldsValue();
+                console.log("Form Values:", values);
+
+                if (!values.EmployeeName || !values.BranchID || !values.PositionID || !values.ScheduleID || !values.MemberSince) {
+                    throw new Error("All fields are required");
+                }
+
+                if (role === 'Payroll Staff') {
+                    const isAuthorizedBranch = assignedBranches.some(ab => String(ab.BranchID) === values.BranchID);
+                    if (!isAuthorizedBranch) {
+                        throw new Error("You are not authorized to add/edit employees for this branch");
+                    }
+                }
+
+                const memberSinceFormatted = values.MemberSince ? values.MemberSince.format('YYYY-MM-DD') : null;
+
+                const payload = {
+                    EmployeeName: values.EmployeeName,
+                    BranchID: parseInt(values.BranchID),
+                    PositionID: parseInt(values.PositionID),
+                    ScheduleID: parseInt(values.ScheduleID),
+                    MemberSince: memberSinceFormatted,
+                    role: role
+                };
+
+                if (modalType === "Edit" && selectedEmployee) {
+                    payload.EmployeeID = parseInt(selectedEmployee.key);
+                }
+
+                console.log("Sending Request:", { 
+                    url: `${API_BASE_URL}/fetch_employees.php?user_id=${encodeURIComponent(userId)}`, 
+                    method: modalType === "Add" ? "POST" : "PUT", 
+                    payload 
+                });
+
+                const res = await fetch(`${API_BASE_URL}/fetch_employees.php?user_id=${encodeURIComponent(userId)}`, {
+                    method: modalType === "Add" ? "POST" : "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload),
+                });
+
+                const result = await res.json();
+                console.log("Server Response:", result);
+
+                if (!res.ok) {
+                    throw new Error(result.error || `Server error: ${res.status}`);
+                }
+
+                if (result.success) {
+                    message.success(`Employee ${modalType === "Add" ? "added" : "updated"} successfully!`);
+                    setIsModalOpen(false);
+                    form.resetFields();
+                    fetchData();
+                } else if (result.warning) {
+                    message.warning(result.warning);
+                } else {
+                    throw new Error(result.error || "Operation failed");
+                }
+            } else if (modalType === "Delete" && selectedEmployee) {
+                if (!selectedEmployee.key) {
+                    throw new Error("No employee selected for deletion");
+                }
+
+                if (role === 'Payroll Staff') {
+                    const isAuthorizedBranch = assignedBranches.some(ab => Number(ab.BranchID) === selectedEmployee.BranchID);
+                    if (!isAuthorizedBranch) {
+                        throw new Error("You are not authorized to delete employees from this branch");
+                    }
+                }
+
+                const payload = { EmployeeID: selectedEmployee.key };
+
+                console.log("Sending Delete Request:", { 
+                    url: `${API_BASE_URL}/fetch_employees.php?user_id=${encodeURIComponent(userId)}`, 
+                    payload 
+                });
+
+                const res = await fetch(`${API_BASE_URL}/fetch_employees.php?user_id=${encodeURIComponent(userId)}`, {
+                    method: "DELETE",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload),
+                });
+
+                const result = await res.json();
+                console.log("Delete Response:", result);
+
+                if (!res.ok) {
+                    throw new Error(result.error || `Failed to delete employee: ${res.status}`);
+                }
+
+                if (result.success) {
+                    message.success("Employee deleted successfully!");
+                    setIsModalOpen(false);
+                    fetchData();
+                } else {
+                    throw new Error(result.error || "Failed to delete employee");
+                }
+            }
+        } catch (error) {
+            console.error("Handle OK Error:", error);
+            message.error(`Failed to process employee: ${error.message}`);
+        }
+    };
+
+    const handleCancel = () => {
+        setIsModalOpen(false);
+        form.resetFields();
+    };
+
+    const showLabels = screenWidth >= 600;
+    const branchOptions = role === 'Payroll Staff' ? assignedBranches : branches;
+
+    return (
+        <div className="fade-in" style={{ padding: '20px' }}>
+            <Title level={2} style={{ fontFamily: 'Poppins, sans-serif', marginBottom: '20px' }}>
+                Employees
+            </Title>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+                    <Select
+                        value={selectedBranch ? branchOptions.find(b => String(b.BranchID) === String(selectedBranch))?.BranchName : 'all'}
+                        onChange={(value) => setSelectedBranch(value === 'all' ? null : Number(value))}
+                        style={{ width: screenWidth < 480 ? '100%' : '250px', marginTop: screenWidth < 480 ? 10 : 0, fontFamily: 'Poppins, sans-serif' }}
+                        placeholder="Select a Branch"
+                        loading={loading}
+                        disabled={loading}
+                        showSearch={false}
+                        optionFilterProp="children"
+                        filterOption={(input, option) => option.children.toLowerCase().includes(input.toLowerCase())}
+                    >
+                        <Option value="all" style={{ fontFamily: 'Poppins, sans-serif' }}>All Branches</Option>
+                        {branchOptions.map(branch => (
+                            <Option key={branch.BranchID} value={String(branch.BranchID)} style={{ fontFamily: 'Poppins, sans-serif' }}>
+                                {branch.BranchName}
+                            </Option>
+                        ))}
+                    </Select>
+                    <Select
+                        value={selectedPosition ? positions.find(p => String(p.PositionID) === String(selectedPosition))?.PositionTitle : 'all'}
+                        onChange={(value) => setSelectedPosition(value === 'all' ? null : Number(value))}
+                        style={{ width: screenWidth < 480 ? '100%' : '250px', marginTop: screenWidth < 480 ? 10 : 0, fontFamily: 'Poppins, sans-serif' }}
+                        placeholder="Select a Position"
+                        loading={loading}
+                        disabled={loading}
+                        showSearch={false}
+                        optionFilterProp="children"
+                        filterOption={(input, option) => option.children.toLowerCase().includes(input.toLowerCase())}
+                    >
+                        <Option value="all" style={{ fontFamily: 'Poppins, sans-serif' }}>All Positions</Option>
+                        {positions.map(position => (
+                            <Option key={position.PositionID} value={String(position.PositionID)} style={{ fontFamily: 'Poppins, sans-serif' }}>
+                                {position.PositionTitle}
+                            </Option>
+                        ))}
+                    </Select>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+                    <Button
+                        icon={<PlusOutlined />}
+                        size="middle"
+                        style={{ backgroundColor: '#2C3743', borderColor: '#2C3743', color: 'white', fontFamily: 'Poppins, sans-serif' }}
+                        onClick={() => openModal('Add')}
+                        disabled={loading}
+                    >
+                        {showLabels && 'Add Employee'}
+                    </Button>
+                    <Input
+                        placeholder="Search..."
+                        allowClear
+                        value={searchText}
+                        onChange={(e) => handleSearch(e.target.value)}
+                        prefix={<SearchOutlined />}
+                        style={{ width: screenWidth < 480 ? '100%' : '250px', marginTop: screenWidth < 480 ? 10 : 0, fontFamily: 'Poppins, sans-serif' }}
+                        disabled={loading}
+                    />
+                </div>
+            </div>
+
+            <Table 
+                dataSource={filteredData}
+                bordered
+                scroll={{ x: true }}
+                pagination={false}
+                style={{ fontFamily: 'Poppins, sans-serif' }}
+                loading={loading}
+                locale={{ emptyText: <span style={{ fontFamily: 'Poppins, sans-serif' }}>No employees found</span> }}
+            >
+                <Column 
+                    title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Employee ID</span>}
+                    dataIndex="Employee ID" 
+                    key="Employee ID" 
+                    sorter={(a, b) => a["Employee ID"] - b["Employee ID"]}
+                    render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
+                />
+                <Column 
+                    title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Employee Name</span>}
+                    dataIndex="Employee Name" 
+                    key="Employee Name" 
+                    sorter={(a, b) => a["Employee Name"].localeCompare(b["Employee Name"])}
+                    render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
+                />
+                <Column 
+                    title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Branch</span>}
+                    dataIndex="Branch Name" 
+                    key="Branch Name" 
+                    sorter={(a, b) => a["Branch Name"].localeCompare(b["Branch Name"])}
+                    render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
+                />
+                <Column 
+                    title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Company Position</span>} 
+                    dataIndex="Position Title" 
+                    key="Position Title" 
+                    sorter={(a, b) => a["Position Title"].localeCompare(b["Position Title"])}
+                    render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
+                />
+                <Column 
+                    title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Schedule</span>}
+                    dataIndex="Schedule" 
+                    key="Schedule" 
+                    render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
+                />
+                <Column 
+                    title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Member Since</span>} 
+                    dataIndex="Member Since" 
+                    key="Member Since" 
+                    sorter={(a, b) => {
+                        const [aMonth, aDay, aYear] = a["Member Since"].split('/');
+                        const [bMonth, bDay, bYear] = b["Member Since"].split('/');
+                        return new Date(`${aYear}-${aMonth}-${aDay}`) - new Date(`${bYear}-${bMonth}-${bDay}`);
+                    }}
+                    render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
+                />
+                <Column
+                    title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Action</span>}
+                    key="action"
+                    render={(_, record) => (
+                        <Space size="middle">
+                            <Button
+                                icon={<EyeOutlined />}
+                                size="small"
+                                style={{ backgroundColor: '#52c41a', borderColor: '#52c41a', color: 'white', padding: 15, fontFamily: 'Poppins, sans-serif' }}
+                                onClick={() => openModal('View', record)}
+                                disabled={loading}
+                            >
+                                View
+                            </Button>
+                            <Button
+                                icon={<EditOutlined />}
+                                size="small"
+                                style={{ backgroundColor: '#722ed1', borderColor: '#722ed1', color: 'white', padding: 15, fontFamily: 'Poppins, sans-serif' }}
+                                onClick={() => openModal('Edit', record)}
+                                disabled={loading}
+                            >
+                                Edit
+                            </Button>
+                            <Button
+                                icon={<DeleteOutlined />}
+                                size="small"
+                                style={{ backgroundColor: '#ff4d4f', borderColor: '#ff4d4f', color: 'white', padding: 15, fontFamily: 'Poppins, sans-serif' }}
+                                onClick={() => openModal('Delete', record)}
+                                disabled={loading}
+                            >
+                                Delete
+                            </Button>
+                        </Space>
+                    )}
+                />
+            </Table>
+
+            <div style={{ textAlign: 'center', marginTop: 16, fontFamily: 'Poppins, sans-serif' }}>
+                <Pagination
+                    current={currentPage}
+                    pageSize={pageSize}
+                    total={paginationTotal}
+                    onChange={handlePaginationChange}
+                    onShowSizeChange={handlePaginationChange}
+                    showSizeChanger
+                    showQuickJumper={{ goButton: false }}
+                    showTotal={(total) => `Total ${total} employee records`}
+                    pageSizeOptions={['10', '20', '50', '100']}
+                    style={{ fontFamily: 'Poppins, sans-serif', justifyContent: 'center' }}
+                    disabled={loading}
+                />
+            </div>
+
+            <Modal 
+                title={
+                    <div style={{ textAlign: 'center' }}>
+                        <span style={{ fontSize: '22px', fontWeight: 'bold', fontFamily: 'Poppins, sans-serif' }}>
+                            {modalType === 'Add' ? 'Add New Employee' :
+                             modalType === 'Edit' ? 'Edit Employee Details' :
+                             modalType === 'View' ? 'View Employee Information' :
+                             'Confirm Employee Deletion'}
+                        </span>
+                    </div>
+                }
+                open={isModalOpen}
+                onOk={modalType === 'View' ? handleCancel : handleOk}
+                onCancel={handleCancel}
+                okText={modalType === 'Delete' ? 'Delete' : 'OK'}
+                okButtonProps={{ danger: modalType === 'Delete', style: { fontFamily: 'Poppins, sans-serif' }, disabled: loading }}
+                cancelButtonProps={{ style: { fontFamily: 'Poppins, sans-serif' }, disabled: loading }}
+                width={600}
+                centered
+                styles={{ body: { minHeight: '100px', padding: '20px', margin: 20, fontFamily: 'Poppins, sans-serif' } }}
+            >
+                {(modalType === 'Add' || modalType === 'Edit') && (
+                    <Form form={form} layout="vertical" style={{ fontFamily: 'Poppins, sans-serif' }}>
+                        <Form.Item 
+                            label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Employee Name<span style={{ color: 'red' }}>*</span></span>} 
+                            name="EmployeeName" 
+                            rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please enter Employee Name!</span> }]}
+                        >
+                            <Input placeholder="Enter Employee Name" style={{ fontFamily: 'Poppins, sans-serif' }} disabled={loading} />
+                        </Form.Item>
+                        <Form.Item 
+                            label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Branch<span style={{ color: 'red' }}>*</span></span>}
+                            name="BranchID" 
+                            rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select a Branch!</span> }]}
+                        >
+                            <Select 
+                                placeholder="Select Branch" 
+                                style={{ fontFamily: 'Poppins, sans-serif' }}
+                                loading={loading}
+                                showSearch
+                                optionFilterProp="children"
+                                disabled={loading}
+                            >
+                                {branchOptions.map((branch) => (
+                                    <Option key={branch.BranchID} value={String(branch.BranchID)} style={{ fontFamily: 'Poppins, sans-serif' }}>
+                                        {branch.BranchName}
+                                    </Option>
+                                ))}
+                            </Select>
+                        </Form.Item>
+                        <Form.Item 
+                            label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Company Position<span style={{ color: 'red' }}>*</span></span>}
+                            name="PositionID" 
+                            rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select a company position!</span> }]}
+                        >
+                            <Select 
+                                placeholder="Select Position" 
+                                style={{ fontFamily: 'Poppins, sans-serif' }}
+                                loading={loading}
+                                showSearch
+                                optionFilterProp="children"
+                                disabled={loading}
+                            >
+                                {positions.map((position) => (
+                                    <Option key={position.PositionID} value={String(position.PositionID)} style={{ fontFamily: 'Poppins, sans-serif' }}>
+                                        {position.PositionTitle}
+                                    </Option>
+                                ))}
+                            </Select>
+                        </Form.Item>
+                        <Form.Item 
+                            label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Schedule<span style={{ color: 'red' }}>*</span></span>} 
+                            name="ScheduleID" 
+                            rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select a company schedule!</span> }]}
+                        >
+                            <Select 
+                                placeholder="Select Schedule" 
+                                style={{ fontFamily: 'Poppins, sans-serif' }}
+                                loading={loading}
+                                showSearch
+                                optionFilterProp="children"
+                                disabled={loading}
+                            >
+                                {schedules.map((schedule) => (
+                                    <Option key={schedule.ScheduleID} value={String(schedule.ScheduleID)} style={{ fontFamily: 'Poppins, sans-serif' }}>
+                                        {`${schedule.ShiftStart} - ${schedule.ShiftEnd}`}
+                                    </Option>
+                                ))}
+                            </Select>
+                        </Form.Item>
+                        <Form.Item 
+                            label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Member Since<span style={{ color: 'red' }}>*</span></span>} 
+                            name="MemberSince" 
+                            rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select a joined date!</span> }]}
+                        >
+                            <DatePicker 
+                                format="MM/DD/YYYY"
+                                placeholder="Select Date (MM/DD/YYYY)"
+                                style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }}
+                                disabled={loading}
+                            />
+                        </Form.Item>
+                    </Form>
+                )}
+
+                {modalType === 'View' && selectedEmployee && (
+                    <div style={{ fontFamily: 'Poppins, sans-serif' }}>
+                        <p><strong>Employee Name:</strong> {selectedEmployee["Employee Name"]}</p>
+                        <p><strong>Branch Name:</strong> {selectedEmployee["Branch Name"]}</p>
+                        <p><strong>Position Title:</strong> {selectedEmployee["Position Title"]}</p>
+                        <p><strong>Schedule:</strong> {selectedEmployee.Schedule}</p>
+                        <p><strong>Member Since:</strong> {selectedEmployee["Member Since"]}</p>
+                        <div>
+                            <strong>Assigned Allowances:</strong>
+                            {allowances.length > 0 ? (
+                                <ul>
+                                    {allowances.map((allowance) => (
+                                        <li key={allowance.AllowanceID}>
+                                            {allowance.Description}: ₱{formatMoney(allowance.Amount)} 
+                                        </li>
+                                    ))}
+                                </ul>
+                            ) : (
+                                <p>No allowances assigned.</p>
+                            )}
+                        </div>
+                        <div>
+                            <strong>Assigned Deductions:</strong>
+                            {deductions.length > 0 ? (
+                                <ul>
+                                    {deductions.map((deduction) => (
+                                        <li key={deduction.DeductionID}>
+                                            {deduction.DeductionType}: ₱{formatMoney(deduction.Amount)} 
+                                        </li>
+                                    ))}
+                                </ul>
+                            ) : (
+                                <p>No deductions assigned.</p>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {modalType === 'Delete' && selectedEmployee && (
+                    <div style={{ fontFamily: 'Poppins, sans-serif', textAlign: 'center' }}>
+                        <p style={{ fontSize: '18px', fontWeight: 'bold', color: '#ff4d4f' }}>
+                            ⚠️ Are you sure you want to delete this employee?
+                        </p>
+                        <p>This action <strong>cannot be undone</strong>. The employee "<strong>{selectedEmployee["Employee Name"]}</strong>" will be permanently removed including all the records that they have.</p>
+                    </div>
+                )}
+            </Modal>
+        </div>
+    );
 };
 
 export default EmployeesTable;

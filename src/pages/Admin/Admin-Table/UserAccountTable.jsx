@@ -213,7 +213,7 @@ const UserAccountTable = () => {
     try {
       const values = form.getFieldsValue();
 
-      if (modalType === 'Add' || modalType === 'Edit') {
+      if (modalType === 'add' || modalType === 'edit') {
         const errors = [];
         if (!values.name) errors.push('Name is required');
         if (!values.username) errors.push('Username is required');
@@ -222,11 +222,11 @@ const UserAccountTable = () => {
           errors.push('Branch is required for Payroll Staff');
         }
         if (!values.email) errors.push('Email is required');
-        if (modalType === 'Add' && !values.password) errors.push('Password is required');
+        if (modalType === 'add' && !values.password) errors.push('Password is required');
 
         if (errors.length > 0) {
           setLoading(false);
-          message.error('Please fill in all required fields');
+          message.error('"Failed to add user: Please ensure all required fields are completed correctly."');
           return;
         }
       }
@@ -234,7 +234,7 @@ const UserAccountTable = () => {
       await form.validateFields();
       const payload = {
         current_user_id: currentUserId,
-        ...(modalType !== 'Add' && { UserID: selectedUser?.UserID }),
+        ...(modalType !== 'add' && { UserID: selectedUser?.UserID }),
         name: values.name,
         username: values.username,
         role: values.role,
@@ -247,8 +247,8 @@ const UserAccountTable = () => {
       console.log('Payload sent to backend:', payload);
 
       const url = `${BASE_URL}/fetch_useraccount.php`;
-      const method = modalType === 'Add' ? 'POST' : 
-                    modalType === 'Edit' ? 'PUT' : 
+      const method = modalType === 'add' ? 'POST' : 
+                    modalType === 'edit' ? 'PUT' : 
                     'DELETE';
 
       const res = await fetch(url, {
@@ -260,7 +260,7 @@ const UserAccountTable = () => {
       const data = await res.json();
       if (!data.success) throw new Error(data.error || "Operation failed");
 
-      message.success(`${modalType} successful`);
+      message.success(`User ${modalType}ed successfully!`);
       setIsModalOpen(false);
       form.resetFields();
       setSelectedUser(null);
@@ -268,7 +268,7 @@ const UserAccountTable = () => {
       fetchData();
     } catch (err) {
       console.error('HandleOk Error:', err);
-      message.error(err.message || "Please comply with the requirements!");
+      message.error(err.message || "Failed to update employee: Please ensure all required fields are completed correctly.");
     } finally {
       setLoading(false);
     }
@@ -514,7 +514,7 @@ const UserAccountTable = () => {
         onChange={handlePageChange}
         showSizeChanger
         showQuickJumper
-        showTotal={total => `Total ${total} items`}
+        showTotal={total => `Total ${total} user records`}
         pageSizeOptions={['10', '20', '50', '100']}
         style={{ marginTop: 16, textAlign: 'right', justifyContent: 'center', fontFamily: 'Poppins, sans-serif' }}
       />

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Space, Table, Button, Input, Modal, Form, message, Select, Tag, Radio, Typography } from 'antd';
+import { Space, Table, Button, Input, Modal, Form, message, Select, Tag, Radio, Typography, Pagination } from 'antd';
 import { EyeOutlined, EditOutlined, DeleteOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons';
 
 const { Column } = Table;
@@ -8,56 +8,97 @@ const { Title } = Typography;
 
 const DeductionsTable = () => {
   const [searchText, setSearchText] = useState('');
+  const [selectedBranch, setSelectedBranch] = useState('all');
   const [filteredData, setFilteredData] = useState([]);
-  const [originalData, setOriginalData] = useState([]); // Grouped data
-  const [rawData, setRawData] = useState([]); // Ungrouped raw data for modals
+  const [originalData, setOriginalData] = useState([]);
+  const [rawData, setRawData] = useState([]);
   const [screenWidth, setScreenWidth] = useState(window.innerWidth);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalType, setModalType] = useState('');
   const [selectedEmployee, setSelectedEmployee] = useState(null);
-  const [deleteOption, setDeleteOption] = useState('all'); // 'all' or specific deductionId
+  const [deleteOption, setDeleteOption] = useState('all');
   const [form] = Form.useForm();
   const [employees, setEmployees] = useState([]);
+  const [branches, setBranches] = useState([]);
+  const [assignedBranches, setAssignedBranches] = useState([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [paginationTotal, setPaginationTotal] = useState(0);
+  const [filteredPaginationTotal, setFilteredPaginationTotal] = useState(0);
 
   const API_BASE_URL = "http://localhost/UserTableDB/UserDB";
+  const userId = localStorage.getItem('userId');
+  const role = localStorage.getItem('role');
 
   const fetchDropdownData = async () => {
     try {
-      const employeesRes = await fetch(`${API_BASE_URL}/fetch_deductions.php?type=employees`, { method: 'GET' });
-      if (!employeesRes.ok) throw new Error(`Employees fetch failed: ${employeesRes.statusText}`);
-      const employeesData = await employeesRes.json();
+      if (!userId || !role) throw new Error('Missing userId or role');
+      const [employeesRes, branchesRes, assignedBranchesRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/fetch_deductions.php?type=employees&user_id=${userId}&role=${encodeURIComponent(role)}`),
+        fetch(`${API_BASE_URL}/fetch_deductions.php?type=branches`),
+        fetch(`${API_BASE_URL}/fetch_branches.php?user_id=${userId}&role=${encodeURIComponent(role)}`)
+      ]);
+
+      if (!employeesRes.ok || !branchesRes.ok || !assignedBranchesRes.ok) {
+        throw new Error('Failed to fetch dropdown data');
+      }
+
+      const [employeesData, branchesData, assignedBranchesData] = await Promise.all([
+        employeesRes.json(),
+        branchesRes.json(),
+        assignedBranchesRes.json()
+      ]);
+
       setEmployees(employeesData);
+      setBranches(branchesData);
+      setAssignedBranches(assignedBranchesData.data || []);
     } catch (err) {
       console.error("Fetch Dropdown Error:", err.message);
-      message.error(`Failed to load employees: ${err.message}`);
+      message.error(`Failed to load dropdown data: ${err.message}`);
     }
   };
 
   const fetchData = async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/fetch_deductions.php`);
-      if (!res.ok) throw new Error(`Deductions fetch failed: ${res.statusText}`);
-      const data = await res.json();
+      if (!userId || !role) {
+        message.error('Please log in to view deductions');
+        return;
+      }
 
-      // Map raw data for modals
-      const mappedRawData = data.map(deduction => ({
+      let url = `${API_BASE_URL}/fetch_deductions.php?user_id=${userId}&role=${encodeURIComponent(role)}&page=${currentPage - 1}&limit=${pageSize}`;
+      if (selectedBranch !== 'all') {
+        url += `&branch_id=${selectedBranch}`;
+      }
+      const res = await fetch(url);
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(`Deductions fetch failed: ${res.statusText} - ${errorText}`);
+      }
+      const response = await res.json();
+
+      if (!response.success) throw new Error(response.error || 'Failed to fetch deductions');
+
+      const mappedRawData = response.data.map(deduction => ({
         key: deduction.DeductionID,
         employeeId: deduction.EmployeeID,
         employeeName: deduction.EmployeeName,
+        branchId: deduction.BranchID,
+        branchName: deduction.BranchName,
         deductionType: deduction.DeductionType,
         amount: parseFloat(deduction.Amount).toFixed(2),
       }));
       setRawData(mappedRawData);
 
-      // Group by EmployeeID for table display
       const groupedData = Object.values(
-        data.reduce((acc, deduction) => {
-          const { EmployeeID, EmployeeName, DeductionID, DeductionType, Amount } = deduction;
+        response.data.reduce((acc, deduction) => {
+          const { EmployeeID, EmployeeName, BranchID, BranchName, DeductionID, DeductionType, Amount } = deduction;
           if (!acc[EmployeeID]) {
             acc[EmployeeID] = {
               key: EmployeeID,
               employeeId: EmployeeID,
               employeeName: EmployeeName,
+              branchId: BranchID,
+              branchName: BranchName,
               deductions: [],
               totalAmount: 0,
             };
@@ -71,8 +112,11 @@ const DeductionsTable = () => {
           return acc;
         }, {})
       );
+
       setOriginalData(groupedData);
       setFilteredData(groupedData);
+      setPaginationTotal(response.total);
+      setFilteredPaginationTotal(groupedData.length);
     } catch (err) {
       console.error("Fetch Deductions Error:", err.message);
       message.error(`Failed to load deductions data: ${err.message}`);
@@ -82,7 +126,7 @@ const DeductionsTable = () => {
   useEffect(() => {
     fetchDropdownData();
     fetchData();
-  }, []);
+  }, [currentPage, pageSize, selectedBranch]);
 
   useEffect(() => {
     const handleResize = () => setScreenWidth(window.innerWidth);
@@ -92,17 +136,35 @@ const DeductionsTable = () => {
 
   const handleSearch = (value) => {
     const lowerValue = value.toLowerCase().trim();
-    if (!lowerValue) {
-      setFilteredData(originalData);
-    } else {
-      const filtered = originalData.filter(item =>
+    let filtered = originalData;
+    if (selectedBranch !== 'all') {
+      filtered = filtered.filter(item => item.branchId === selectedBranch);
+    }
+    if (lowerValue) {
+      filtered = filtered.filter(item =>
         item.employeeId.toString().toLowerCase().includes(lowerValue) ||
         item.employeeName.toLowerCase().includes(lowerValue) ||
+        item.branchName.toLowerCase().includes(lowerValue) ||
         item.deductions.some(d => d.type.toLowerCase().includes(lowerValue))
       );
-      setFilteredData(filtered);
     }
+    setFilteredData(filtered);
+    setFilteredPaginationTotal(filtered.length);
     setSearchText(value);
+    setCurrentPage(1);
+  };
+
+  const handleBranchChange = (value) => {
+    setSelectedBranch(value || 'all');
+    setCurrentPage(1);
+  };
+
+  const handlePageChange = (page, newPageSize) => {
+    setCurrentPage(page);
+    if (newPageSize !== pageSize) {
+      setPageSize(newPageSize);
+      setCurrentPage(1);
+    }
   };
 
   const openModal = (type, record = null) => {
@@ -134,8 +196,10 @@ const DeductionsTable = () => {
         .then((values) => {
           const payload = {
             EmployeeID: values.employeeId,
+            BranchID: values.branchId,
             DeductionType: values.deductionType,
             Amount: parseFloat(values.amount).toFixed(2),
+            user_id: userId,
           };
 
           return fetch(`${API_BASE_URL}/fetch_deductions.php`, {
@@ -147,15 +211,24 @@ const DeductionsTable = () => {
               if (!res.ok) throw new Error(`Server error: ${res.statusText}`);
               return res.json();
             })
-            .then(() => {
-              message.success("Deduction added successfully!");
-              setIsModalOpen(false);
-              form.resetFields();
-              fetchData();
+            .then((data) => {
+              if (data.success) {
+                message.success("Deduction added successfully!");
+                setIsModalOpen(false);
+                form.resetFields();
+                fetchData();
+              } else if (data.warning) {
+                message.warning(data.warning);
+              } else {
+                throw new Error(data.error || "Failed to add deduction");
+              }
+            })
+            .catch((err) => {
+              message.error(`Failed to add deduction: ${err.message || 'Please ensure all required fields are completed correctly.'}`);
             });
         })
         .catch((err) => {
-          message.error(`Failed to add deduction: ${err.message || 'Validation failed'}`);
+          message.error(`Failed to add deduction: ${err.message || 'Please ensure all required fields are completed correctly.'}`);
         });
     } else if (modalType === "Edit" && selectedEmployee) {
       form.validateFields()
@@ -165,6 +238,7 @@ const DeductionsTable = () => {
             EmployeeID: selectedEmployee.employeeId,
             DeductionType: deduction.deductionType,
             Amount: parseFloat(deduction.amount).toFixed(2),
+            user_id: userId,
           }));
 
           const updatePromises = payloads.map(payload =>
@@ -179,11 +253,15 @@ const DeductionsTable = () => {
           );
 
           return Promise.all(updatePromises)
-            .then(() => {
-              message.success("Deductions updated successfully!");
-              setIsModalOpen(false);
-              form.resetFields();
-              fetchData();
+            .then((results) => {
+              if (results.every(result => result.success)) {
+                message.success("Deductions updated successfully!");
+                setIsModalOpen(false);
+                form.resetFields();
+                fetchData();
+              } else {
+                throw new Error("Failed to update some deductions");
+              }
             });
         })
         .catch((err) => {
@@ -197,7 +275,7 @@ const DeductionsTable = () => {
             fetch(`${API_BASE_URL}/fetch_deductions.php`, {
               method: "DELETE",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ DeductionID: deduction.deductionId }),
+              body: JSON.stringify({ DeductionID: deduction.deductionId, user_id: userId }),
             }).then(res => {
               if (!res.ok) throw new Error(`Delete failed: ${res.statusText}`);
               return res.json();
@@ -208,7 +286,7 @@ const DeductionsTable = () => {
             fetch(`${API_BASE_URL}/fetch_deductions.php`, {
               method: "DELETE",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ DeductionID: deleteOption }),
+              body: JSON.stringify({ DeductionID: deleteOption, user_id: userId }),
             }).then(res => {
               if (!res.ok) throw new Error(`Delete failed: ${res.statusText}`);
               return res.json();
@@ -254,38 +332,63 @@ const DeductionsTable = () => {
     }
   };
 
+  const handleEmployeeChange = (employeeId) => {
+    const employee = employees.find(emp => emp.EmployeeID === employeeId);
+    if (employee && employee.BranchID) {
+      form.setFieldsValue({ branchId: employee.BranchID });
+    } else {
+      form.setFieldsValue({ branchId: undefined });
+    }
+  };
+
   const showLabels = screenWidth >= 600;
 
   return (
-    <div style={{ padding: '20px' }}>
+    <div className="fade-in" style={{ padding: '20px' }}>
       <Title level={2} style={{ fontFamily: 'Poppins, sans-serif', marginBottom: '20px' }}>
         Deductions
       </Title>
 
-      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
-        <Button 
-          icon={<PlusOutlined />} 
-          size="middle" 
-          style={{ backgroundColor: '#2C3743', borderColor: '#2C3743', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
-          onClick={() => openModal('Add')}
-        >
-          {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Add Deduction</span>}
-        </Button>
-        <Input
-          placeholder="Search by any field (e.g., name, type)"
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
+        <Select
+          placeholder="Select Branch"
           allowClear
-          value={searchText}
-          onChange={(e) => handleSearch(e.target.value)}
-          prefix={<SearchOutlined />}
-          style={{ width: screenWidth < 480 ? '100%' : '250px', marginTop: screenWidth < 480 ? 10 : 0, fontFamily: 'Poppins, sans-serif' }}
-        />
+          value={selectedBranch}
+          onChange={handleBranchChange}
+          style={{ width: screenWidth < 480 ? '100%' : '200px', fontFamily: 'Poppins, sans-serif' }}
+        >
+          <Option value="all" style={{ fontFamily: 'Poppins, sans-serif' }}>All Branches</Option>
+          {(role === 'Payroll Admin' ? branches : assignedBranches).map(branch => (
+            <Option key={branch.BranchID} value={branch.BranchID} style={{ fontFamily: 'Poppins, sans-serif' }}>
+              {branch.BranchName}
+            </Option>
+          ))}
+        </Select>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+          <Button 
+            icon={<PlusOutlined />} 
+            size="middle" 
+            style={{ backgroundColor: '#2C3743', borderColor: '#2C3743', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
+            onClick={() => openModal('Add')}
+          >
+            {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Add Deduction</span>}
+          </Button>
+          <Input
+            placeholder="Search by any field (e.g., name, type, branch)"
+            allowClear
+            value={searchText}
+            onChange={(e) => handleSearch(e.target.value)}
+            prefix={<SearchOutlined />}
+            style={{ width: screenWidth < 480 ? '100%' : '250px', marginTop: screenWidth < 480 ? 10 : 0, fontFamily: 'Poppins, sans-serif' }}
+          />
+        </div>
       </div>
 
       <Table 
         dataSource={filteredData} 
         bordered 
         scroll={{ x: true }} 
-        pagination={{ position: ['bottomCenter'] }}
+        pagination={false}
         style={{ fontFamily: 'Poppins, sans-serif' }}
       >
         <Column 
@@ -300,6 +403,13 @@ const DeductionsTable = () => {
           dataIndex="employeeName" 
           key="employeeName" 
           sorter={(a, b) => a.employeeName.localeCompare(b.employeeName)}
+          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
+        />
+        <Column 
+          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Branch</span>} 
+          dataIndex="branchName" 
+          key="branchName" 
+          sorter={(a, b) => a.branchName.localeCompare(b.branchName)}
           render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
         />
         <Column
@@ -357,13 +467,26 @@ const DeductionsTable = () => {
         />
       </Table>
 
+      <Pagination
+        current={currentPage}
+        pageSize={pageSize}
+        total={searchText.trim() || selectedBranch !== 'all' ? filteredPaginationTotal : paginationTotal}
+        onChange={handlePageChange}
+        onShowSizeChange={handlePageChange}
+        showSizeChanger
+        showQuickJumper={{ goButton: false }}
+        showTotal={(total) => `Total ${total} deduction records`}
+        pageSizeOptions={['10', '20', '50', '100']}
+        style={{ marginTop: 16, textAlign: 'center', fontFamily: 'Poppins, sans-serif', justifyContent: 'center' }}
+      />
+
       <Modal
         title={
           <div style={{ textAlign: 'center' }}>
             <span style={{ fontSize: '22px', fontWeight: 'bold', fontFamily: 'Poppins, sans-serif' }}>
-              {modalType === 'Add' ? 'Add New Deduction' : 
-               modalType === 'Edit' ? 'Edit Deductions' : 
-               modalType === 'View' ? 'View Deductions' : 
+              {modalType === 'Add' ? 'Add New Deduction Details' : 
+               modalType === 'Edit' ? 'Edit Deduction Details' : 
+               modalType === 'View' ? 'View Deduction Details' : 
                'Confirm Deductions Deletion'}
             </span>
           </div>
@@ -376,12 +499,12 @@ const DeductionsTable = () => {
         cancelButtonProps={{ style: { fontFamily: 'Poppins, sans-serif' } }}
         width={600}
         centered
-        bodyStyle={{ padding: '20px', fontFamily: 'Poppins, sans-serif' }}
+        styles={{ body: { padding: '20px', fontFamily: 'Poppins, sans-serif' } }}
       >
         {modalType === 'Add' && (
           <Form form={form} layout="vertical" style={{ fontFamily: 'Poppins, sans-serif' }}>
             <Form.Item 
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Employee</span>} 
+              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Employee<span style={{ color: 'red' }}>*</span></span>} 
               name="employeeId" 
               rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select an employee!</span> }]}
             >
@@ -391,16 +514,35 @@ const DeductionsTable = () => {
                 optionFilterProp="children"
                 filterOption={(input, option) => option.children.toLowerCase().includes(input.toLowerCase())}
                 style={{ fontFamily: 'Poppins, sans-serif' }}
+                onChange={handleEmployeeChange}
               >
-                {employees.map((employee) => (
-                  <Option key={employee.EmployeeID} value={employee.EmployeeID} style={{ fontFamily: 'Poppins, sans-serif' }}>
-                    {employee.EmployeeName}
+                {(role === 'Payroll Admin' ? employees : employees.filter(emp => assignedBranches.some(ab => ab.BranchID === emp.BranchID)))
+                  .map((employee) => (
+                    <Option key={employee.EmployeeID} value={employee.EmployeeID} style={{ fontFamily: 'Poppins, sans-serif' }}>
+                      {employee.EmployeeName}
+                    </Option>
+                  ))}
+              </Select>
+            </Form.Item>
+            <Form.Item 
+              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Branch<span style={{ color: 'red' }}>*</span></span>} 
+              name="branchId" 
+              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select an employee to set the branch!</span> }]}
+            >
+              <Select
+                placeholder="Employee Branch"
+                disabled
+                style={{ fontFamily: 'Poppins, sans-serif' }}
+              >
+                {branches.map(branch => (
+                  <Option key={branch.BranchID} value={branch.BranchID} style={{ fontFamily: 'Poppins, sans-serif' }}>
+                    {branch.BranchName}
                   </Option>
                 ))}
               </Select>
             </Form.Item>
             <Form.Item 
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Deduction Type</span>} 
+              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Deduction Type<span style={{ color: 'red' }}>*</span></span>} 
               name="deductionType" 
               rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select a deduction type!</span> }]}
             >
@@ -411,9 +553,12 @@ const DeductionsTable = () => {
               </Select>
             </Form.Item>
             <Form.Item 
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Amount (₱)</span>} 
+              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Amount (₱)<span style={{ color: 'red' }}>*</span></span>} 
               name="amount" 
-              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please enter the amount!</span> }]}
+              rules={[
+                { required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please enter the amount!</span> },
+                { validator: (_, value) => value >= 0 ? Promise.resolve() : Promise.reject(<span style={{ fontFamily: 'Poppins, sans-serif' }}>Amount cannot be negative!</span>) }
+              ]}
             >
               <Input type="number" step="0.01" min="0" style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }} />
             </Form.Item>
@@ -428,7 +573,7 @@ const DeductionsTable = () => {
                   {fields.map((field, index) => (
                     <div key={field.key} style={{ marginBottom: 16 }}>
                       <Form.Item
-                        label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>{getDeductionLabel(selectedEmployee.deductions[index]?.type)}</span>}
+                        label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>{getDeductionLabel(selectedEmployee.deductions[index]?.type)}<span style={{ color: 'red' }}>*</span></span>}
                         name={[field.name, 'deductionType']}
                         rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select a deduction type!</span> }]}
                       >
@@ -439,9 +584,12 @@ const DeductionsTable = () => {
                         </Select>
                       </Form.Item>
                       <Form.Item
-                        label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Amount (₱)</span>}
+                        label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Amount (₱)<span style={{ color: 'red' }}>*</span></span>}
                         name={[field.name, 'amount']}
-                        rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please enter the amount!</span> }]}
+                        rules={[
+                          { required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please enter the amount!</span> },
+                          { validator: (_, value) => value >= 0 ? Promise.resolve() : Promise.reject(<span style={{ fontFamily: 'Poppins, sans-serif' }}>Amount cannot be negative!</span>) }
+                        ]}
                       >
                         <Input type="number" step="0.01" min="0" style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }} />
                       </Form.Item>
@@ -458,8 +606,8 @@ const DeductionsTable = () => {
 
         {modalType === 'View' && selectedEmployee && (
           <div style={{ fontFamily: 'Poppins, sans-serif' }}>
-            <p style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: 10, fontFamily: 'Poppins, sans-serif' }}>
-              Deductions for {selectedEmployee.employeeName}:
+            <p style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: 30, fontFamily: 'Poppins, sans-serif' }}>
+              Deductions for {selectedEmployee.employeeName} ({selectedEmployee.branchName})
             </p>
             {selectedEmployee.deductions.map((deduction) => (
               <div key={deduction.deductionId} style={{ marginBottom: 8, fontFamily: 'Poppins, sans-serif' }}>
@@ -476,9 +624,10 @@ const DeductionsTable = () => {
 
         {modalType === 'Delete' && selectedEmployee && (
           <div style={{ fontFamily: 'Poppins, sans-serif' }}>
-            <p style={{ fontSize: '18px', fontWeight: 'bold', color: '#ff4d4f', marginBottom: 16, fontFamily: 'Poppins, sans-serif' }}>
-              ⚠️ Select what to delete for {selectedEmployee.employeeName}:
+            <p style={{ fontSize: '17px', fontWeight: 'bold', color: '#ff4d4f', marginBottom: 16, fontFamily: 'Poppins, sans-serif', textAlign: 'center' }}>
+              ⚠️ Select what to delete a deduction record for {selectedEmployee.employeeName}:
             </p>
+            <p style={{ fontFamily: 'Poppins, sans-serif', textAlign: 'center', marginBottom: 16 }}>This action <strong>cannot be undone</strong>. The deduction record assigned to employee "<strong>{selectedEmployee.employeeName}</strong>" will be permanently removed.</p>
             <Radio.Group
               onChange={(e) => setDeleteOption(e.target.value)}
               value={deleteOption}

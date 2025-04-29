@@ -100,18 +100,38 @@ body {
   overflow: hidden;
 }
 
-.widget-header {
-  padding: 16px;
-  background: linear-gradient(135deg, #1A3C6D 0%, #2A5470 100%);
-  border-radius: 16px !important;   
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+.monthly-attendance-widget {
+  border-radius: 16px !important;
+  background: #fff !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1) !important;
+  padding: 0 !important;
+  height: 550px;
+  overflow: hidden;
 }
 
+.widget-header {
+  padding: 16px;
+  background: #fff !important;
+  border-radius: 16px !important;   
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 15px;
+}
+
+.monthly-widget-header {
+  padding: 16px;
+  background: #fff !important;
+  border-radius: 16px !important;   
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 15px;
+}
+
+
 .widget-title {
-  color: #fff !important;
-  font-size: 18px !important;
+  color: #000000 !important;
   font-weight: 600 !important;
   margin: 0 !important;
   font-family: 'Poppins', sans-serif !important;
@@ -137,7 +157,6 @@ body {
 .custom-download-btn:hover {
   background-color: #199400 !important; /* Slightly lighter shade for hover */
   border-color: #199400 !important;
-  transform: scale(1.05);
 }
 
 .custom-download-btn:active {
