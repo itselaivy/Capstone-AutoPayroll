@@ -525,23 +525,6 @@ const DeductionsTable = () => {
               </Select>
             </Form.Item>
             <Form.Item 
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Branch<span style={{ color: 'red' }}>*</span></span>} 
-              name="branchId" 
-              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select an employee to set the branch!</span> }]}
-            >
-              <Select
-                placeholder="Employee Branch"
-                disabled
-                style={{ fontFamily: 'Poppins, sans-serif' }}
-              >
-                {branches.map(branch => (
-                  <Option key={branch.BranchID} value={branch.BranchID} style={{ fontFamily: 'Poppins, sans-serif' }}>
-                    {branch.BranchName}
-                  </Option>
-                ))}
-              </Select>
-            </Form.Item>
-            <Form.Item 
               label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Deduction Type<span style={{ color: 'red' }}>*</span></span>} 
               name="deductionType" 
               rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select a deduction type!</span> }]}

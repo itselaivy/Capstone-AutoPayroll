@@ -1,6 +1,8 @@
 <?php
 error_reporting(E_ALL);
-ini_set('display_errors', 1);
+ini_set('display_errors', 0);
+ini_set('log_errors', 1);
+ini_set('error_log', 'php_errors.log');
 
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
@@ -176,6 +178,73 @@ try {
                 $stmt->close();
 
                 echo json_encode(["exists" => $exists]);
+            } elseif ($type == 'payment_history') {
+                $cash_advance_id = isset($_GET['cash_advance_id']) ? (int)$_GET['cash_advance_id'] : null;
+                if (!$cash_advance_id || !$user_id || !$role) {
+                    throw new Exception("cash_advance_id, user_id, and role are required for fetching payment history.");
+                }
+
+                if ($role === 'Payroll Staff') {
+                    $branchStmt = $conn->prepare("SELECT BranchID FROM UserBranches WHERE UserID = ?");
+                    if (!$branchStmt) throw new Exception("Prepare failed for branch query: " . $conn->error);
+                    $branchStmt->bind_param("i", $user_id);
+                    $branchStmt->execute();
+                    $branchResult = $branchStmt->get_result();
+                    $allowedBranches = [];
+                    while ($row = $branchResult->fetch_assoc()) {
+                        $allowedBranches[] = $row['BranchID'];
+                    }
+                    $branchStmt->close();
+
+                    if (empty($allowedBranches)) {
+                        echo json_encode(["success" => true, "data" => []]);
+                        exit;
+                    }
+
+                    $stmt = $conn->prepare("
+                        SELECT ual.created_at, ual.activity_description
+                        FROM user_activity_logs ual
+                        JOIN cashadvance ca ON ual.affected_record_id = ca.CashAdvanceID
+                        WHERE ual.activity_type = 'UPDATE_DATA'
+                        AND ual.affected_table = 'Cash Advance'
+                        AND ual.affected_record_id = ?
+                        AND ca.BranchID IN (" . implode(',', array_fill(0, count($allowedBranches), '?')) . ")
+                        AND ual.activity_description LIKE '%(Payment:%'
+                        ORDER BY ual.created_at DESC
+                    ");
+                    if (!$stmt) throw new Exception("Prepare failed for payment history query: " . $conn->error);
+                    $types = "i" . str_repeat('i', count($allowedBranches));
+                    $params = array_merge([$cash_advance_id], $allowedBranches);
+                    $stmt->bind_param($types, ...$params);
+                } else {
+                    $stmt = $conn->prepare("
+                        SELECT created_at, activity_description
+                        FROM user_activity_logs
+                        WHERE activity_type = 'UPDATE_DATA'
+                        AND affected_table = 'Cash Advance'
+                        AND affected_record_id = ?
+                        AND activity_description LIKE '%(Payment:%'
+                        ORDER BY created_at DESC
+                    ");
+                    if (!$stmt) throw new Exception("Prepare failed for payment history query: " . $conn->error);
+                    $stmt->bind_param("i", $cash_advance_id);
+                }
+
+                $stmt->execute();
+                $result = $stmt->get_result();
+                $data = [];
+                while ($row = $result->fetch_assoc()) {
+                    preg_match('/\(Payment: ₱([\d,.]+)\)/', $row['activity_description'], $matches);
+                    if (isset($matches[1])) {
+                        $data[] = [
+                            'date' => (new DateTime($row['created_at']))->format('m/d/Y'),
+                            'amount' => str_replace(',', '', $matches[1])
+                        ];
+                    }
+                }
+                $stmt->close();
+
+                echo json_encode(["success" => true, "data" => $data]);
             } else {
                 throw new Exception("Invalid type specified");
             }
@@ -222,7 +291,8 @@ try {
                             e.EmployeeName,
                             ca.BranchID,
                             b.BranchName,
-                            ca.Amount
+                            ca.Amount,
+                            ca.Balance
                         FROM cashadvance ca
                         JOIN employees e ON ca.EmployeeID = e.EmployeeID
                         JOIN branches b ON ca.BranchID = b.BranchID
@@ -250,7 +320,8 @@ try {
                             e.EmployeeName,
                             ca.BranchID,
                             b.BranchName,
-                            ca.Amount
+                            ca.Amount,
+                            ca.Balance
                         FROM cashadvance ca
                         JOIN employees e ON ca.EmployeeID = e.EmployeeID
                         JOIN branches b ON ca.BranchID = b.BranchID";
@@ -327,19 +398,20 @@ try {
                 throw new Exception("Invalid EmployeeID");
             }
             if (!recordExists($conn, "branches", $data["BranchID"])) {
-                throw new Exception("Invalid BranchID");
+                throw new Exception("Invalid BranchID: Branch does not exist");
             }
 
             $conn->begin_transaction();
             try {
-                $stmt = $conn->prepare("INSERT INTO cashadvance (Date, EmployeeID, BranchID, Amount) VALUES (?, ?, ?, ?)");
-                $stmt->bind_param("siid", $data["Date"], $data["EmployeeID"], $data["BranchID"], $data["Amount"]);
+                $stmt = $conn->prepare("INSERT INTO cashadvance (Date, EmployeeID, BranchID, Amount, Balance) VALUES (?, ?, ?, ?, ?)");
+                $balance = $data["Balance"] ?? $data["Amount"];
+                $stmt->bind_param("siidd", $data["Date"], $data["EmployeeID"], $data["BranchID"], $data["Amount"], $balance);
 
                 if ($stmt->execute()) {
                     $cashAdvanceId = $conn->insert_id;
                     $employeeName = getEmployeeNameById($conn, $data["EmployeeID"]);
                     $formattedDate = formatDate($data["Date"]);
-                    $description = "Cash Advance for '$employeeName' on '$formattedDate' added: Amount: ₱{$data['Amount']}";
+                    $description = "Cash Advance for '$employeeName' on '$formattedDate' added: Amount: ₱{$data['Amount']}, Balance: ₱{$balance}";
                     logUserActivity($conn, $user_id, "ADD_DATA", "Cash Advance", $cashAdvanceId, $description);
                     $conn->commit();
                     echo json_encode(["success" => true, "id" => $cashAdvanceId]);
@@ -352,7 +424,11 @@ try {
                 throw $e;
             }
         } else {
-            throw new Exception("All fields are required");
+            throw new Exception("Missing required fields: " . 
+                (!empty($data["Date"]) ? "" : "Date, ") . 
+                (isset($data["EmployeeID"]) ? "" : "EmployeeID, ") . 
+                (isset($data["BranchID"]) ? "" : "BranchID, ") . 
+                (!empty($data["Amount"]) ? "" : "Amount"));
         }
     } elseif ($method == "PUT") {
         $data = json_decode(file_get_contents("php://input"), true);
@@ -365,22 +441,10 @@ try {
             throw new Exception("User ID is required");
         }
 
-        if (!empty($data["CashAdvanceID"]) && 
-            !empty($data["Date"]) && 
-            isset($data["EmployeeID"]) && 
-            isset($data["BranchID"]) && 
-            !empty($data["Amount"])) {
-            
-            if (!recordExists($conn, "employees", $data["EmployeeID"])) {
-                throw new Exception("Invalid EmployeeID");
-            }
-            if (!recordExists($conn, "branches", $data["BranchID"])) {
-                throw new Exception("Invalid BranchID");
-            }
-
+        if (!empty($data["CashAdvanceID"])) {
             $conn->begin_transaction();
             try {
-                $stmt = $conn->prepare("SELECT Date, EmployeeID, BranchID, Amount FROM cashadvance WHERE CashAdvanceID = ?");
+                $stmt = $conn->prepare("SELECT Date, EmployeeID, BranchID, Amount, Balance FROM cashadvance WHERE CashAdvanceID = ?");
                 $stmt->bind_param("i", $data["CashAdvanceID"]);
                 $stmt->execute();
                 $result = $stmt->get_result();
@@ -392,34 +456,56 @@ try {
                 }
 
                 $changes = [];
-                if ($currentRecord["Date"] != $data["Date"]) {
-                    $oldDate = formatDate($currentRecord["Date"]);
-                    $newDate = formatDate($data["Date"]);
-                    $changes[] = "Date from '$oldDate' to '$newDate'";
-                }
-                if ($currentRecord["EmployeeID"] != $data["EmployeeID"]) {
-                    $oldEmployeeName = getEmployeeNameById($conn, $currentRecord["EmployeeID"]);
-                    $newEmployeeName = getEmployeeNameById($conn, $data["EmployeeID"]);
-                    $changes[] = "Employee from '$oldEmployeeName' to '$newEmployeeName'";
-                }
-                if ($currentRecord["BranchID"] != $data["BranchID"]) {
-                    $oldBranchName = getBranchNameById($conn, $currentRecord["BranchID"]);
-                    $newBranchName = getBranchNameById($conn, $data["BranchID"]);
-                    $changes[] = "Branch from '$oldBranchName' to '$newBranchName'";
-                }
-                if ($currentRecord["Amount"] != $data["Amount"]) {
-                    $changes[] = "Amount from '₱{$currentRecord['Amount']}' to '₱{$data['Amount']}'";
-                }
+                $employeeName = getEmployeeNameById($conn, $currentRecord["EmployeeID"]);
+                $formattedDate = formatDate($currentRecord["Date"]);
 
-                $stmt = $conn->prepare("UPDATE cashadvance SET Date = ?, EmployeeID = ?, BranchID = ?, Amount = ? WHERE CashAdvanceID = ?");
-                $stmt->bind_param("siidi", $data["Date"], $data["EmployeeID"], $data["BranchID"], $data["Amount"], $data["CashAdvanceID"]);
+                if (isset($data["Balance"]) && isset($data["PaymentAmount"])) {
+                    // Payment update
+                    $paymentAmount = $data["PaymentAmount"] ?? 0;
+                    $changes[] = "Balance from '₱{$currentRecord['Balance']}' to '₱{$data['Balance']}' (Payment: ₱{$paymentAmount})";
+                    $stmt = $conn->prepare("UPDATE cashadvance SET Balance = ? WHERE CashAdvanceID = ?");
+                    $stmt->bind_param("di", $data["Balance"], $data["CashAdvanceID"]);
+                    $description = "Cash Advance payment for '$employeeName' on '$formattedDate': " . implode('/ ', $changes);
+                } else {
+                    // Regular update
+                    if (!recordExists($conn, "employees", $data["EmployeeID"])) {
+                        throw new Exception("Invalid EmployeeID");
+                    }
+                    if (!recordExists($conn, "branches", $data["BranchID"])) {
+                        throw new Exception("Invalid BranchID: Branch does not exist");
+                    }
 
-                if ($stmt->execute()) {
-                    $employeeName = getEmployeeNameById($conn, $data["EmployeeID"]);
-                    $formattedDate = formatDate($data["Date"]);
+                    if ($currentRecord["Date"] != $data["Date"]) {
+                        $oldDate = formatDate($currentRecord["Date"]);
+                        $newDate = formatDate($data["Date"]);
+                        $changes[] = "Date from '$oldDate' to '$newDate'";
+                    }
+                    if ($currentRecord["EmployeeID"] != $data["EmployeeID"]) {
+                        $oldEmployeeName = getEmployeeNameById($conn, $currentRecord["EmployeeID"]);
+                        $newEmployeeName = getEmployeeNameById($conn, $data["EmployeeID"]);
+                        $changes[] = "Employee from '$oldEmployeeName' to '$newEmployeeName'";
+                    }
+                    if ($currentRecord["BranchID"] != $data["BranchID"]) {
+                        $oldBranchName = getBranchNameById($conn, $currentRecord["BranchID"]);
+                        $newBranchName = getBranchNameById($conn, $data["BranchID"]);
+                        $changes[] = "Branch from '$oldBranchName' to '$newBranchName'";
+                    }
+                    if ($currentRecord["Amount"] != $data["Amount"]) {
+                        $changes[] = "Amount from '₱{$currentRecord['Amount']}' to '₱{$data['Amount']}'";
+                    }
+                    if ($currentRecord["Balance"] != $data["Balance"]) {
+                        $changes[] = "Balance from '₱{$currentRecord['Balance']}' to '₱{$data['Balance']}'";
+                    }
+
+                    $stmt = $conn->prepare("UPDATE cashadvance SET Date = ?, EmployeeID = ?, BranchID = ?, Amount = ?, Balance = ? WHERE CashAdvanceID = ?");
+                    $balance = $data["Balance"] ?? $data["Amount"];
+                    $stmt->bind_param("siiddi", $data["Date"], $data["EmployeeID"], $data["BranchID"], $data["Amount"], $balance, $data["CashAdvanceID"]);
                     $description = empty($changes)
                         ? "Cash Advance for '$employeeName' on '$formattedDate' updated: No changes made"
                         : "Cash Advance for '$employeeName' on '$formattedDate' updated: " . implode('/ ', $changes);
+                }
+
+                if ($stmt->execute()) {
                     logUserActivity($conn, $user_id, "UPDATE_DATA", "Cash Advance", $data["CashAdvanceID"], $description);
                     $conn->commit();
                     echo json_encode(["success" => true]);
@@ -432,7 +518,7 @@ try {
                 throw $e;
             }
         } else {
-            throw new Exception("All fields are required");
+            throw new Exception("Cash Advance ID is required");
         }
     } elseif ($method == "DELETE") {
         $data = json_decode(file_get_contents("php://input"), true);
@@ -448,7 +534,7 @@ try {
         if (!empty($data["CashAdvanceID"])) {
             $conn->begin_transaction();
             try {
-                $stmt = $conn->prepare("SELECT Date, EmployeeID, Amount FROM cashadvance WHERE CashAdvanceID = ?");
+                $stmt = $conn->prepare("SELECT Date, EmployeeID, Amount, Balance FROM cashadvance WHERE CashAdvanceID = ?");
                 $stmt->bind_param("i", $data["CashAdvanceID"]);
                 $stmt->execute();
                 $result = $stmt->get_result();
@@ -465,7 +551,7 @@ try {
                 if ($stmt->execute()) {
                     $employeeName = getEmployeeNameById($conn, $record["EmployeeID"]);
                     $formattedDate = formatDate($record["Date"]);
-                    $description = "Cash Advance for '$employeeName' on '$formattedDate' deleted: Amount: ₱{$record['Amount']}";
+                    $description = "Cash Advance for '$employeeName' on '$formattedDate' deleted: Amount: ₱{$record['Amount']}, Balance: ₱{$record['Balance']}";
                     logUserActivity($conn, $user_id, "DELETE_DATA", "Cash Advance", $data["CashAdvanceID"], $description);
                     $conn->commit();
                     echo json_encode(["success" => true]);

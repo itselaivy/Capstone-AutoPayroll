@@ -29,6 +29,9 @@ const EmployeesTable = () => {
     const [paginationTotal, setPaginationTotal] = useState(0);
     const [allowances, setAllowances] = useState([]);
     const [deductions, setDeductions] = useState([]);
+    const [paymentHistory, setPaymentHistory] = useState([]);
+    const [ratePerHour, setRatePerHour] = useState(null);
+    const [cashAdvances, setCashAdvances] = useState([]);
 
     const API_BASE_URL = "http://localhost/UserTableDB/UserDB";
     const userId = localStorage.getItem('userId');
@@ -42,6 +45,11 @@ const EmployeesTable = () => {
 
     const formatMoney = (amount) => {
         return Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    };
+
+    const calculateBalance = (amount, paymentHistory) => {
+        const totalPaid = paymentHistory.reduce((sum, payment) => sum + parseFloat(payment.paid || 0), 0);
+        return (parseFloat(amount) - totalPaid).toFixed(2);
     };
 
     const fetchDropdownData = async () => {
@@ -219,28 +227,34 @@ const EmployeesTable = () => {
         }
     };
 
-    const fetchAllowancesAndDeductions = async (employeeId) => {
+    const fetchEmployeeDetails = async (employeeId) => {
         setLoading(true);
         try {
-            const url = `${API_BASE_URL}/fetch_employees.php?type=allowances_deductions&employee_id=${employeeId}&user_id=${encodeURIComponent(userId)}&role=${encodeURIComponent(role)}`;
+            const url = `${API_BASE_URL}/fetch_employees.php?type=employee_details&employee_id=${employeeId}&user_id=${encodeURIComponent(userId)}&role=${encodeURIComponent(role)}`;
             const res = await fetch(url);
             if (!res.ok) {
-                throw new Error("Failed to fetch allowances and deductions");
+                throw new Error("Failed to fetch employee details");
             }
             const response = await res.json();
 
-            console.log("Allowances and Deductions Response:", response);
+            console.log("Employee Details Response:", response);
 
             if (!response.success) {
                 throw new Error(response.error || "Failed to fetch data");
             }
             setAllowances(response.allowances || []);
             setDeductions(response.deductions || []);
+            setPaymentHistory(response.payment_history || []);
+            setRatePerHour(response.rate_per_hour || null);
+            setCashAdvances(response.cash_advances || []);
         } catch (err) {
-            console.error("Fetch Allowances/Deductions Error:", err.message);
-            message.error("Failed to load allowances and deductions.");
+            console.error("Fetch Employee Details Error:", err.message);
+            message.error("Failed to load employee details.");
             setAllowances([]);
             setDeductions([]);
+            setPaymentHistory([]);
+            setRatePerHour(null);
+            setCashAdvances([]);
         } finally {
             setLoading(false);
         }
@@ -300,7 +314,7 @@ const EmployeesTable = () => {
         } else if (type === 'Add') {
             form.resetFields();
         } else if (type === 'View' && record) {
-            fetchAllowancesAndDeductions(record.key);
+            fetchEmployeeDetails(record.key);
         }
     };
 
@@ -426,6 +440,9 @@ const EmployeesTable = () => {
     const handleCancel = () => {
         setIsModalOpen(false);
         form.resetFields();
+        setPaymentHistory([]);
+        setRatePerHour(null);
+        setCashAdvances([]);
     };
 
     const showLabels = screenWidth >= 600;
@@ -715,10 +732,11 @@ const EmployeesTable = () => {
                         <p><strong>Employee Name:</strong> {selectedEmployee["Employee Name"]}</p>
                         <p><strong>Branch Name:</strong> {selectedEmployee["Branch Name"]}</p>
                         <p><strong>Position Title:</strong> {selectedEmployee["Position Title"]}</p>
+                        <p><strong>Rate per Hour:</strong> {ratePerHour ? `₱${formatMoney(ratePerHour)}` : 'N/A'}</p>
                         <p><strong>Schedule:</strong> {selectedEmployee.Schedule}</p>
                         <p><strong>Member Since:</strong> {selectedEmployee["Member Since"]}</p>
                         <div>
-                            <strong>Assigned Allowances:</strong>
+                            <strong>Allowances:</strong>
                             {allowances.length > 0 ? (
                                 <ul>
                                     {allowances.map((allowance) => (
@@ -732,7 +750,7 @@ const EmployeesTable = () => {
                             )}
                         </div>
                         <div>
-                            <strong>Assigned Deductions:</strong>
+                            <strong>Deductions:</strong>
                             {deductions.length > 0 ? (
                                 <ul>
                                     {deductions.map((deduction) => (
@@ -743,6 +761,38 @@ const EmployeesTable = () => {
                                 </ul>
                             ) : (
                                 <p>No deductions assigned.</p>
+                            )}
+                        </div>
+                        <div style={{ marginTop: '20px' }}>
+                            <strong>Cash Advance Record:</strong>
+                            {cashAdvances.length > 0 ? (
+                                <ul style={{ listStyleType: 'none', padding: 0, marginTop: '10px' }}>
+                                    {cashAdvances.map((cashAdvance) => (
+                                        <li key={cashAdvance.CashAdvanceID} style={{ marginBottom: '8px' }}>
+                                            <strong>Date:</strong> {formatDateToMMDDYYYY(cashAdvance.Date)} | 
+                                            <strong> Amount:</strong> ₱{formatMoney(cashAdvance.Amount)} | 
+                                            <strong> Balance:</strong> ₱{formatMoney(calculateBalance(cashAdvance.Amount, paymentHistory.filter(p => p.cashAdvanceId === cashAdvance.CashAdvanceID)))}
+                                        </li>
+                                    ))}
+                                </ul>
+                            ) : (
+                                <p>No cash advances recorded.</p>
+                            )}
+                        </div>
+                        <div style={{ marginTop: '20px' }}>
+                            <strong>Cash Advance Payment History:</strong>
+                            {paymentHistory.length > 0 ? (
+                                <ul style={{ listStyleType: 'none', padding: 0, marginTop: '10px' }}>
+                                    {paymentHistory.map((payment, index) => (
+                                        <li key={index} style={{ marginBottom: '8px' }}>
+                                            <strong>Date:</strong> {payment.date} | 
+                                            <strong> Amount:</strong> ₱{formatMoney(payment.amount)} | 
+                                            <strong> Paid:</strong> ₱{formatMoney(payment.paid)}
+                                        </li>
+                                    ))}
+                                </ul>
+                            ) : (
+                                <p>No cash advance payments recorded.</p>
                             )}
                         </div>
                     </div>

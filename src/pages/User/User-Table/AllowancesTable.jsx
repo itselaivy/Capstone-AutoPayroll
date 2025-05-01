@@ -529,17 +529,6 @@ const AllowancesTable = () => {
               </Select>
             </Form.Item>
             <Form.Item 
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Branch<span style={{ color: 'red' }}>*</span></span>} 
-              name="branchName" 
-              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Branch is required!</span> }]}
-            >
-              <Input 
-                disabled 
-                style={{ width: '100%', fontFamily: 'Poppins, sans-serif', backgroundColor: '#f5f5f5', color: '#000' }} 
-                placeholder="Employee Branch"
-              />
-            </Form.Item>
-            <Form.Item 
               label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Allowance Type<span style={{ color: 'red' }}>*</span></span>} 
               name="description" 
               rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please enter an allowance type!</span> }]}

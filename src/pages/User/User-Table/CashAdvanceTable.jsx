@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Space, Table, Button, Input, Modal, Form, message, DatePicker, Select, Typography, Pagination } from 'antd';
-import { EyeOutlined, EditOutlined, DeleteOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons';
+import { Space, Table, Button, Input, Modal, Form, message, DatePicker, Select, Typography, Pagination, Tooltip } from 'antd';
+import { EyeOutlined, EditOutlined, DeleteOutlined, PlusOutlined, SearchOutlined, DollarOutlined } from '@ant-design/icons';
 import moment from 'moment';
 
 const { Column } = Table;
 const { Option } = Select;
 const { Title } = Typography;
+const { confirm } = Modal;
 
 const CashAdvanceTable = () => {
   const [searchText, setSearchText] = useState('');
@@ -24,6 +25,8 @@ const CashAdvanceTable = () => {
   const [paginationTotal, setPaginationTotal] = useState(0);
   const [filteredPaginationTotal, setFilteredPaginationTotal] = useState(0);
   const [selectedBranch, setSelectedBranch] = useState('');
+  const [paymentHistory, setPaymentHistory] = useState([]);
+  const [paymentStatus, setPaymentStatus] = useState({});
 
   const API_BASE_URL = "http://localhost/UserTableDB/UserDB";
   const DATE_FORMAT = 'MM/DD/YYYY';
@@ -57,7 +60,6 @@ const CashAdvanceTable = () => {
       const employeesData = await employeesRes.json();
       const assignedBranchesData = await assignedBranchesRes.json();
 
-      // Normalize BranchID to string for consistency
       setBranches(branchesData.map(branch => ({
         ...branch,
         BranchID: String(branch.BranchID)
@@ -104,14 +106,51 @@ const CashAdvanceTable = () => {
         branchId: String(cashAdvance.BranchID),
         branch: cashAdvance.BranchName,
         amount: parseFloat(cashAdvance.Amount).toFixed(2),
+        balance: parseFloat(cashAdvance.Balance || cashAdvance.Amount).toFixed(2),
       }));
       setOriginalData(mappedData);
       setFilteredData(mappedData);
       setPaginationTotal(response.total);
       setFilteredPaginationTotal(response.total);
+
+      const paymentStatusUpdate = {};
+      for (const record of mappedData) {
+        const history = await fetchPaymentHistory(record.key, true);
+        paymentStatusUpdate[record.key] = history.length > 0;
+      }
+      setPaymentStatus(paymentStatusUpdate);
     } catch (err) {
       console.error("Fetch Cash Advance Error:", err.message);
       message.error(`Failed to load cash advance data: ${err.message}`);
+    }
+  };
+
+  const fetchPaymentHistory = async (cashAdvanceId, silent = false) => {
+    try {
+      const userId = localStorage.getItem('userId');
+      const role = localStorage.getItem('role');
+      if (!userId || !role) {
+        if (!silent) message.error('Please log in to view payment history');
+        return [];
+      }
+
+      const res = await fetch(`${API_BASE_URL}/fetch_cashadvance.php?type=payment_history&cash_advance_id=${cashAdvanceId}&user_id=${userId}&role=${role}`);
+      if (!res.ok) throw new Error(`Payment history fetch failed: ${res.statusText}`);
+      const response = await res.json();
+
+      if (response.success) {
+        if (!silent) setPaymentHistory(response.data);
+        return response.data;
+      } else {
+        throw new Error(response.error || 'Failed to fetch payment history');
+      }
+    } catch (err) {
+      if (!silent) {
+        console.error("Fetch Payment History Error:", err.message);
+        message.error(`Failed to load payment history: ${err.message}`);
+        setPaymentHistory([]);
+      }
+      return [];
     }
   };
 
@@ -130,12 +169,10 @@ const CashAdvanceTable = () => {
     const lowerValue = value.toLowerCase().trim();
     let filtered = originalData;
 
-    // Apply branch filter first if a branch is selected
     if (selectedBranch) {
       filtered = filtered.filter(item => item.branchId === selectedBranch);
     }
 
-    // Then apply search text filter
     if (lowerValue) {
       filtered = filtered.filter(item =>
         Object.values(item)
@@ -163,22 +200,23 @@ const CashAdvanceTable = () => {
       const branch = branches.find(b => b.BranchID === employee.BranchID);
       if (!branch) {
         message.error('Branch information not found for this employee.');
-        form.setFieldsValue({ employeeId: undefined, branch: undefined });
+        form.setFieldsValue({ employeeId: undefined });
         return;
       }
       if (role === 'Payroll Staff') {
         const isValidBranch = assignedBranches.some(ab => ab.BranchID === employee.BranchID);
         if (isValidBranch) {
-          form.setFieldsValue({ branch: employee.BranchID });
+          form.setFieldsValue({ employeeId });
         } else {
           message.error('Selected employee’s branch is not assigned to you.');
-          form.setFieldsValue({ employeeId: undefined, branch: undefined });
+          form.setFieldsValue({ employeeId: undefined });
         }
       } else {
-        form.setFieldsValue({ branch: employee.BranchID });
+        form.setFieldsValue({ employeeId });
       }
     } else {
-      form.setFieldsValue({ branch: undefined });
+      message.error('Invalid employee or branch information.');
+      form.setFieldsValue({ employeeId: undefined });
     }
   };
 
@@ -200,12 +238,18 @@ const CashAdvanceTable = () => {
       form.setFieldsValue({
         date: moment(record.date, DATE_FORMAT),
         employeeId: record.employeeId,
-        branch: employee ? employee.BranchID : record.branchId,
         amount: record.amount,
+        paymentAmount: undefined,
       });
+      if (type === 'View') {
+        fetchPaymentHistory(record.key);
+      } else {
+        setPaymentHistory([]);
+      }
     } else {
       form.resetFields();
       form.setFieldsValue({ date: moment() });
+      setPaymentHistory([]);
     }
   };
 
@@ -248,22 +292,87 @@ const CashAdvanceTable = () => {
       try {
         const values = await form.validateFields();
         const date = values.date.format('YYYY-MM-DD');
-        // Use selectedCashAdvance.employeeId for Edit since employeeId is not in the Edit form
         const employeeId = modalType === "Edit" ? selectedCashAdvance.employeeId : values.employeeId;
         const excludeId = modalType === "Edit" && selectedCashAdvance ? selectedCashAdvance.key : null;
 
-        // Check for duplicates
         const isDuplicate = await checkForDuplicate(date, employeeId, excludeId);
         if (isDuplicate) {
           message.warning('Warning: An employee with this cash advance record already exists.');
           return;
         }
 
+        let branchId;
+        if (modalType === "Add") {
+          const employee = employees.find(emp => emp.EmployeeID === employeeId);
+          if (!employee || !employee.BranchID) {
+            message.error('Selected employee has no valid branch information.');
+            return;
+          }
+          const branch = branches.find(b => b.BranchID === employee.BranchID);
+          if (!branch) {
+            message.error('Branch information not found for this employee.');
+            return;
+          }
+          const role = localStorage.getItem('role');
+          if (role === 'Payroll Staff') {
+            const isValidBranch = assignedBranches.some(ab => ab.BranchID === employee.BranchID);
+            if (!isValidBranch) {
+              message.error('Selected employee’s branch is not assigned to you.');
+              return;
+            }
+          }
+          branchId = employee.BranchID;
+        } else {
+          branchId = selectedCashAdvance.branchId;
+        }
+
+        if (modalType === "Edit") {
+          const proceed = await new Promise((resolve) => {
+            confirm({
+              title: (
+                <span style={{ fontFamily: 'Poppins, sans-serif', fontSize: '18px', fontWeight: 'bold' }}>
+                  Confirm Changes
+                </span>
+              ),
+              content: (
+                <span style={{ fontFamily: 'Poppins, sans-serif', fontSize: '16px' }}>
+                  Please confirm your changes. Once payments are made for this cash advance, you will no longer be able to edit its details.
+                </span>
+              ),
+              okText: 'OK',
+              cancelText: 'Cancel',
+              okButtonProps: { 
+                type: 'primary',
+                style: { 
+                  backgroundColor: '#1890ff', 
+                  borderColor: '#1890ff', 
+                  color: '#ffffff', 
+                  fontFamily: 'Poppins, sans-serif' 
+                } 
+              },
+              cancelButtonProps: { style: { fontFamily: 'Poppins, sans-serif' } },
+              centered: true,
+              width: 500,
+              onOk() {
+                resolve(true);
+              },
+              onCancel() {
+                resolve(false);
+              },
+            });
+          });
+
+          if (!proceed) {
+            return;
+          }
+        }
+
         const payload = {
           Date: date,
           EmployeeID: employeeId,
-          BranchID: modalType === "Edit" ? selectedCashAdvance.branchId : values.branch,
+          BranchID: branchId,
           Amount: parseFloat(values.amount).toFixed(2),
+          Balance: parseFloat(values.amount).toFixed(2),
           user_id: parseInt(userId),
         };
 
@@ -311,12 +420,53 @@ const CashAdvanceTable = () => {
         console.error("Delete Error:", err.message);
         message.error(`Failed to delete cash advance: ${err.message}`);
       }
+    } else if (modalType === "Pay" && selectedCashAdvance) {
+      try {
+        const values = await form.validateFields();
+        const paymentAmount = parseFloat(values.paymentAmount);
+        const currentBalance = parseFloat(selectedCashAdvance.balance);
+        
+        if (paymentAmount > currentBalance) {
+          message.error('Payment amount cannot exceed current balance!');
+          return;
+        }
+
+        const newBalance = (currentBalance - paymentAmount).toFixed(2);
+
+        const payload = {
+          CashAdvanceID: selectedCashAdvance.key,
+          Balance: newBalance,
+          user_id: parseInt(userId),
+          PaymentAmount: paymentAmount
+        };
+
+        const res = await fetch(`${API_BASE_URL}/fetch_cashadvance.php`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        if (!res.ok) throw new Error(`Server error: ${res.statusText}`);
+        const data = await res.json();
+
+        if (data.success) {
+          message.success(`Payment of ₱${formatNumberWithCommas(paymentAmount)} recorded successfully!`);
+          setIsModalOpen(false);
+          form.resetFields();
+          fetchData();
+        } else {
+          throw new Error(data.error || "Payment operation failed");
+        }
+      } catch (err) {
+        message.error(`Failed to record payment: ${err.message || 'Please ensure the payment amount is valid.'}`);
+      }
     }
   };
 
   const handleCancel = () => {
     setIsModalOpen(false);
     form.resetFields();
+    setPaymentHistory([]);
   };
 
   const formatNumberWithCommas = (number) => {
@@ -409,6 +559,13 @@ const CashAdvanceTable = () => {
           sorter={(a, b) => a.amount - b.amount}
           render={(amount) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>₱{formatNumberWithCommas(amount)}</span>}
         />
+        <Column 
+          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Balance</span>} 
+          dataIndex="balance" 
+          key="balance" 
+          sorter={(a, b) => a.balance - b.balance}
+          render={(balance) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>₱{formatNumberWithCommas(balance)}</span>}
+        />
         <Column
           title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Action</span>}
           key="action"
@@ -422,14 +579,32 @@ const CashAdvanceTable = () => {
               >
                 {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>View</span>}
               </Button>
-              <Button 
-                icon={<EditOutlined />} 
-                size="middle" 
-                style={{ backgroundColor: '#722ed1', borderColor: '#722ed1', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
-                onClick={() => openModal('Edit', record)}
+              <Tooltip
+                title={record.balance === "0.00" ? 'This cash advance is fully paid and cannot be paid further.' : ''}
               >
-                {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Edit</span>}
-              </Button>
+                <Button 
+                  icon={<DollarOutlined />} 
+                  size="middle" 
+                  style={{ backgroundColor: '#1890ff', borderColor: '#1890ff', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
+                  onClick={() => openModal('Pay', record)}
+                  disabled={record.balance === "0.00"}
+                >
+                  {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Pay</span>}
+                </Button>
+              </Tooltip>
+              <Tooltip
+                title={paymentStatus[record.key] ? 'This cash advance cannot be edited because payments have already been made.' : ''}
+              >
+                <Button 
+                  icon={<EditOutlined />} 
+                  size="middle" 
+                  style={{ backgroundColor: '#722ed1', borderColor: '#722ed1', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
+                  onClick={() => openModal('Edit', record)}
+                  disabled={paymentStatus[record.key]}
+                >
+                  {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Edit</span>}
+                </Button>
+              </Tooltip>
               <Button 
                 icon={<DeleteOutlined />} 
                 size="middle" 
@@ -463,6 +638,7 @@ const CashAdvanceTable = () => {
               {modalType === 'Add' ? 'Add New Cash Advance' : 
                modalType === 'Edit' ? 'Edit Cash Advance Details' : 
                modalType === 'View' ? 'View Cash Advance Information' : 
+               modalType === 'Pay' ? 'Pay Cash Advance' :
                'Confirm Cash Advance Deletion'}
             </span>
           </div>
@@ -470,8 +646,11 @@ const CashAdvanceTable = () => {
         open={isModalOpen}
         onOk={handleOk}
         onCancel={handleCancel}
-        okText={modalType === 'Delete' ? 'Delete' : 'OK'}
-        okButtonProps={{ danger: modalType === 'Delete', style: { fontFamily: 'Poppins, sans-serif' } }}
+        okText={modalType === 'Delete' ? 'Delete' : modalType === 'Pay' ? 'Pay' : 'OK'}
+        okButtonProps={{ 
+          danger: modalType === 'Delete', 
+          style: { fontFamily: 'Poppins, sans-serif' }
+        }}
         cancelButtonProps={{ style: { fontFamily: 'Poppins, sans-serif' } }}
         width={600}
         centered
@@ -512,25 +691,6 @@ const CashAdvanceTable = () => {
               </Select>
             </Form.Item>
             <Form.Item 
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Branch<span style={{ color: 'red' }}>*</span></span>} 
-              name="branch" 
-              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Branch will be auto-set</span> }]}
-            >
-              <Select 
-                placeholder="Employee Branch" 
-                disabled
-                style={{ fontFamily: 'Poppins, sans-serif', color: '#585858' }}
-              >
-                {(role === 'Payroll Staff' ? 
-                  branches.filter(branch => assignedBranches.some(ab => ab.BranchID === branch.BranchID)) : 
-                  branches).map((branch) => (
-                    <Option key={branch.BranchID} value={branch.BranchID} style={{ fontFamily: 'Poppins, sans-serif', color: '#585858' }}>
-                      {branch.BranchName}
-                    </Option>
-                  ))}
-              </Select>
-            </Form.Item>
-            <Form.Item 
               label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Amount (₱)<span style={{ color: 'red' }}>*</span></span>} 
               name="amount" 
               rules={[
@@ -560,13 +720,41 @@ const CashAdvanceTable = () => {
                 style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }} 
               />
             </Form.Item>
-            
             <Form.Item 
               label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Amount (₱)<span style={{ color: 'red' }}>*</span></span>} 
               name="amount" 
               rules={[
                 { required: true, message: 'Please enter the amount!' },
                 { validator: (_, value) => value >= 0 ? Promise.resolve() : Promise.reject(new Error('Amount cannot be negative!')) }
+              ]}
+            >
+              <Input 
+                type="number" 
+                step="0.01" 
+                min="0" 
+                style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }} 
+              />
+            </Form.Item>
+          </Form>
+        )}
+
+        {(modalType === 'Pay') && (
+          <Form form={form} layout="vertical" style={{ fontFamily: 'Poppins, sans-serif' }}>
+            <Form.Item 
+              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Current Balance</span>}
+            >
+              <Input 
+                value={`₱${formatNumberWithCommas(selectedCashAdvance?.balance)}`} 
+                disabled 
+                style={{ fontFamily: 'Poppins, sans-serif' }}
+              />
+            </Form.Item>
+            <Form.Item 
+              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Payment Amount (₱)<span style={{ color: 'red' }}>*</span></span>} 
+              name="paymentAmount" 
+              rules={[
+                { required: true, message: 'Please enter the payment amount!' },
+                { validator: (_, value) => value > 0 ? Promise.resolve() : Promise.reject(new Error('Payment amount must be greater than zero!')) }
               ]}
             >
               <Input 
@@ -593,6 +781,23 @@ const CashAdvanceTable = () => {
             <p style={{ fontFamily: 'Poppins, sans-serif' }}>
               <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Amount:</strong> ₱{formatNumberWithCommas(selectedCashAdvance.amount)}
             </p>
+            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
+              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Balance:</strong> ₱{formatNumberWithCommas(selectedCashAdvance.balance)}
+            </p>
+            <div style={{ marginTop: '20px' }}>
+              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Payment History:</strong>
+              {paymentHistory.length > 0 ? (
+                <ul style={{ listStyleType: 'none', padding: 0, marginTop: '10px' }}>
+                  {paymentHistory.map((payment, index) => (
+                    <li key={index} style={{ fontFamily: 'Poppins, sans-serif', marginBottom: '8px' }}>
+                      <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Date:</strong> {payment.date} | <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Amount:</strong> ₱{formatNumberWithCommas(selectedCashAdvance.amount)} | <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Paid:</strong> ₱{formatNumberWithCommas(payment.amount)}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p style={{ fontFamily: 'Poppins, sans-serif', color: '#000' }}>No payments recorded.</p>
+              )}
+            </div>
           </div>
         )}
 
