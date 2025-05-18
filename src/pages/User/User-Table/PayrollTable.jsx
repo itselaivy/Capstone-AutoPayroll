@@ -726,308 +726,354 @@ const PayrollTable = () => {
     }
 };
 
-const handlePayrollReport = async () => {
-  if (!payrollDates.startDate || !payrollDates.endDate || !payrollCut) {
-    message.warning('Please set a payroll date before generating the report.');
-    return;
-  }
-
-  try {
-    const startDateBackend = dayjs(payrollDates.startDate, 'MM/DD/YYYY').format('YYYY-MM-DD');
-    const endDateBackend = dayjs(payrollDates.endDate, 'MM/DD/YYYY').format('YYYY-MM-DD');
-
-    let url = `${API_BASE_URL}/fetch_payroll.php?user_id=${userId}&role=${encodeURIComponent(role)}&start_date=${startDateBackend}&end_date=${endDateBackend}&payroll_cut=${payrollCut}`;
-    if (selectedBranch !== 'all') {
-      url += `&branch_id=${selectedBranch}`;
-    }
-    if (searchText.trim()) {
-      url += `&search=${encodeURIComponent(searchText.trim())}`;
+  const handlePayrollReport = async () => {
+    if (!payrollDates.startDate || !payrollDates.endDate || !payrollCut) {
+      message.warning('Please set a payroll date before generating the report.');
+      return;
     }
 
-    const res = await fetch(url);
-    if (!res.ok) {
-      const errorText = await res.text();
-      throw new Error(`Payroll report fetch failed: ${res.statusText} - ${errorText}`);
-    }
-    const response = await res.json();
+    try {
+      const startDateBackend = dayjs(payrollDates.startDate, 'MM/DD/YYYY').format('YYYY-MM-DD');
+      const endDateBackend = dayjs(payrollDates.endDate, 'MM/DD/YYYY').format('YYYY-MM-DD');
 
-    if (!response.success) {
-      throw new Error(response.error || 'Failed to fetch payroll records');
-    }
+      let url = `${API_BASE_URL}/fetch_payroll.php?user_id=${userId}&role=${encodeURIComponent(role)}&start_date=${startDateBackend}&end_date=${endDateBackend}&payroll_cut=${payrollCut}`;
+      if (selectedBranch !== 'all') {
+        url += `&branch_id=${selectedBranch}`;
+      }
+      if (searchText.trim()) {
+        url += `&search=${encodeURIComponent(searchText.trim())}`;
+      }
 
-    const reportData = await Promise.all(
-      response.data.map(async (employee) => {
-        const payload = {
-          action: 'generate_payslip',
-          user_id: parseInt(userId),
-          employeeId: employee.EmployeeID,
-          start_date: startDateBackend,
-          end_date: endDateBackend,
-          payroll_cut: payrollCut,
-        };
+      const res = await fetch(url);
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(`Payroll report fetch failed: ${res.statusText} - ${errorText}`);
+      }
+      const response = await res.json();
 
-        const payslipRes = await fetch(`${API_BASE_URL}/fetch_payroll.php`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to fetch payroll records');
+      }
 
-        if (!payslipRes.ok) {
-          console.warn(`Failed to fetch payslip for EmployeeID: ${employee.EmployeeID}`);
-          return null;
-        }
+      const reportData = await Promise.all(
+        response.data.map(async (employee) => {
+          const payload = {
+            action: 'generate_payslip',
+            user_id: parseInt(userId),
+            employeeId: employee.EmployeeID,
+            start_date: startDateBackend,
+            end_date: endDateBackend,
+            payroll_cut: payrollCut,
+          };
 
-        const payslipData = await payslipRes.json();
-        if (!payslipData.success) {
-          console.warn(`Failed to generate payslip for EmployeeID: ${employee.EmployeeID}`);
-          return null;
-        }
+          const payslipRes = await fetch(`${API_BASE_URL}/fetch_payroll.php`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
 
-        return {
-          EmployeeName: employee.EmployeeName,
-          DailyRate: payslipData.data.DailyRate || '0.00',
-          DaysPresent: Math.floor((parseFloat(payslipData.data.HoursWorked) / 8) - (parseInt(payslipData.data.AbsentDays) || 0)), // Whole number
-          TotalBasic: payslipData.data.BasicPay || '0.00',
-          Allowance: payslipData.data.AllowancesData?.reduce((sum, a) => sum + parseFloat(a.Amount || 0), 0).toFixed(2) || '0.00',
-          Overtime: payslipData.data.OvertimePay?.Total || '0.00',
-          HolidayRegular: payslipData.data.HolidayPay?.Regular || '0.00',
-          HolidaySpecial: payslipData.data.HolidayPay?.Special || '0.00',
-          HolidayOvertime: (
+          if (!payslipRes.ok) {
+            console.warn(`Failed to fetch payslip for EmployeeID: ${employee.EmployeeID}`);
+            return null;
+          }
+
+          const payslipData = await payslipRes.json();
+          if (!payslipData.success) {
+            console.warn(`Failed to generate payslip for EmployeeID: ${employee.EmployeeID}`);
+            return null;
+          }
+
+          // Calculate leave pay using LeaveData from payslip response
+          const leaveCount = payslipData.data.LeaveData && Array.isArray(payslipData.data.LeaveData) 
+            ? payslipData.data.LeaveData.length 
+            : 0;
+
+          const daysPresent = Math.floor((parseFloat(payslipData.data.HoursWorked) / 8) - (parseInt(payslipData.data.AbsentDays) || 0));
+          const dailyRate = parseFloat(payslipData.data.DailyRate || '0.00');
+          const totalBasic = (dailyRate * daysPresent).toFixed(2);
+          const allowance = payslipData.data.AllowancesData?.reduce((sum, a) => sum + parseFloat(a.Amount || 0), 0).toFixed(2) || '0.00';
+          const overtime = parseFloat(payslipData.data.OvertimePay?.Total || '0.00').toFixed(2);
+          const holidayRegular = parseFloat(payslipData.data.HolidayPay?.Regular || '0.00').toFixed(2);
+          const holidaySpecial = parseFloat(payslipData.data.HolidayPay?.Special || '0.00').toFixed(2);
+          const holidayOvertime = (
             parseFloat(payslipData.data.PremiumPayData?.find(p => p.Description.includes('Holiday Overtime Hours (Special Non-Working Holiday) 169%'))?.Amount || 0) +
             parseFloat(payslipData.data.PremiumPayData?.find(p => p.Description.includes('Holiday Overtime Hours (Special Non-Working Holiday) 185.9%'))?.Amount || 0) +
             parseFloat(payslipData.data.PremiumPayData?.find(p => p.Description.includes('Holiday Overtime Hours (Regular Holiday) 260%'))?.Amount || 0) +
             parseFloat(payslipData.data.PremiumPayData?.find(p => p.Description.includes('Holiday Overtime Hours (Regular Holiday) 286%'))?.Amount || 0)
-          ).toFixed(2),
-          SundayPay: payslipData.data.SundayPay?.Total || '0.00',
-          SundayOvertime: (
+          ).toFixed(2);
+          const sundayPay = parseFloat(payslipData.data.SundayPay?.Total || '0.00').toFixed(2);
+          const sundayOvertime = (
             parseFloat(payslipData.data.PremiumPayData?.find(p => p.Description.includes('Sunday Overtime Hours (169%)'))?.Amount || 0) +
             parseFloat(payslipData.data.PremiumPayData?.find(p => p.Description.includes('Sunday Overtime Hours (185.9%)'))?.Amount || 0)
-          ).toFixed(2),
-          LeavePay: '0.00', // Placeholder, as leave pay logic isn't provided
-          GrossPay: payslipData.data.TotalEarnings || '0.00',
-          SSSContribution: payslipData.data.ContributionsData?.find(c => c.ContributionType === 'SSS')?.Amount || '0.00',
-          SSSCalamityLoan: payslipData.data.ContributionsData?.find(c => c.ContributionType === 'SSS Calamity')?.Amount || '0.00',
-          SSSSalaryLoan: payslipData.data.ContributionsData?.find(c => c.ContributionType === 'SSS Salary')?.Amount || '0.00',
-          PagIbigContribution: payslipData.data.ContributionsData?.find(c => c.ContributionType === 'Pag-Ibig')?.Amount || '0.00',
-          PagIbigCalamityLoan: payslipData.data.ContributionsData?.find(c => c.ContributionType === 'Pag-Ibig Calamity')?.Amount || '0.00',
-          PagIbigSalaryLoan: payslipData.data.ContributionsData?.find(c => c.ContributionType === 'Pag-Ibig Salary')?.Amount || '0.00',
-          Philhealth: payslipData.data.ContributionsData?.find(c => c.ContributionType === 'PhilHealth')?.Amount || '0.00',
-          CashAdvance: payslipData.data.CashAdvancesData?.reduce((sum, ca) => sum + parseFloat(ca.Amount || 0), 0).toFixed(2) || '0.00',
-          UndertimeLate: payslipData.data.LateDeduction || '0.00',
-          TotalDeduction: payslipData.data.TotalDeductions || '0.00',
-          NetPay: payslipData.data.NetPay || '0.00',
-          Signature: '', // Placeholder for signature
-        };
-      })
-    );
+          ).toFixed(2);
+          const leavePay = (leaveCount * 645.00).toFixed(2);
+          const grossPay = (
+            parseFloat(totalBasic) +
+            parseFloat(allowance) +
+            parseFloat(overtime) +
+            parseFloat(holidayRegular) +
+            parseFloat(holidaySpecial) +
+            parseFloat(holidayOvertime) +
+            parseFloat(sundayPay) +
+            parseFloat(sundayOvertime) +
+            parseFloat(leavePay)
+          ).toFixed(2);
 
-    const validReportData = reportData.filter(data => data !== null);
+          const sssContribution = payslipData.data.ContributionsData?.find(c => c.ContributionType === 'SSS')?.Amount || '0.00';
+          const sssCalamityLoan = payslipData.data.ContributionsData?.find(c => c.ContributionType === 'SSS Calamity')?.Amount || '0.00';
+          const sssSalaryLoan = payslipData.data.ContributionsData?.find(c => c.ContributionType === 'SSS Salary')?.Amount || '0.00';
+          const pagIbigContribution = payslipData.data.ContributionsData?.find(c => c.ContributionType === 'Pag-Ibig')?.Amount || '0.00';
+          const pagIbigCalamityLoan = payslipData.data.ContributionsData?.find(c => c.ContributionType === 'Pag-Ibig Calamity')?.Amount || '0.00';
+          const pagIbigSalaryLoan = payslipData.data.ContributionsData?.find(c => c.ContributionType === 'Pag-Ibig Salary')?.Amount || '0.00';
+          const philhealth = payslipData.data.ContributionsData?.find(c => c.ContributionType === 'PhilHealth')?.Amount || '0.00';
+          const cashAdvance = payslipData.data.CashAdvancesData?.reduce((sum, ca) => sum + parseFloat(ca.Amount || 0), 0).toFixed(2) || '0.00';
+          const undertimeLate = payslipData.data.LateDeduction || '0.00';
+          const totalDeduction = (
+            parseFloat(sssContribution) +
+            parseFloat(sssCalamityLoan) +
+            parseFloat(sssSalaryLoan) +
+            parseFloat(pagIbigContribution) +
+            parseFloat(pagIbigCalamityLoan) +
+            parseFloat(pagIbigSalaryLoan) +
+            parseFloat(philhealth) +
+            parseFloat(cashAdvance) +
+            parseFloat(undertimeLate)
+          ).toFixed(2);
+          const netPay = (
+            parseFloat(grossPay) -
+            parseFloat(sssContribution) -
+            parseFloat(sssCalamityLoan) -
+            parseFloat(sssSalaryLoan) -
+            parseFloat(pagIbigContribution) -
+            parseFloat(pagIbigCalamityLoan) -
+            parseFloat(pagIbigSalaryLoan) -
+            parseFloat(philhealth) -
+            parseFloat(cashAdvance) -
+            parseFloat(undertimeLate)
+          ).toFixed(2);
 
-    if (validReportData.length === 0) {
-      message.warning('No valid payroll data available to generate the report.');
-      return;
-    }
-
-    downloadPayrollReportPDF(validReportData);
-    message.success('Payroll report generated successfully!');
-
-    if (userId) {
-      logActivity({
-        user_id: parseInt(userId),
-        activity_type: 'GENERATE_DATA',
-        affected_table: 'Payroll',
-        affected_record_id: null,
-        activity_description: `Generated payroll report for period ${payrollDates.startDate} to ${payrollDates.endDate}`,
-      });
-    }
-  } catch (err) {
-    console.error('Payroll Report Error:', err);
-    message.error(`Failed to generate payroll report: ${err.message}`);
-  }
-};
-
-const downloadPayrollReportPDF = (reportData) => {
-  try {
-    // Long bond paper: 8.5 x 13 inches (612 x 936 points at 72 PPI)
-    const doc = new jsPDF({
-      orientation: 'landscape',
-      unit: 'pt',
-      format: [936, 612], // Width: 13in * 72pt/in = 936pt, Height: 8.5in * 72pt/in = 612pt
-    });
-    doc.setFont('helvetica', 'normal');
-
-    // Company Details
-    doc.setFontSize(8);
-    doc.setFont('helvetica', 'bold');
-    doc.text('VIAN-SON AUTOMOTIVE SERVICES INC.', 10, 80);
-    doc.setFontSize(5);
-    doc.setFont('helvetica', 'normal');
-    doc.text('306, 317 Roosevelt Ave. Brgy. San Antonio, Quezon City', 10, 97);
-    doc.text('Cell #: (63+) 968-884-2447', 10, 104);
-    doc.text(`Payroll Period: ${payrollDates.startDate} to ${payrollDates.endDate}`, 10, 111);
-
-    // Table Configuration
-    const head = [
-      [
-        { content: 'Name', rowSpan: 2 },
-        { content: 'Rate', rowSpan: 2 },
-        { content: 'Days', rowSpan: 2 },
-        { content: 'Total', rowSpan: 2 },
-        { content: 'Allowance', rowSpan: 2 },
-        { content: 'Overtime', rowSpan: 2 },
-        { content: 'HOLIDAY W/ PAY', colSpan: 2 },
-        { content: 'Holiday Overtime', rowSpan: 2 },
-        { content: 'Sunday Pay', rowSpan: 2 },
-        { content: 'Sunday Overtime Pay', rowSpan: 2 },
-        { content: 'Leave w/ Pay', rowSpan: 2 },
-        { content: 'Gross Pay', rowSpan: 2 },
-        { content: 'DEDUCTIONS', colSpan: 9 },
-        { content: 'Total Deduction', rowSpan: 2 },
-        { content: 'Net Pay', rowSpan: 2 },
-        { content: 'Signature', rowSpan: 2 },
-      ],
-      [
-        'Regular', 'Special',
-        'SSS Contri', 'SSS Calamity Loan', 'SSS Salary Loan',
-        'Pag-Ibig Contri', 'Pag-Ibig Calamity Loan', 'Pag-Ibig Salary Loan',
-        'Philhealth', 'Cash Advance', 'Undertime/Late',
-      ],
-    ];
-
-    const body = reportData.map(data => [
-      data.EmployeeName,
-      formatNumberWithCommas(data.DailyRate),
-      data.DaysPresent.toString(), // Whole number as string
-      formatNumberWithCommas(data.TotalBasic),
-      formatNumberWithCommas(data.Allowance),
-      formatNumberWithCommas(data.Overtime),
-      formatNumberWithCommas(data.HolidayRegular),
-      formatNumberWithCommas(data.HolidaySpecial),
-      formatNumberWithCommas(data.HolidayOvertime),
-      formatNumberWithCommas(data.SundayPay),
-      formatNumberWithCommas(data.SundayOvertime),
-      formatNumberWithCommas(data.LeavePay),
-      formatNumberWithCommas(data.GrossPay),
-      formatNumberWithCommas(data.SSSContribution),
-      formatNumberWithCommas(data.SSSCalamityLoan),
-      formatNumberWithCommas(data.SSSSalaryLoan),
-      formatNumberWithCommas(data.PagIbigContribution),
-      formatNumberWithCommas(data.PagIbigCalamityLoan),
-      formatNumberWithCommas(data.PagIbigSalaryLoan),
-      formatNumberWithCommas(data.Philhealth),
-      formatNumberWithCommas(data.CashAdvance),
-      formatNumberWithCommas(data.UndertimeLate),
-      formatNumberWithCommas(data.TotalDeduction),
-      formatNumberWithCommas(data.NetPay),
-      data.Signature,
-    ]);
-
-    // Calculate sum of Total Deductions
-    const totalDeductionsSum = reportData.reduce((sum, data) => sum + parseFloat(data.TotalDeduction || 0), 0).toFixed(2);
-
-    autoTable(doc, {
-      startY: 120,
-      head: head,
-      body: body,
-      theme: 'grid',
-      headStyles: {
-        fillColor: '#E7E7E7',
-        textColor: '#000',
-        fontSize: 5,
-        halign: 'center',
-        valign: 'middle',
-      },
-      styles: {
-        fontSize: 5,
-        cellPadding: 2,
-        halign: 'center',
-        valign: 'middle',
-        overflow: 'linebreak',
-      },
-      columnStyles: {
-        0: { halign: 'left', minCellWidth: 60, minCellHeight: 15, fontWeight: 'bold' }, // Name of Employee
-        1: { minCellWidth: 30 }, // Rate
-        2: { minCellWidth: 20 }, // Days
-        3: { minCellWidth: 30 }, // Total
-        4: { minCellWidth: 30 }, // Allowance
-        5: { minCellWidth: 30 }, // Overtime
-        6: { minCellWidth: 30 }, // Holiday Regular
-        7: { minCellWidth: 30 }, // Holiday Special
-        8: { minCellWidth: 30 }, // Holiday Overtime
-        9: { minCellWidth: 30 }, // Sunday Pay
-        10: { minCellWidth: 30 }, // Sunday Overtime Pay
-        11: { minCellWidth: 30 }, // Leave w/ Pay
-        12: { minCellWidth: 30 }, // Gross Pay
-        13: { minCellWidth: 30 }, // SSS Contribution
-        14: { minCellWidth: 30 }, // SSS Calamity Loan
-        15: { minCellWidth: 30 }, // SSS Salary Loan
-        16: { minCellWidth: 30 }, // Pag-Ibig Contribution
-        17: { minCellWidth: 30 }, // Pag-Ibig Calamity Loan
-        18: { minCellWidth: 30 }, // Pag-Ibig Salary Loan
-        19: { minCellWidth: 30 }, // Philhealth
-        20: { minCellWidth: 30 }, // Cash Advance
-        21: { minCellWidth: 30 }, // Undertime/Late
-        22: { minCellWidth: 30 }, // Total Deduction
-        23: { minCellWidth: 30 }, // Net Pay
-        24: { minCellWidth: 40 }, // Signature
-      },
-      margin: { top: 60, left: 10, right: 10 },
-      didDrawPage: (data) => {
-        // Add page number
-        doc.setFontSize(8);
-        doc.text(
-          `Page ${data.pageNumber}`,
-          doc.internal.pageSize.width - 20,
-          doc.internal.pageSize.height - 10,
-          { align: 'right' }
-        );
-      },
-    });
-
-    // Render Total Deductions sum after table is drawn
-    if (doc.lastAutoTable && doc.lastAutoTable.finalY && doc.lastAutoTable.columns) {
-      const tableBottomY = doc.lastAutoTable.finalY;
-      const totalDeductionColumnIndex = 22; // 0-based index for Total Deduction
-      const columnXPositions = doc.lastAutoTable.columns.map(col => col.x);
-      const columnWidth = doc.lastAutoTable.columns[totalDeductionColumnIndex]?.width || 30;
-      const totalDeductionX = columnXPositions[totalDeductionColumnIndex] ? 
-        columnXPositions[totalDeductionColumnIndex] + (columnWidth / 2) : 
-        780; // Fallback to page center (936 / 2)
-      
-      // Ensure text is within page bounds (height: 612 pt)
-      const textY = tableBottomY && tableBottomY + 10 < 612 - 10 ? tableBottomY + 10 : 592;
-      
-      // Debug logging
-      console.log('Rendering Total Deductions:', {
-        totalDeductionsSum,
-        totalDeductionX,
-        textY,
-        tableBottomY,
-        columnXPositions
-      });
-
-      doc.setFontSize(5);
-      doc.setFont('helvetica', 'bold');
-      doc.text(
-        `Total Deductions: PHP ${formatNumberWithCommas(totalDeductionsSum)}`,
-        totalDeductionX,
-        textY
+          return {
+            EmployeeName: employee.EmployeeName,
+            DailyRate: dailyRate.toFixed(2),
+            DaysPresent: daysPresent.toString(),
+            TotalBasic: totalBasic,
+            Allowance: allowance,
+            Overtime: overtime,
+            HolidayRegular: holidayRegular,
+            HolidaySpecial: holidaySpecial,
+            HolidayOvertime: holidayOvertime,
+            SundayPay: sundayPay,
+            SundayOvertime: sundayOvertime,
+            LeavePay: leavePay,
+            GrossPay: grossPay,
+            SSSContribution: sssContribution,
+            SSSCalamityLoan: sssCalamityLoan,
+            SSSSalaryLoan: sssSalaryLoan,
+            PagIbigContribution: pagIbigContribution,
+            PagIbigCalamityLoan: pagIbigCalamityLoan,
+            PagIbigSalaryLoan: pagIbigSalaryLoan,
+            Philhealth: philhealth,
+            CashAdvance: cashAdvance,
+            UndertimeLate: undertimeLate,
+            TotalDeduction: totalDeduction,
+            NetPay: netPay,
+            Signature: '',
+          };
+        })
       );
-    } else {
-      console.warn('Cannot render Total Deductions: lastAutoTable or its properties are missing', {
-        lastAutoTable: doc.lastAutoTable,
-        finalY: doc.lastAutoTable?.finalY,
-        columns: doc.lastAutoTable?.columns
-      });
-    }
 
-    const filename = `AutoPayroll_Report_${dayjs(payrollDates.startDate, 'MM/DD/YYYY').format('YYYY-MM-DD')}.pdf`;
-    doc.save(filename);
-  } catch (err) {
-    console.error('PDF Generation Error:', err);
-    message.error('Failed to generate payroll report PDF');
-  }
-};
+      const validReportData = reportData.filter(data => data !== null);
+
+      if (validReportData.length === 0) {
+        message.warning('No valid payroll data available to generate the report.');
+        return;
+      }
+
+      downloadPayrollReportPDF(validReportData);
+      message.success('Payroll report generated successfully!');
+
+      if (userId) {
+        logActivity({
+          user_id: parseInt(userId),
+          activity_type: 'GENERATE_DATA',
+          affected_table: 'Payroll',
+          affected_record_id: null,
+          activity_description: `Generated payroll report for period ${payrollDates.startDate} to ${payrollDates.endDate}`,
+        });
+      }
+    } catch (err) {
+      console.error('Payroll Report Error:', err);
+      message.error(`Failed to generate payroll report: ${err.message}`);
+    }
+  };
+
+  const downloadPayrollReportPDF = (reportData) => {
+    try {
+      // Long bond paper: 8.5 x 13 inches (612 x 936 points at 72 PPI)
+      const doc = new jsPDF({
+        orientation: 'landscape',
+        unit: 'pt',
+        format: [936, 612], // Width: 13in * 72pt/in = 936pt, Height: 8.5in * 72pt/in = 612pt
+      });
+      doc.setFont('helvetica', 'normal');
+
+      // Company Details
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'bold');
+      doc.text('VIAN-SON AUTOMOTIVE SERVICES INC.', 10, 80);
+      doc.setFontSize(5);
+      doc.setFont('helvetica', 'normal');
+      doc.text('306, 317 Roosevelt Ave. Brgy. San Antonio, Quezon City', 10, 97);
+      doc.text('Cell #: (63+) 968-884-2447', 10, 104);
+      doc.text(`Payroll Period: ${payrollDates.startDate} to ${payrollDates.endDate}`, 10, 111);
+
+      // Table Configuration
+      const head = [
+        [
+          { content: 'Name', rowSpan: 2 },
+          { content: 'Rate', rowSpan: 2 },
+          { content: 'Days', rowSpan: 2 },
+          { content: 'Total', rowSpan: 2 },
+          { content: 'Allowance', rowSpan: 2 },
+          { content: 'Overtime', rowSpan: 2 },
+          { content: 'HOLIDAY W/ PAY', colSpan: 2 },
+          { content: 'Holiday Overtime', rowSpan: 2 },
+          { content: 'Sunday Pay', rowSpan: 2 },
+          { content: 'Sunday Overtime Pay', rowSpan: 2 },
+          { content: 'Leave w/ Pay', rowSpan: 2 },
+          { content: 'Gross Pay', rowSpan: 2 },
+          { content: 'DEDUCTIONS', colSpan: 9 },
+          { content: 'Total Deduction', rowSpan: 2 },
+          { content: 'Net Pay', rowSpan: 2 },
+          { content: 'Signature', rowSpan: 2 },
+        ],
+        [
+          'Regular', 'Special',
+          'SSS Contri', 'SSS Calamity Loan', 'SSS Salary Loan',
+          'Pag-Ibig Contri', 'Pag-Ibig Calamity Loan', 'Pag-Ibig Salary Loan',
+          'Philhealth', 'Cash Advance', 'Undertime/Late',
+        ],
+      ];
+
+      const body = reportData.map(data => [
+        data.EmployeeName,
+        formatNumberWithCommas(data.DailyRate),
+        data.DaysPresent,
+        formatNumberWithCommas(data.TotalBasic),
+        formatNumberWithCommas(data.Allowance),
+        formatNumberWithCommas(data.Overtime),
+        formatNumberWithCommas(data.HolidayRegular),
+        formatNumberWithCommas(data.HolidaySpecial),
+        formatNumberWithCommas(data.HolidayOvertime),
+        formatNumberWithCommas(data.SundayPay),
+        formatNumberWithCommas(data.SundayOvertime),
+        formatNumberWithCommas(data.LeavePay),
+        formatNumberWithCommas(data.GrossPay),
+        formatNumberWithCommas(data.SSSContribution),
+        formatNumberWithCommas(data.SSSCalamityLoan),
+        formatNumberWithCommas(data.SSSSalaryLoan),
+        formatNumberWithCommas(data.PagIbigContribution),
+        formatNumberWithCommas(data.PagIbigCalamityLoan),
+        formatNumberWithCommas(data.PagIbigSalaryLoan),
+        formatNumberWithCommas(data.Philhealth),
+        formatNumberWithCommas(data.CashAdvance),
+        formatNumberWithCommas(data.UndertimeLate),
+        formatNumberWithCommas(data.TotalDeduction),
+        formatNumberWithCommas(data.NetPay),
+        data.Signature,
+      ]);
+
+      // Calculate sum of Net Pay
+      const totalNetPaySum = reportData.reduce((sum, data) => sum + parseFloat(data.NetPay || 0), 0).toFixed(2);
+
+      autoTable(doc, {
+        startY: 120,
+        head: head,
+        body: body,
+        theme: 'grid',
+        headStyles: {
+          fillColor: '#E7E7E7',
+          textColor: '#000',
+          fontSize: 5,
+          halign: 'center',
+          valign: 'middle',
+        },
+        styles: {
+          fontSize: 5,
+          cellPadding: 2,
+          halign: 'center',
+          valign: 'middle',
+          overflow: 'linebreak',
+        },
+        columnStyles: {
+          0: { halign: 'left', minCellWidth: 60, minCellHeight: 15, fontWeight: 'bold' }, // Name of Employee
+          1: { minCellWidth: 30 }, // Rate
+          2: { minCellWidth: 20 }, // Days
+          3: { minCellWidth: 30 }, // Total
+          4: { minCellWidth: 30 }, // Allowance
+          5: { minCellWidth: 30 }, // Overtime
+          6: { minCellWidth: 30 }, // Holiday Regular
+          7: { minCellWidth: 30 }, // Holiday Special
+          8: { minCellWidth: 30 }, // Holiday Overtime
+          9: { minCellWidth: 30 }, // Sunday Pay
+          10: { minCellWidth: 30 }, // Sunday Overtime Pay
+          11: { minCellWidth: 30 }, // Leave w/ Pay
+          12: { minCellWidth: 30 }, // Gross Pay
+          13: { minCellWidth: 30 }, // SSS Contribution
+          14: { minCellWidth: 30 }, // SSS Calamity Loan
+          15: { minCellWidth: 30 }, // SSS Salary Loan
+          16: { minCellWidth: 30 }, // Pag-Ibig Contribution
+          17: { minCellWidth: 30 }, // Pag-Ibig Calamity Loan
+          18: { minCellWidth: 30 }, // Pag-Ibig Salary Loan
+          19: { minCellWidth: 30 }, // Philhealth
+          20: { minCellWidth: 30 }, // Cash Advance
+          21: { minCellWidth: 30 }, // Undertime/Late
+          22: { minCellWidth: 30 }, // Total Deduction
+          23: { minCellWidth: 30 }, // Net Pay
+          24: { minCellWidth: 40 }, // Signature
+        },
+        margin: { top: 60, left: 10, right: 10 },
+        didDrawPage: (data) => {
+          // Add page number
+          doc.setFontSize(8);
+          doc.text(
+            `Page ${data.pageNumber}`,
+            doc.internal.pageSize.width - 20,
+            doc.internal.pageSize.height - 10,
+            { align: 'right' }
+          );
+        },
+      });
+
+      // Render Total Net Pay sum after table is drawn
+      if (doc.lastAutoTable && doc.lastAutoTable.finalY && doc.lastAutoTable.columns) {
+        const tableBottomY = doc.lastAutoTable.finalY;
+        const totalDeductionColumnIndex = 22; // 0-based index for Total Deduction
+        const columnXPositions = doc.lastAutoTable.columns.map(col => col.x);
+        const columnWidth = doc.lastAutoTable.columns[totalDeductionColumnIndex]?.width || 30;
+        const totalDeductionX = columnXPositions[totalDeductionColumnIndex] ? 
+          columnXPositions[totalDeductionColumnIndex] + (columnWidth / 2) : 
+          825; // Fallback to page center (936 / 2)
+        
+        // Ensure text is within page bounds (height: 612 pt)
+        const textY = tableBottomY && tableBottomY + 10 < 612 - 10 ? tableBottomY + 10 : 592;
+        
+        doc.setFontSize(6);
+        doc.setFont('helvetica', 'bold');
+        doc.text(
+          `Total: PHP ${formatNumberWithCommas(totalNetPaySum)}`,
+          totalDeductionX,
+          textY
+        );
+      }
+
+      const filename = `AutoPayroll_Report_${dayjs(payrollDates.startDate, 'MM/DD/YYYY').format('YYYY-MM-DD')}.pdf`;
+      doc.save(filename);
+    } catch (err) {
+      console.error('PDF Generation Error:', err);
+      message.error('Failed to generate payroll report PDF');
+    }
+  };
 
   const handleModalOk = async () => {
     try {
