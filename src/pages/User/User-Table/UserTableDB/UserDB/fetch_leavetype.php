@@ -88,7 +88,6 @@ try {
         return "Branch ID $branchId";
     }
 
-    // Check if employee has been in the company for at least a year
     function isEmployeeEligible($conn, $employeeId, $currentDate) {
         $stmt = $conn->prepare("SELECT MemberSince FROM employees WHERE EmployeeID = ?");
         $stmt->bind_param("i", $employeeId);
@@ -106,35 +105,13 @@ try {
         return false;
     }
 
-    // Calculate leave days (inclusive)
     function calculateLeaveDays($startDate, $endDate) {
         $start = new DateTime($startDate);
         $end = new DateTime($endDate);
         $interval = $start->diff($end);
-        return $interval->days + 1; // Include both start and end dates
+        return $interval->days + 1;
     }
 
-    // Get employee's total used leave credits
-    function getTotalUsedLeaveCredits($conn, $employeeId, $excludeLeaveId = null) {
-        $sql = "SELECT SUM(UsedLeaveCredits) as totalUsed FROM leaves WHERE EmployeeID = ?";
-        $params = [$employeeId];
-        $types = "i";
-        if ($excludeLeaveId !== null) {
-            $sql .= " AND LeaveID != ?";
-            $params[] = $excludeLeaveId;
-            $types .= "i";
-        }
-        $stmt = $conn->prepare($sql);
-        $stmt->bind_param($types, ...$params);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        $row = $result->fetch_assoc();
-        $totalUsed = $row['totalUsed'] ?? 0;
-        $stmt->close();
-        return (int)$totalUsed;
-    }
-
-    // New function to determine the relevant anniversary date for a given date
     function getRelevantAnniversary($memberSince, $targetDate) {
         $memberSinceDate = new DateTime($memberSince);
         $target = new DateTime($targetDate);
@@ -149,8 +126,7 @@ try {
         return new DateTime("$anniversaryYear-$memberSinceMonthDay");
     }
 
-    // Updated function to determine leave credits with annual refresh, considering the leave's date
-    function getEmployeeLeaveCredits($conn, $employeeId, $currentDate, $leaveStartDate = null) {
+    function getEmployeeLeaveCredits($conn, $employeeId, $leaveStartDate, $excludeLeaveId = null) {
         $stmt = $conn->prepare("SELECT MemberSince FROM employees WHERE EmployeeID = ?");
         $stmt->bind_param("i", $employeeId);
         $stmt->execute();
@@ -163,40 +139,38 @@ try {
         $stmt->close();
 
         $memberSinceDate = new DateTime($memberSince);
-        $current = new DateTime($currentDate);
-        $targetDate = $leaveStartDate ? new DateTime($leaveStartDate) : $current;
+        $targetDate = new DateTime($leaveStartDate);
 
-        // Check eligibility (at least 1 year in the company)
-        $interval = $memberSinceDate->diff($current);
+        $interval = $memberSinceDate->diff($targetDate);
         if ($interval->y < 1) {
             return ['leaveCredits' => 0, 'availableCredits' => 0];
         }
 
-        // Determine the anniversary relevant to the leave's start date (or current date if not specified)
-        $relevantAnniversary = getRelevantAnniversary($memberSince, $targetDate->format('Y-m-d'));
+        $relevantAnniversary = getRelevantAnniversary($memberSince, $leaveStartDate);
         $nextAnniversary = clone $relevantAnniversary;
         $nextAnniversary->modify('+1 year');
 
-        // Determine the cycle boundaries
         $cycleStart = $relevantAnniversary;
         $cycleEnd = $nextAnniversary;
 
-        // Get total used credits within this cycle
-        $totalUsedInCycle = 0;
-        $stmt = $conn->prepare("
-            SELECT SUM(UsedLeaveCredits) as totalUsed 
-            FROM leaves 
-            WHERE EmployeeID = ? AND StartDate >= ? AND StartDate < ?
-        ");
-        $stmt->bind_param("iss", $employeeId, $cycleStart->format('Y-m-d'), $cycleEnd->format('Y-m-d'));
+        $sql = "SELECT SUM(UsedLeaveCredits) as totalUsed 
+                FROM leaves 
+                WHERE EmployeeID = ? AND StartDate >= ? AND StartDate < ?";
+        $params = [$employeeId, $cycleStart->format('Y-m-d'), $cycleEnd->format('Y-m-d')];
+        $types = "iss";
+        if ($excludeLeaveId !== null) {
+            $sql .= " AND LeaveID != ?";
+            $params[] = $excludeLeaveId;
+            $types .= "i";
+        }
+
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param($types, ...$params);
         $stmt->execute();
         $result = $stmt->get_result();
-        if ($row = $result->fetch_assoc()) {
-            $totalUsedInCycle = (int)($row['totalUsed'] ?? 0);
-        }
+        $totalUsedInCycle = (int)($result->fetch_assoc()['totalUsed'] ?? 0);
         $stmt->close();
 
-        // Default credits are 5 per year after the first year
         $defaultCredits = 5;
         $availableCredits = $defaultCredits - $totalUsedInCycle;
 
@@ -207,7 +181,7 @@ try {
     }
 
     $method = $_SERVER['REQUEST_METHOD'];
-    $currentDate = '2025-05-01'; // Current date as per system (May 01, 2025)
+    $currentDate = '2025-05-01';
 
     if ($method == "GET") {
         if (isset($_GET['type'])) {
@@ -327,14 +301,13 @@ try {
             $page = isset($_GET['page']) ? (int)$_GET['page'] : 0;
             $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 10;
             $branch_id = isset($_GET['branch_id']) ? (int)$_GET['branch_id'] : null;
-    
+
             if (!$user_id || !$role) {
                 throw new Exception("user_id and role are required for leave fetch.");
             }
-    
+
             $offset = $page * $limit;
-    
-            // Base SQL query (removed AnniversaryDate since we calculate it dynamically)
+
             $sql = "SELECT 
                         l.LeaveID,
                         l.StartDate,
@@ -355,11 +328,11 @@ try {
                          FROM leaves l
                          JOIN employees e ON l.EmployeeID = e.EmployeeID
                          JOIN branches b ON e.BranchID = b.BranchID";
-    
+
             $types = "";
             $params = [];
             $conditions = [];
-    
+
             if ($role === 'Payroll Staff') {
                 $branchStmt = $conn->prepare("SELECT BranchID FROM UserBranches WHERE UserID = ?");
                 if (!$branchStmt) throw new Exception("Prepare failed for branch query: " . $conn->error);
@@ -398,7 +371,24 @@ try {
                 $params[] = $branch_id;
             }
 
-            // Append conditions to SQL queries
+            $start_date = isset($_GET['start_date']) ? $_GET['start_date'] : null;
+            $end_date = isset($_GET['end_date']) ? $_GET['end_date'] : null;
+
+            if ($start_date && $end_date) {
+                $dateFormat = 'Y-m-d';
+                $startDateTime = DateTime::createFromFormat($dateFormat, $start_date);
+                $endDateTime = DateTime::createFromFormat($dateFormat, $end_date);
+                
+                if ($startDateTime && $endDateTime && $startDateTime <= $endDateTime) {
+                    $conditions[] = "l.StartDate BETWEEN ? AND ?";
+                    $types .= "ss";
+                    $params[] = $start_date;
+                    $params[] = $end_date;
+                } else {
+                    error_log("Invalid date range: start_date=$start_date, end_date=$end_date");
+                }
+            }
+
             if (!empty($conditions)) {
                 $sql .= " WHERE " . implode(" AND ", $conditions);
                 $countSql .= " WHERE " . implode(" AND ", $conditions);
@@ -433,28 +423,16 @@ try {
             $result = $stmt->get_result();
             $data = [];
             while ($row = $result->fetch_assoc()) {
-                $isEligible = isEmployeeEligible($conn, $row['EmployeeID'], $currentDate);
+                $isEligible = isEmployeeEligible($conn, $row['EmployeeID'], $row['StartDate']);
                 if (!$isEligible) {
                     $row['LeaveCredits'] = 0;
                     $row['AvailableLeaveCredits'] = 0;
                     $row['UsedLeaveCredits'] = 0;
                 } else {
-                    // Determine the relevant anniversary for the current date
-                    $currentAnniversary = getRelevantAnniversary($row['MemberSince'], $currentDate);
-                    $leaveStartDate = new DateTime($row['StartDate']);
-
-                    if ($leaveStartDate < $currentAnniversary) {
-                        // Leave is from a previous cycle, calculate credits based on that cycle
-                        $creditsInfo = getEmployeeLeaveCredits($conn, $row['EmployeeID'], $currentDate, $row['StartDate']);
-                        $row['LeaveCredits'] = $creditsInfo['leaveCredits'];
-                        $row['AvailableLeaveCredits'] = $creditsInfo['availableCredits'];
-                    } else {
-                        // Leave is in the current cycle, calculate credits dynamically
-                        $creditsInfo = getEmployeeLeaveCredits($conn, $row['EmployeeID'], $currentDate);
-                        $row['LeaveCredits'] = $creditsInfo['leaveCredits'];
-                        $row['AvailableLeaveCredits'] = $creditsInfo['availableCredits'];
-                    }
-                    // UsedLeaveCredits remains as stored since it's per leave record
+                    // Use stored values for AvailableLeaveCredits and UsedLeaveCredits
+                    $row['LeaveCredits'] = (int)$row['LeaveCredits'];
+                    $row['AvailableLeaveCredits'] = (int)$row['AvailableLeaveCredits'];
+                    $row['UsedLeaveCredits'] = (int)$row['UsedLeaveCredits'];
                 }
                 $data[] = $row;
             }
@@ -494,19 +472,14 @@ try {
 
             $conn->begin_transaction();
             try {
-                // Check employee eligibility
-                $isEligible = isEmployeeEligible($conn, $data["EmployeeID"], $currentDate);
+                $isEligible = isEmployeeEligible($conn, $data["EmployeeID"], $data["StartDate"]);
                 if (!$isEligible) {
                     $defaultCredits = 0;
                     $availableCredits = 0;
                     $leaveDays = 0;
                 } else {
-                    // Calculate leave credits with refresh logic for the current date
-                    $creditsInfo = getEmployeeLeaveCredits($conn, $data["EmployeeID"], $currentDate);
+                    $creditsInfo = getEmployeeLeaveCredits($conn, $data["EmployeeID"], $data["StartDate"]);
                     $defaultCredits = $creditsInfo['leaveCredits'];
-                    $availableCredits = $creditsInfo['availableCredits'];
-
-                    // Calculate leave days
                     $leaveDays = calculateLeaveDays($data["StartDate"], $data["EndDate"]);
 
                     if ($leaveDays > 5) {
@@ -518,17 +491,16 @@ try {
                         exit();
                     }
 
-                    if ($leaveDays > $availableCredits) {
+                    if ($leaveDays > $creditsInfo['availableCredits']) {
                         $conn->rollback();
                         echo json_encode([
                             "success" => false,
-                            "warning" => "You don’t have enough leave credits for this request. You have $availableCredits credits left, but this leave requires $leaveDays days. Please adjust your dates to fit within your available credits."
+                            "warning" => "You don’t have enough leave credits for this request. You have {$creditsInfo['availableCredits']} credits left, but this leave requires $leaveDays days. Please adjust your dates to fit within your available credits."
                         ]);
                         exit();
                     }
 
-                    // Update available credits after this leave
-                    $availableCredits -= $leaveDays;
+                    $availableCredits = $creditsInfo['availableCredits'] - $leaveDays;
                 }
 
                 $stmt = $conn->prepare("
@@ -585,7 +557,6 @@ try {
         if (!empty($data["LeaveID"])) {
             $conn->begin_transaction();
             try {
-                // Fetch current leave record
                 $stmt = $conn->prepare("
                     SELECT StartDate, EndDate, EmployeeID, LeaveType, LeaveCredits, AvailableLeaveCredits, UsedLeaveCredits 
                     FROM leaves WHERE LeaveID = ?
@@ -600,24 +571,15 @@ try {
                     throw new Exception("Leave record with ID {$data['LeaveID']} not found.");
                 }
 
-                // Check employee eligibility
-                $isEligible = isEmployeeEligible($conn, $currentRecord["EmployeeID"], $currentDate);
+                $isEligible = isEmployeeEligible($conn, $currentRecord["EmployeeID"], $data["StartDate"]);
                 if (!$isEligible) {
                     $defaultCredits = 0;
                     $availableCredits = 0;
                     $newLeaveDays = 0;
                 } else {
-                    // Calculate leave credits with refresh logic for the current date
-                    $creditsInfo = getEmployeeLeaveCredits($conn, $currentRecord["EmployeeID"], $currentDate);
+                    $creditsInfo = getEmployeeLeaveCredits($conn, $currentRecord["EmployeeID"], $data["StartDate"], $data["LeaveID"]);
                     $defaultCredits = $creditsInfo['leaveCredits'];
-                    $availableCredits = $creditsInfo['availableCredits'];
-
-                    // Calculate old and new leave days
-                    $oldLeaveDays = calculateLeaveDays($currentRecord["StartDate"], $currentRecord["EndDate"]);
                     $newLeaveDays = calculateLeaveDays($data["StartDate"], $data["EndDate"]);
-
-                    // Adjust available credits: add back old leave days, subtract new leave days
-                    $availableCredits += $oldLeaveDays;
 
                     if ($newLeaveDays > 5) {
                         $conn->rollback();
@@ -628,23 +590,22 @@ try {
                         exit();
                     }
 
-                    if ($newLeaveDays > $availableCredits) {
+                    if ($newLeaveDays > $creditsInfo['availableCredits']) {
                         $conn->rollback();
                         echo json_encode([
                             "success" => false,
-                            "warning" => "You don’t have enough leave credits for this request. You have $availableCredits credits left, but this leave requires $newLeaveDays days. Please adjust your dates to fit within your available credits."
+                            "warning" => "You don’t have enough leave credits for this request. You have {$creditsInfo['availableCredits']} credits left, but this leave requires $newLeaveDays days. Please adjust your dates to fit within your available credits."
                         ]);
                         exit();
                     }
 
-                    // Update available credits after this leave
-                    $availableCredits -= $newLeaveDays;
+                    $availableCredits = $creditsInfo['availableCredits'] - $newLeaveDays;
                 }
 
-                // Log changes
                 $changes = [];
                 $employeeName = getEmployeeNameById($conn, $currentRecord["EmployeeID"]);
                 $formattedStartDate = formatDate($currentRecord["StartDate"]);
+                $oldLeaveDays = calculateLeaveDays($currentRecord["StartDate"], $currentRecord["EndDate"]);
 
                 if ($currentRecord["StartDate"] != $data["StartDate"]) {
                     $oldDate = formatDate($currentRecord["StartDate"]);
@@ -712,7 +673,6 @@ try {
         if (!empty($data["LeaveID"])) {
             $conn->begin_transaction();
             try {
-                // Fetch the leave record to get credits used
                 $stmt = $conn->prepare("
                     SELECT StartDate, EmployeeID, LeaveType, LeaveCredits, AvailableLeaveCredits, UsedLeaveCredits 
                     FROM leaves WHERE LeaveID = ?
@@ -730,7 +690,6 @@ try {
                 $creditsUsed = (int)$record["UsedLeaveCredits"];
                 $employeeId = $record["EmployeeID"];
 
-                // Delete the leave record
                 $stmt = $conn->prepare("DELETE FROM leaves WHERE LeaveID = ?");
                 $stmt->bind_param("i", $data["LeaveID"]);
                 if ($stmt->execute()) {

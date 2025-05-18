@@ -314,8 +314,10 @@ try {
             $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
             $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 10;
             $branch = isset($_GET['branch']) && $_GET['branch'] !== 'all' ? (int)$_GET['branch'] : null;
+            $start_date = isset($_GET['start_date']) ? $_GET['start_date'] : null;
+            $end_date = isset($_GET['end_date']) ? $_GET['end_date'] : null;
 
-            error_log("Received parameters: user_id=$user_id, role=$role, page=$page, limit=$limit, branch=$branch");
+            error_log("Received parameters: user_id=$user_id, role=$role, page=$page, limit=$limit, branch=$branch, start_date=$start_date, end_date=$end_date");
 
             if (!$user_id || !$role) {
                 throw new Exception("user_id and role are required for attendance fetch.");
@@ -398,12 +400,21 @@ try {
                 $params[] = $branch;
             }
 
+            if ($start_date && $end_date) {
+                $sql .= " AND a.Date BETWEEN ? AND ?";
+                $countSql .= " AND a.Date BETWEEN ? AND ?";
+                $types .= "ss";
+                $params[] = $start_date;
+                $params[] = $end_date;
+            }
+
             $sql .= " ORDER BY a.Date DESC LIMIT ? OFFSET ?";
             $types .= "ii";
             $params[] = $limit;
             $params[] = $offset;
 
             error_log("SQL Query: $sql");
+            error_log("Count SQL Query: $countSql");
             error_log("Parameter Types: $types");
             error_log("Parameters: " . json_encode($params));
 

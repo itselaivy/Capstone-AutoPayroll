@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Space, Table, Button, Input, Modal, Form, message, DatePicker, Select, Upload, Typography, Pagination } from 'antd';
+import { ConfigProvider, Space, Table, Button, Input, Modal, Form, message, DatePicker, Select, Upload, Typography, Pagination, Tooltip } from 'antd';
 import { EyeOutlined, EditOutlined, DeleteOutlined, PlusOutlined, SearchOutlined, UploadOutlined } from '@ant-design/icons';
 import moment from 'moment';
 import Papa from 'papaparse';
@@ -20,11 +20,12 @@ const OvertimeTable = () => {
   const [form] = Form.useForm();
   const [employees, setEmployees] = useState([]);
   const [branches, setBranches] = useState([]);
+  const [dateRange, setDateRange] = useState([null, null]);
   const [role, setRole] = useState(localStorage.getItem('role') || '');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [paginationTotal, setPaginationTotal] = useState(0);
-  const [selectedBranch, setSelectedBranch] = useState(null); // Default to null for "All Branches"
+  const [selectedBranch, setSelectedBranch] = useState(null);
 
   const API_BASE_URL = "http://localhost/UserTableDB/UserDB";
   const DATE_FORMAT = 'MM/DD/YYYY';
@@ -61,12 +62,21 @@ const OvertimeTable = () => {
         return;
       }
 
-      const branchParam = selectedBranch ? `&branch_id=${encodeURIComponent(selectedBranch)}` : '';
-      const res = await fetch(
-        `${API_BASE_URL}/fetch_overtime.php?user_id=${encodeURIComponent(userId)}&role=${encodeURIComponent(role)}&page=${
-          currentPage - 1
-        }&limit=${encodeURIComponent(pageSize)}${branchParam}`
-      );
+      let url = `${API_BASE_URL}/fetch_overtime.php?user_id=${encodeURIComponent(userId)}&role=${encodeURIComponent(role)}&page=${
+        currentPage - 1
+      }&limit=${encodeURIComponent(pageSize)}`;
+
+      if (selectedBranch) {
+        url += `&branch_id=${encodeURIComponent(selectedBranch)}`;
+      }
+
+      if (dateRange[0] && dateRange[1]) {
+        const startDate = dateRange[0].format('YYYY-MM-DD');
+        const endDate = dateRange[1].format('YYYY-MM-DD');
+        url += `&start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`;
+      }
+
+      const res = await fetch(url);
       if (!res.ok) throw new Error(`Overtime fetch failed: ${res.statusText}`);
       const response = await res.json();
 
@@ -78,10 +88,8 @@ const OvertimeTable = () => {
         employeeId: overtime.EmployeeID,
         employeeName: overtime.EmployeeName,
         branchId: overtime.BranchID,
-        branch: overtime.BranchName,
+        branch: overtime.BranchName || 'N/A',
         hours: parseInt(overtime["No_of_Hours"], 10),
-        minutes: parseInt(overtime["No_of_Mins"], 10),
-        rate: parseFloat(overtime["Rate"]).toFixed(2),
       }));
 
       setOriginalData(mappedData);
@@ -96,7 +104,7 @@ const OvertimeTable = () => {
   useEffect(() => {
     fetchDropdownData();
     fetchData();
-  }, [currentPage, pageSize, selectedBranch]);
+  }, [currentPage, pageSize, selectedBranch, dateRange]);
 
   useEffect(() => {
     const handleResize = () => setScreenWidth(window.innerWidth);
@@ -117,7 +125,7 @@ const OvertimeTable = () => {
       );
     }
     setFilteredData(filtered);
-    setPaginationTotal(filtered.length); // Update pagination total to match filtered data
+    setPaginationTotal(filtered.length);
     setSearchText(sanitizedValue);
     setCurrentPage(1);
   };
@@ -133,6 +141,7 @@ const OvertimeTable = () => {
       form.setFieldsValue({ branch: employee.BranchID });
     } else {
       form.setFieldsValue({ branch: null });
+      message.warning('Selected employee has no assigned branch', 5);
     }
   };
 
@@ -148,12 +157,9 @@ const OvertimeTable = () => {
         employeeId: record.employeeId,
         branch: employee ? employee.BranchID : record.branchId,
         hours: record.hours,
-        minutes: record.minutes,
-        rate: record.rate,
       });
     } else {
       form.resetFields();
-      form.setFieldsValue({ date: moment() });
     }
   };
 
@@ -163,47 +169,73 @@ const OvertimeTable = () => {
       return;
     }
 
-    if (modalType === "Add" || modalType === "Edit") {
-      form.validateFields()
-        .then((values) => {
-          const payload = {
-            Date: values.date.format('YYYY-MM-DD'),
-            EmployeeID: values.employeeId,
-            BranchID: values.branch,
-            No_of_Hours: parseInt(values.hours, 10),
-            No_of_Mins: parseInt(values.minutes, 10),
-            Rate: parseFloat(values.rate).toFixed(2),
-          };
+    if (modalType === "Add") {
+      try {
+        const values = await form.validateFields();
+        const payload = {
+          Date: values.date.format('YYYY-MM-DD'),
+          EmployeeID: parseInt(values.employeeId, 10),
+          BranchID: values.branch ? parseInt(values.branch, 10) : null,
+          No_of_Hours: parseInt(values.hours, 10),
+        };
 
-          if (modalType === "Edit" && selectedOvertime) {
-            payload.OvertimeID = selectedOvertime.key;
-          }
-
-          return fetch(`${API_BASE_URL}/fetch_overtime.php`, {
-            method: modalType === "Add" ? "POST" : "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          })
-            .then((res) => {
-              if (!res.ok) throw new Error(`Server error: ${res.statusText}`);
-              return res.json();
-            })
-            .then((data) => {
-              if (data.success) {
-                message.success(`Overtime ${modalType === "Add" ? "added" : "updated"} successfully!`, 5);
-                setIsModalOpen(false);
-                form.resetFields();
-                fetchData();
-              } else if (data.warning) {
-                message.warning(data.warning, 5);
-              } else {
-                throw new Error(data.error || "Operation failed");
-              }
-            });
-        })
-        .catch((err) => {
-          message.error(`Failed to ${modalType === "Add" ? "add" : "update"} overtime: ${err.message || 'Please ensure all required fields are completed correctly.'}`, 5);
+        const res = await fetch(`${API_BASE_URL}/fetch_overtime.php`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
         });
+
+        const data = await res.json();
+        if (data.success) {
+          message.success(`Overtime added successfully!`, 5);
+          setIsModalOpen(false);
+          form.resetFields();
+          fetchData();
+        } else if (data.warning) {
+          message.warning(data.warning, 5);
+          setIsModalOpen(false);
+          form.resetFields();
+        } else {
+          throw new Error(data.error || "Failed to add overtime");
+        }
+      } catch (err) {
+        console.error("Add Overtime Error:", err.message);
+        message.error(`Failed to add overtime: ${err.message}`, 5);
+      }
+    } else if (modalType === "Edit" && selectedOvertime) {
+      try {
+        const values = await form.validateFields();
+        const payload = {
+          Date: values.date.format('YYYY-MM-DD'),
+          EmployeeID: parseInt(selectedOvertime.employeeId, 10),
+          BranchID: selectedOvertime.branchId ? parseInt(selectedOvertime.branchId, 10) : null,
+          No_of_Hours: parseInt(values.hours, 10),
+          OvertimeID: selectedOvertime.key,
+        };
+
+        const res = await fetch(`${API_BASE_URL}/fetch_overtime.php`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        const data = await res.json();
+        if (data.success) {
+          message.success(`Overtime updated successfully!`, 5);
+          setIsModalOpen(false);
+          form.resetFields();
+          fetchData();
+        } else if (data.warning) {
+          message.warning(data.warning, 5);
+          setIsModalOpen(false);
+          form.resetFields();
+        } else {
+          throw new Error(data.error || "Failed to update overtime");
+        }
+      } catch (err) {
+        console.error("Edit Overtime Error:", err.message);
+        message.error(`Failed to update overtime: ${err.message}`, 5);
+      }
     } else if (modalType === "Delete" && selectedOvertime) {
       try {
         const res = await fetch(`${API_BASE_URL}/fetch_overtime.php`, {
@@ -250,7 +282,6 @@ const OvertimeTable = () => {
       Papa.parse(e.target.result, {
         header: true,
         complete: (results) => {
-          // Normalize headers to handle spaces and case sensitivity
           const normalizedData = results.data.map(row => {
             const normalizedRow = {};
             Object.keys(row).forEach(key => {
@@ -263,8 +294,7 @@ const OvertimeTable = () => {
             return normalizedRow;
           });
 
-          // Define required headers
-          const requiredHeaders = ['Date', 'EmployeeName', 'BranchName', 'No. of Hours', 'No. of Mins', 'Rate'];
+          const requiredHeaders = ['Date', 'EmployeeName', 'BranchName', 'No. of Hours'];
           const headers = Object.keys(normalizedData[0] || {});
           const missingHeaders = requiredHeaders.filter(h => !headers.includes(h));
 
@@ -273,32 +303,17 @@ const OvertimeTable = () => {
             return;
           }
 
-          // Validate and transform data
           const data = normalizedData
             .filter(row => 
               row.Date && 
               row.EmployeeName?.trim() && 
-              row.BranchName?.trim() && 
-              row['No. of Hours'] !== undefined && 
-              row['No. of Mins'] !== undefined && 
-              row.Rate !== undefined
+              row['No. of Hours'] !== undefined
             )
             .map((row, index) => {
               const hours = parseInt(row['No. of Hours'], 10);
-              const mins = parseInt(row['No. of Mins'], 10);
-              const rate = parseFloat(row.Rate);
 
-              // Validate data types and ranges
               if (isNaN(hours) || hours < 0 || hours > 12) {
                 message.error(`Row ${index + 1}: Invalid 'No. of Hours'. Must be a number between 0 and 12.`, 5);
-                return null;
-              }
-              if (isNaN(mins) || mins < 0 || mins > 59) {
-                message.error(`Row ${index + 1}: Invalid 'No. of Mins'. Must be a number between 0 and 59.`, 5);
-                return null;
-              }
-              if (isNaN(rate) || rate < 0) {
-                message.error(`Row ${index + 1}: Invalid 'Rate'. Must be a non-negative number.`, 5);
                 return null;
               }
 
@@ -311,10 +326,8 @@ const OvertimeTable = () => {
               return {
                 Date: date.format('YYYY-MM-DD'),
                 EmployeeName: row.EmployeeName.trim(),
-                BranchName: row.BranchName.trim(),
+                BranchName: row.BranchName ? row.BranchName.trim() : '',
                 No_of_Hours: hours,
-                No_of_Mins: mins,
-                Rate: rate.toFixed(2),
               };
             })
             .filter(row => row !== null);
@@ -324,7 +337,6 @@ const OvertimeTable = () => {
             return;
           }
 
-          // Send data to backend
           fetch(`${API_BASE_URL}/fetch_overtime.php`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -369,10 +381,6 @@ const OvertimeTable = () => {
     },
   };
 
-  const formatNumberWithCommas = (number) => {
-    return parseFloat(number).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  };
-
   const handlePaginationChange = (page, newPageSize) => {
     setCurrentPage(page);
     if (newPageSize !== pageSize) {
@@ -383,487 +391,408 @@ const OvertimeTable = () => {
 
   const showLabels = screenWidth >= 600;
 
-  return (
-    <div className="fade-in" style={{ padding: '20px', fontFamily: 'Poppins, sans-serif' }}>
-      <Title level={2} style={{ fontFamily: 'Poppins, sans-serif', marginBottom: '20px' }}>
-        Overtime
-      </Title>
+  const handleDownloadTemplate = () => {
+    const templateData = [
+      {
+        Date: '04/13/2025',
+        EmployeeName: 'John Doe',
+        BranchName: 'Main Branch',
+        'No. of Hours': '2',
+      },
+    ];
+    const csv = Papa.unparse(templateData);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', 'overtime_template.csv');
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, marginBottom: 20, flexWrap: 'wrap', fontFamily: 'Poppins, sans-serif' }}>
-        <Select
-          placeholder="Filter by Branch"
-          value={selectedBranch || 'all'}
-          onChange={handleBranchFilterChange}
-          style={{ width: screenWidth < 480 ? '100%' : '200px', fontFamily: 'Poppins, sans-serif' }}
+  return (
+    <ConfigProvider theme={{ token: { fontFamily: 'Poppins, sans-serif' } }}>
+      <div className="fade-in" style={{ padding: '20px' }}>
+        <style>
+          {`
+            @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
+            
+            /* Ensure custom elements use Poppins */
+            .fade-in, .fade-in * {
+              font-family: 'Poppins', sans-serif !important;
+            }
+          `}
+        </style>
+        <Title level={2} style={{ marginBottom: '20px' }}>
+          Overtime
+        </Title>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+            <DatePicker.RangePicker
+              format={DATE_FORMAT}
+              onChange={(dates) => {
+                setDateRange(dates || [null, null]);
+                setCurrentPage(1);
+              }}
+              style={{ width: screenWidth < 480 ? '100%' : '250px' }}
+            />
+            <Select
+              placeholder="Filter by Branch"
+              value={selectedBranch || 'all'}
+              onChange={handleBranchFilterChange}
+              style={{ width: screenWidth < 480 ? '100%' : '200px' }}
+            >
+              <Option value="all">All Branches</Option>
+              {branches.map((branch) => (
+                <Option key={branch.BranchID} value={branch.BranchID}>
+                  {branch.BranchName}
+                </Option>
+              ))}
+            </Select>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+            <Button 
+              icon={<PlusOutlined />} 
+              size="middle" 
+              style={{ backgroundColor: '#2C3743', borderColor: '#2C3743', color: 'white' }} 
+              onClick={() => openModal('Add')}
+            >
+              {showLabels && 'Add Overtime'}
+            </Button>
+            
+            <Button 
+              icon={<UploadOutlined />} 
+              size="middle" 
+              style={{ backgroundColor: '#2C3743', borderColor: '#2C3743', color: 'white' }}
+              onClick={handleCsvButtonClick}
+            >
+              {showLabels && 'Import CSV'}
+            </Button>
+            <Upload {...uploadProps} style={{ display: 'none' }}>
+              <input id="csv-upload-input" type="file" style={{ display: 'none' }} />
+            </Upload>
+            <Input
+              placeholder="Search by any field (e.g., name, date, hours)"
+              allowClear
+              value={searchText}
+              onChange={(e) => handleSearch(e.target.value)}
+              prefix={<SearchOutlined />}
+              style={{ width: screenWidth < 480 ? '100%' : '250px', marginTop: screenWidth < 480 ? 10 : 0 }}
+            />
+          </div>
+        </div>
+
+        <Table 
+          dataSource={filteredData} 
+          bordered 
+          scroll={{ x: true }} 
+          pagination={false}
         >
-          <Option value="all" style={{ fontFamily: 'Poppins, sans-serif' }}>All Branches</Option>
-          {branches.map((branch) => (
-            <Option key={branch.BranchID} value={branch.BranchID} style={{ fontFamily: 'Poppins, sans-serif' }}>
-              {branch.BranchName}
-            </Option>
-          ))}
-        </Select>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', fontFamily: 'Poppins, sans-serif' }}>
-          <Button 
-            icon={<PlusOutlined />} 
-            size="middle" 
-            style={{ backgroundColor: '#2C3743', borderColor: '#2C3743', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
-            onClick={() => openModal('Add')}
-          >
-            {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Add Overtime</span>}
-          </Button>
-          <Button 
-            icon={<UploadOutlined />} 
-            size="middle" 
-            style={{ backgroundColor: '#2C3743', borderColor: '#2C3743', color: 'white', fontFamily: 'Poppins, sans-serif' }}
-            onClick={handleCsvButtonClick}
-          >
-            {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Import CSV</span>}
-          </Button>
-          <Upload {...uploadProps} style={{ display: 'none' }}>
-            <input id="csv-upload-input" type="file" style={{ display: 'none' }} />
-          </Upload>
-          <Input
-            placeholder="Search by any field (e.g., name, date, hours)"
-            allowClear
-            value={searchText}
-            onChange={(e) => handleSearch(e.target.value)}
-            prefix={<SearchOutlined />}
-            style={{ width: screenWidth < 480 ? '100%' : '250px', marginTop: screenWidth < 480 ? 10 : 0, fontFamily: 'Poppins, sans-serif' }}
+          <Column 
+            title="Date" 
+            dataIndex="date" 
+            key="date" 
+            sorter={(a, b) => moment(a.date, DATE_FORMAT).diff(moment(b.date, DATE_FORMAT))}
+            render={(text) => <span>{text}</span>}
+          />
+          <Column 
+            title="Employee ID" 
+            dataIndex="employeeId" 
+            key="employeeId" 
+            sorter={(a, b) => a.employeeId - b.employeeId}
+            render={(text) => <span>{text}</span>}
+          />
+          <Column 
+            title="Employee Name" 
+            dataIndex="employeeName" 
+            key="employeeName" 
+            sorter={(a, b) => a.employeeName.localeCompare(b.employeeName)}
+            render={(text) => <span>{text}</span>}
+          />
+          <Column 
+            title="Branch" 
+            dataIndex="branch" 
+            key="branch" 
+            sorter={(a, b) => a.branch.localeCompare(b.branch)}
+            render={(text) => <span>{text}</span>}
+          />
+          <Column 
+            title="No. of Hours" 
+            dataIndex="hours" 
+            key="hours" 
+            sorter={(a, b) => a.hours - b.hours}
+            render={(text) => <span>{text}</span>}
+          />
+          <Column
+            title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Action</span>}
+            key="action"
+            render={(_, record) => (
+              <Space size={7} wrap>
+                <Tooltip title="View">
+                  <Button
+                    icon={<EyeOutlined />}
+                    size="middle"
+                    style={{
+                      width: '40px',
+                      backgroundColor: '#52c41a',
+                      borderColor: '#52c41a',
+                      color: 'white',
+                      fontFamily: 'Poppins, sans-serif'
+                    }}
+                    onClick={() => openModal('View', record)}
+                  />
+                </Tooltip>
+                <Tooltip title="Edit">
+                  <Button
+                    icon={<EditOutlined />}
+                    size="middle"
+                    style={{
+                      width: '40px',
+                      backgroundColor: '#722ed1',
+                      borderColor: '#722ed1',
+                      color: 'white',
+                      fontFamily: 'Poppins, sans-serif'
+                    }}
+                    onClick={() => openModal('Edit', record)}
+                  />
+                </Tooltip>
+                <Tooltip title="Delete">
+                  <Button
+                    icon={<DeleteOutlined />}
+                    size="middle"
+                    style={{
+                      width: '40px',
+                      backgroundColor: '#ff4d4f',
+                      borderColor: '#ff4d4f',
+                      color: 'white',
+                      fontFamily: 'Poppins, sans-serif'
+                    }}
+                    onClick={() => openModal('Delete', record)}
+                  />
+                </Tooltip>
+              </Space>
+            )}
+          />
+        </Table>
+
+        <div style={{ textAlign: 'center', marginTop: 16 }}>
+          <Pagination
+            current={currentPage}
+            pageSize={pageSize}
+            total={paginationTotal}
+            onChange={handlePaginationChange}
+            onShowSizeChange={handlePaginationChange}
+            showSizeChanger
+            pageSizeOptions={['10', '20', '50', '100']}
+            showQuickJumper={{ goButton: false }}
+            showTotal={(total) => `Total ${total} overtime records`}
+            style={{ justifyContent: 'center' }}
           />
         </div>
-      </div>
 
-      <Table 
-        dataSource={filteredData} 
-        bordered 
-        scroll={{ x: true }} 
-        pagination={false}
-        style={{ fontFamily: 'Poppins, sans-serif' }}
-      >
-        <Column 
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Date</span>} 
-          dataIndex="date" 
-          key="date" 
-          sorter={(a, b) => moment(a.date, DATE_FORMAT).diff(moment(b.date, DATE_FORMAT))}
-          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
-        />
-        <Column 
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Employee ID</span>} 
-          dataIndex="employeeId" 
-          key="employeeId" 
-          sorter={(a, b) => a.employeeId - b.employeeId}
-          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
-        />
-        <Column 
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Employee Name</span>} 
-          dataIndex="employeeName" 
-          key="employeeName" 
-          sorter={(a, b) => a.employeeName.localeCompare(b.employeeName)}
-          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
-        />
-        <Column 
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Branch</span>} 
-          dataIndex="branch" 
-          key="branch" 
-          sorter={(a, b) => a.branch.localeCompare(b.branch)}
-          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
-        />
-        <Column 
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>No. of Hours</span>} 
-          dataIndex="hours" 
-          key="hours" 
-          sorter={(a, b) => a.hours - b.hours}
-          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
-        />
-        <Column 
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>No. of Mins</span>} 
-          dataIndex="minutes" 
-          key="minutes" 
-          sorter={(a, b) => a.minutes - b.minutes}
-          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
-        />
-        <Column 
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Rate (₱)</span>} 
-          dataIndex="rate" 
-          key="rate" 
-          sorter={(a, b) => a.rate - b.rate}
-          render={(rate) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>₱{formatNumberWithCommas(rate)}</span>}
-        />
-        <Column
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Action</span>}
-          key="action"
-          render={(_, record) => (
-            <Space size="middle" wrap style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <Button 
-                icon={<EyeOutlined />} 
-                size="middle" 
-                style={{ backgroundColor: '#52c41a', borderColor: '#52c41a', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
-                onClick={() => openModal('View', record)}
+        <Modal
+          title={
+            <div style={{ textAlign: 'center' }}>
+              <span style={{ fontSize: '22px', fontWeight: 'bold' }}>
+                {modalType === 'Add' ? 'Add New Overtime' : 
+                 modalType === 'Edit' ? 'Edit Overtime Details' : 
+                 modalType === 'View' ? 'View Overtime Information' : 
+                 'Confirm Overtime Deletion'}
+              </span>
+            </div>
+          }
+          open={isModalOpen}
+          onOk={handleOk}
+          onCancel={handleCancel}
+          okText={modalType === 'Delete' ? 'Delete' : 'OK'}
+          okButtonProps={{ danger: modalType === 'Delete' }}
+          cancelButtonProps={{}}
+          width={600}
+          centered
+          styles={{ body: { padding: '20px' } }}
+        >
+          {(modalType === 'Add') && (
+            <Form form={form} layout="vertical">
+              <Form.Item 
+                label={<span>Date<span style={{ color: 'red' }}>*</span></span>} 
+                name="date" 
+                rules={[{ required: true, message: 'Please select a date!' }]}
               >
-                {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>View</span>}
-              </Button>
-              <Button 
-                icon={<EditOutlined />} 
-                size="middle" 
-                style={{ backgroundColor: '#722ed1', borderColor: '#722ed1', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
-                onClick={() => openModal('Edit', record)}
+                <DatePicker 
+                  format={DATE_FORMAT} 
+                  style={{ width: '100%' }} 
+                />
+              </Form.Item>
+              <Form.Item 
+                label={<span>Employee<span style={{ color: 'red' }}>*</span></span>} 
+                name="employeeId" 
+                rules={[{ required: true, message: 'Please select an employee!' }]}
               >
-                {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Edit</span>}
-              </Button>
-              <Button 
-                icon={<DeleteOutlined />} 
-                size="middle" 
-                style={{ backgroundColor: '#ff4d4f', borderColor: '#ff4d4f', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
-                onClick={() => openModal('Delete', record)}
+                <Select
+                  showSearch
+                  placeholder="Type or select an employee"
+                  optionFilterProp="children"
+                  onChange={handleEmployeeChange}
+                  filterOption={(input, option) => option.children.toLowerCase().includes(input.toLowerCase())}
+                  allowClear
+                >
+                  {employees.map((employee) => (
+                    <Option key={employee.EmployeeID} value={employee.EmployeeID}>
+                      {employee.EmployeeName}
+                    </Option>
+                  ))}
+                </Select>
+              </Form.Item>
+              <Form.Item
+                name="branch"
+                rules={[{ required: true, message: 'Employee must be assigned to a valid branch!' }]}
+                noStyle
               >
-                {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Delete</span>}
-              </Button>
-            </Space>
+                <Input type="hidden" />
+              </Form.Item>
+              <Form.Item 
+                label={<span>No. of Hours<span style={{ color: 'red' }}>*</span></span>} 
+                name="hours" 
+                rules={[
+                  { required: true, message: 'Please enter the number of hours!' },
+                  { pattern: /^\d+$/, message: 'Hours must be a whole number' },
+                  { validator: (_, value) => value >= 0 && value <= 12 ? Promise.resolve() : Promise.reject('Hours must be between 0 and 12') }
+                ]}
+              >
+                <Input 
+                  type="number" 
+                  step="1" 
+                  min="0" 
+                  max="12"
+                  style={{ width: '100%' }} 
+                />
+              </Form.Item>
+            </Form>
           )}
-        />
-      </Table>
 
-      <div style={{ textAlign: 'center', marginTop: 16, fontFamily: 'Poppins, sans-serif' }}>
-        <Pagination
-          current={currentPage}
-          pageSize={pageSize}
-          total={paginationTotal}
-          onChange={handlePaginationChange}
-          onShowSizeChange={handlePaginationChange}
-          showSizeChanger
-          pageSizeOptions={['10', '20', '50']}
-          showQuickJumper={{ goButton: false }}
-          showTotal={(total) => `Total ${total} overtime records`}
-          style={{ fontFamily: 'Poppins, sans-serif', justifyContent: 'center' }}
-        />
+          {(modalType === 'Edit') && (
+            <Form form={form} layout="vertical">
+              <Form.Item 
+                label={<span>Date<span style={{ color: 'red' }}>*</span></span>} 
+                name="date" 
+                rules={[{ required: true, message: 'Please select a date!' }]}
+              >
+                <DatePicker 
+                  format={DATE_FORMAT} 
+                  style={{ width: '100%' }} 
+                />
+              </Form.Item>
+              <Form.Item
+                name="employeeId"
+                rules={[{ required: true, message: 'Employee ID is required!' }]}
+                noStyle
+              >
+                <Input type="hidden" />
+              </Form.Item>
+              <Form.Item
+                name="branch"
+                rules={[{ required: true, message: 'Branch ID is required!' }]}
+                noStyle
+              >
+                <Input type="hidden" />
+              </Form.Item>
+              <Form.Item 
+                label={<span>No. of Hours<span style={{ color: 'red' }}>*</span></span>} 
+                name="hours" 
+                rules={[
+                  { required: true, message: 'Please enter the number of hours!' },
+                  { pattern: /^\d+$/, message: 'Hours must be a whole number' },
+                  { validator: (_, value) => value >= 0 && value <= 12 ? Promise.resolve() : Promise.reject('Hours must be between 0 and 12') }
+                ]}
+              >
+                <Input 
+                  type="number" 
+                  step="1" 
+                  min="0" 
+                  max="12"
+                  style={{ width: '100%' }} 
+                />
+              </Form.Item>
+            </Form>
+          )}
+
+          {modalType === 'View' && selectedOvertime && (
+            <div>
+              <p><strong>Date:</strong> {selectedOvertime.date}</p>
+              <p><strong>Employee Name:</strong> {selectedOvertime.employeeName}</p>
+              <p><strong>Branch:</strong> {selectedOvertime.branch}</p>
+              <p><strong>No. of Hours:</strong> {selectedOvertime.hours}</p>
+            </div>
+          )}
+
+          {modalType === 'Delete' && selectedOvertime && (
+            <div style={{ textAlign: 'center' }}>
+              <p style={{ fontSize: '18px', fontWeight: 'bold', color: '#ff4d4f' }}>
+                ⚠️ Are you sure you want to delete this overtime record?
+              </p>
+              <p>
+                This action <strong>cannot be undone</strong>. The overtime record for "<strong>{selectedOvertime.employeeName}</strong>" will be permanently removed.
+              </p>
+            </div>
+          )}
+        </Modal>
+
+        <Modal
+          title={<span style={{ fontSize: '20px', fontWeight: 'bold' }}>How to Import Overtime CSV</span>}
+          open={isCsvInstructionModalOpen}
+          onOk={handleCsvInstructionOk}
+          onCancel={handleCsvInstructionCancel}
+          okText="Proceed with Upload"
+          cancelText="Cancel"
+          width={screenWidth > 480 ? '40%' : '90%'}
+          styles={{ body: { padding: '20px' } }}
+          footer={[
+            <Button key="cancel" onClick={handleCsvInstructionCancel}>
+              Cancel
+            </Button>,
+            <Button
+              key="download"
+              onClick={handleDownloadTemplate}
+              style={{ backgroundColor: '#3291AD', borderColor: '#3291AD', color: 'white', fontFamily: 'Poppins, sans-serif', marginRight: 8 }}
+            >
+              Download Template
+            </Button>,
+            <Upload key="upload" {...uploadProps}>
+              <Button type="primary" onClick={handleCsvInstructionOk}>
+                Proceed with Upload
+              </Button>
+            </Upload>,
+          ]}
+        >
+          <div style={{ lineHeight: '1.6', maxHeight: 'calc(80vh - 150px)', overflowY: 'auto', boxSizing: 'border-box' }}>
+            <Text strong style={{ fontSize: '16px' }}>Steps on how to Upload a CSV File:</Text>
+            <ol>
+              <li>Download the template CSV file using the "Download Template" button below.</li>
+              <li>Fill the spreadsheet with the following columns:</li>
+              <ul>
+                <li><strong>Date</strong>: The date of attendance (e.g., "04/06/2025"). Format: MM/DD/YYYY.</li>
+                <li><strong>EmployeeName</strong>: Full name of the employee as it appears in the system (e.g., "John Doe").</li>
+                <li><strong>BranchName</strong>: Exact branch name from the system (e.g., "Main Branch").</li>
+                <li><strong>TimeIn</strong>: Check-in time in 24-hour format (e.g., "08:00").</li>
+                <li><strong>TimeOut</strong>: Check-out time in 24-hour format (e.g., "17:00").</li>
+              </ul>
+              <li>Double check if the file format is a CSV (e.g., "attendance.csv").</li>
+              <li>After clicking "Proceed with Upload," select your CSV file to import.</li>
+            </ol>
+
+            <Text strong style={{ fontSize: '16px' }}>Reminders:</Text>
+            <ul>
+              <li>Ensure <strong>EmployeeName</strong> and <strong>BranchName</strong> match exactly with system records (case-insensitive).</li>
+              <li>The <strong>No. of Hours</strong> Column should be more than 0 but less than 12.</li>
+              <li>All fields are required—missing data will skip the row.</li>
+              <li>Duplicate records (same EmployeeName and Date) will update existing entries.</li>
+              <li>Check for errors after upload—invalid names or formats will be flagged.</li>
+              <li>For Payroll Staff, only employees and branches assigned to you can be imported.</li>
+            </ul>
+          </div>
+        </Modal>
       </div>
-
-      <Modal
-        title={
-          <div style={{ textAlign: 'center', fontFamily: 'Poppins, sans-serif' }}>
-            <span style={{ fontSize: '22px', fontWeight: 'bold', fontFamily: 'Poppins, sans-serif' }}>
-              {modalType === 'Add' ? 'Add New Overtime' : 
-               modalType === 'Edit' ? 'Edit Overtime Details' : 
-               modalType === 'View' ? 'View Overtime Information' : 
-               'Confirm Overtime Deletion'}
-            </span>
-          </div>
-        }
-        open={isModalOpen}
-        onOk={handleOk}
-        onCancel={handleCancel}
-        okText={modalType === 'Delete' ? 'Delete' : 'OK'}
-        okButtonProps={{ danger: modalType === 'Delete', style: { fontFamily: 'Poppins, sans-serif' } }}
-        cancelButtonProps={{ style: { fontFamily: 'Poppins, sans-serif' } }}
-        width={600}
-        centered
-        styles={{ body: { padding: '20px', fontFamily: 'Poppins, sans-serif' } }}
-      >
-        {(modalType === 'Add') && (
-          <Form form={form} layout="vertical" style={{ fontFamily: 'Poppins, sans-serif' }}>
-            <Form.Item 
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Date<span style={{ color: 'red' }}>*</span></span>} 
-              name="date" 
-              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select a date!</span> }]}
-            >
-              <DatePicker 
-                format={DATE_FORMAT} 
-                style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }} 
-              />
-            </Form.Item>
-            <Form.Item 
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Employee<span style={{ color: 'red' }}>*</span></span>} 
-              name="employeeId" 
-              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select an employee!</span> }]}
-            >
-              <Select
-                showSearch
-                placeholder="Type or select an employee"
-                optionFilterProp="children"
-                onChange={handleEmployeeChange}
-                filterOption={(input, option) => option.children.toLowerCase().includes(input.toLowerCase())}
-                style={{ fontFamily: 'Poppins, sans-serif' }}
-                allowClear
-              >
-                {employees.map((employee) => (
-                  <Option key={employee.EmployeeID} value={employee.EmployeeID} style={{ fontFamily: 'Poppins, sans-serif' }}>
-                    {employee.EmployeeName}
-                  </Option>
-                ))}
-              </Select>
-            </Form.Item>
-            <Form.Item 
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Branch<span style={{ color: 'red' }}>*</span></span>} 
-              name="branch" 
-              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Branch will be auto-set</span> }]}
-            >
-              <Select 
-                placeholder="Employee Branch" 
-                disabled
-                style={{ fontFamily: 'Poppins, sans-serif', color: '#808080' }}
-              >
-                {branches.map((branch) => (
-                  <Option key={branch.BranchID} value={branch.BranchID} style={{ fontFamily: 'Poppins, sans-serif', color: '#808080' }}>
-                    {branch.BranchName}
-                  </Option>
-                ))}
-              </Select>
-            </Form.Item>
-            <Form.Item 
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>No. of Hours<span style={{ color: 'red' }}>*</span></span>} 
-              name="hours" 
-              rules={[
-                { required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please enter the number of hours!</span> },
-                { pattern: /^\d+$/, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}></span> },
-                { validator: (_, value) => value >= 0 && value <= 12 ? Promise.resolve() : Promise.reject(<span style={{ fontFamily: 'Poppins, sans-serif' }}>Hours must be between 0 and 12</span>) }
-              ]}
-            >
-              <Input 
-                type="number" 
-                step="1" 
-                min="0" 
-                max="12"
-                style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }} 
-              />
-            </Form.Item>
-            <Form.Item 
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>No. of Mins<span style={{ color: 'red' }}>*</span></span>} 
-              name="minutes" 
-              rules={[
-                { required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please enter the number of minutes!</span> },
-                { pattern: /^\d+$/, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}></span> },
-                { validator: (_, value) => value >= 0 && value <= 59 ? Promise.resolve() : Promise.reject(<span style={{ fontFamily: 'Poppins, sans-serif' }}>Minutes must be between 0 and 59</span>) }
-              ]}
-            >
-              <Input 
-                type="number" 
-                step="1" 
-                min="0" 
-                max="59" 
-                style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }} 
-              />
-            </Form.Item>
-            <Form.Item 
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Rate (₱)<span style={{ color: 'red' }}>*</span></span>} 
-              name="rate" 
-              rules={[
-                { required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please enter the rate!</span> },
-                { validator: (_, value) => value >= 0 ? Promise.resolve() : Promise.reject(<span style={{ fontFamily: 'Poppins, sans-serif' }}>Rate must be non-negative</span>) }
-              ]}
-            >
-              <Input 
-                type="number" 
-                step="0.01" 
-                min="0" 
-                style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }} 
-              />
-            </Form.Item>
-          </Form>
-        )}
-
-        {(modalType === 'Edit') && (
-          <Form form={form} layout="vertical" style={{ fontFamily: 'Poppins, sans-serif' }}>
-            <Form.Item 
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Date<span style={{ color: 'red' }}>*</span></span>} 
-              name="date" 
-              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select a date!</span> }]}
-            >
-              <DatePicker 
-                format={DATE_FORMAT} 
-                style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }} 
-              />
-            </Form.Item>
-            <Form.Item 
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>No. of Hours<span style={{ color: 'red' }}>*</span></span>} 
-              name="hours" 
-              rules={[
-                { required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please enter the number of hours!</span> },
-                { pattern: /^\d+$/, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}></span> },
-                { validator: (_, value) => value >= 0 && value <= 12 ? Promise.resolve() : Promise.reject(<span style={{ fontFamily: 'Poppins, sans-serif' }}>Hours must be between 0 and 12</span>) }
-              ]}
-            >
-              <Input 
-                type="number" 
-                step="1" 
-                min="0" 
-                max="12"
-                style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }} 
-              />
-            </Form.Item>
-            <Form.Item 
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>No. of Mins<span style={{ color: 'red' }}>*</span></span>} 
-              name="minutes" 
-              rules={[
-                { required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please enter the number of minutes!</span> },
-                { pattern: /^\d+$/, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}></span> },
-                { validator: (_, value) => value >= 0 && value <= 59 ? Promise.resolve() : Promise.reject(<span style={{ fontFamily: 'Poppins, sans-serif' }}>Minutes must be between 0 and 59</span>) }
-              ]}
-            >
-              <Input 
-                type="number" 
-                step="1" 
-                min="0" 
-                max="59" 
-                style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }} 
-              />
-            </Form.Item>
-            <Form.Item 
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Rate (₱)<span style={{ color: 'red' }}>*</span></span>} 
-              name="rate" 
-              rules={[
-                { required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please enter the rate!</span> },
-                { validator: (_, value) => value >= 0 ? Promise.resolve() : Promise.reject(<span style={{ fontFamily: 'Poppins, sans-serif' }}>Rate must be non-negative</span>) }
-              ]}
-            >
-              <Input 
-                type="number" 
-                step="0.01" 
-                min="0" 
-                style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }} 
-              />
-            </Form.Item>
-          </Form>
-        )}
-
-        {modalType === 'View' && selectedOvertime && (
-          <div style={{ fontFamily: 'Poppins, sans-serif' }}>
-            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Date:</strong> {selectedOvertime.date}
-            </p>
-            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Employee Name:</strong> {selectedOvertime.employeeName}
-            </p>
-            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Branch:</strong> {selectedOvertime.branch}
-            </p>
-            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>No. of Hours:</strong> {selectedOvertime.hours}
-            </p>
-            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>No. of Mins:</strong> {selectedOvertime.minutes}
-            </p>
-            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Rate:</strong> ₱{formatNumberWithCommas(selectedOvertime.rate)}
-            </p>
-          </div>
-        )}
-
-        {modalType === 'Delete' && selectedOvertime && (
-          <div style={{ fontFamily: 'Poppins, sans-serif', textAlign: 'center' }}>
-            <p style={{ fontSize: '18px', fontWeight: 'bold', color: '#ff4d4f', fontFamily: 'Poppins, sans-serif' }}>
-              ⚠️ Are you sure you want to delete this overtime record?
-            </p>
-            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
-              This action <strong style={{ fontFamily: 'Poppins, sans-serif' }}>cannot be undone</strong>. The overtime record for "<strong style={{ fontFamily: 'Poppins, sans-serif' }}>{selectedOvertime.employeeName}</strong>" will be permanently removed.
-            </p>
-          </div>
-        )}
-      </Modal>
-
-      <Modal
-        title={<span style={{ fontSize: '20px', fontWeight: 'bold', fontFamily: 'Poppins, sans-serif' }}>How to Import Overtime CSV</span>}
-        open={isCsvInstructionModalOpen}
-        onOk={handleCsvInstructionOk}
-        onCancel={handleCsvInstructionCancel}
-        okText="Proceed with Upload"
-        cancelText="Cancel"
-        width={700}
-        style={{ fontFamily: 'Poppins, sans-serif' }}
-        styles={{ body: { padding: '20px', fontFamily: 'Poppins, sans-serif' } }}
-        footer={[
-          <Button key="cancel" onClick={handleCsvInstructionCancel} style={{ fontFamily: 'Poppins, sans-serif', marginRight: 8 }}>
-            Cancel
-          </Button>,
-          <Upload key="upload" {...uploadProps}>
-            <Button type="primary" onClick={handleCsvInstructionOk} style={{ fontFamily: 'Poppins, sans-serif' }}>
-              Proceed with Upload
-            </Button>
-          </Upload>,
-        ]}
-      >
-        <div style={{ fontFamily: 'Poppins, sans-serif', lineHeight: '1.6' }}>
-          <Text strong style={{ fontSize: '16px', fontFamily: 'Poppins, sans-serif' }}>Steps to Create and Upload a CSV:</Text>
-          <ol style={{ fontFamily: 'Poppins, sans-serif' }}>
-            <li style={{ fontFamily: 'Poppins, sans-serif' }}>
-              Prepare a spreadsheet (e.g., Excel, Google Sheets) with the exact column headers listed below. Each row represents an overtime record.
-            </li>
-            <li style={{ fontFamily: 'Poppins, sans-serif' }}>
-              Save the spreadsheet as a CSV file (e.g., "overtime.csv") using comma-separated values.
-            </li>
-            <li style={{ fontFamily: 'Poppins, sans-serif' }}>
-              Click "Proceed with Upload" to select and upload your CSV file.
-            </li>
-          </ol>
-
-          <Text strong style={{ fontSize: '16px', fontFamily: 'Poppins, sans-serif' }}>Required Columns:</Text>
-          <ul style={{ fontFamily: 'Poppins, sans-serif' }}>
-            <li style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Date</strong>: Overtime date in MM/DD/YYYY format (e.g., "04/13/2025").
-            </li>
-            <li style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>EmployeeName</strong>: Full name of the employee, exactly as it appears in the system (e.g., "John Doe").
-            </li>
-            <li style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>BranchName</strong>: Branch name, exactly as it appears in the system (e.g., "Main Branch").
-            </li>
-            <li style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>No. of Hours</strong>: Whole number of overtime hours, between 0 and 12 (e.g., "2"). Use a space after "No.", not a period.
-            </li>
-            <li style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>No. of Mins</strong>: Whole number of overtime minutes, between 0 and 59 (e.g., "30"). Use a space after "No.", not a period.
-            </li>
-            <li style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Rate</strong>: Overtime rate in pesos, with up to two decimal places (e.g., "150.00").
-            </li>
-          </ul>
-
-          <Text strong style={{ fontSize: '16px', fontFamily: 'Poppins, sans-serif' }}>Example CSV Format:</Text>
-          <pre style={{ background: '#f5f5f5', padding: '10px', borderRadius: '4px', whiteSpace: 'pre-wrap', wordWrap: 'break-word', fontFamily: 'Poppins, sans-serif' }}>
-            Date,EmployeeName,BranchName,No. of Hours,No. of Mins,Rate
-            04/13/2025,John Doe,Main Branch,2,30,150.00
-            04/14/2025,Jane Smith,West Branch,3,0,200.00
-          </pre>
-
-          <Text strong style={{ fontSize: '16px', fontFamily: 'Poppins, sans-serif' }}>Important Reminders:</Text>
-          <ul style={{ fontFamily: 'Poppins, sans-serif' }}>
-            <li style={{ fontFamily: 'Poppins, sans-serif' }}>
-              All columns are mandatory. Rows with missing or invalid data will be skipped.
-            </li>
-            <li style={{ fontFamily: 'Poppins, sans-serif' }}>
-              Column headers must match exactly: use <strong style={{ fontFamily: 'Poppins, sans-serif' }}>"No. of Hours"</strong>, <strong style={{ fontFamily: 'Poppins, sans-serif' }}>"No. of Mins"</strong>, and <strong style={{ fontFamily: 'Poppins, sans-serif' }}>"Rate"</strong> as shown.
-            </li>
-            <li style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>EmployeeName</strong> and <strong style={{ fontFamily: 'Poppins, sans-serif' }}>BranchName</strong> must exactly match the names in the system. Check the employee and branch lists in the application to verify.
-            </li>
-            <li style={{ fontFamily: 'Poppins, sans-serif' }}>
-              If an <strong style={{ fontFamily: 'Poppins, sans-serif' }}>EmployeeName</strong> is not unique (e.g., two employees named "John Doe"), the import may fail. Contact your administrator to resolve.
-            </li>
-            <li style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Date</strong> must be in MM/DD/YYYY format (e.g., "04/13/2025"). Incorrect formats will cause rows to be skipped.
-            </li>
-            <li style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>No. of Hours</strong> must be a whole number between 0 and 12.
-            </li>
-            <li style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>No. of Mins</strong> must be a whole number between 0 and 59.
-            </li>
-            <li style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Rate</strong> must be a non-negative number, with up to two decimal places.
-            </li>
-            <li style={{ fontFamily: 'Poppins, sans-serif' }}>
-              For Payroll Staff, you can only import records for employees and branches assigned to you.
-            </li>
-            <li style={{ fontFamily: 'Poppins, sans-serif' }}>
-              Ensure the CSV file is comma-separated and has no extra spaces or special characters in the data.
-            </li>
-            <li style={{ fontFamily: 'Poppins, sans-serif' }}>
-              If the import fails, check the error message for details (e.g., invalid employee name, incorrect column headers, duplicate record).
-            </li>
-          </ul>
-        </div>
-      </Modal>
-    </div>
+    </ConfigProvider>
   );
 };
 

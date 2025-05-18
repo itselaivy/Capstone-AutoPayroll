@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 // Import hook for detecting navigation changes
 import { useLocation } from 'react-router-dom';
 // Import Ant Design components for UI construction
-import { Table, Typography, Spin, Empty, Alert, Input, Select, DatePicker, Space } from 'antd';
+import { Table, Typography, Spin, Empty, Alert, Input, Select, DatePicker, Space, ConfigProvider, message } from 'antd';
 // Import search icon from Ant Design icons
 import { SearchOutlined } from '@ant-design/icons';
 // Import custom CSS file for styling
@@ -39,6 +39,9 @@ const UserActivityLogsTable = () => {
   // Hook to access the current location for navigation detection
   const location = useLocation();
 
+  const userId = localStorage.getItem('userId');
+  const role = localStorage.getItem('role');
+
   // Async function to fetch activity logs from the server
   const fetchLogs = async (page = 1, pageSize = 10, filters = {}) => {
     // Set loading state to true to show a loading indicator
@@ -46,6 +49,11 @@ const UserActivityLogsTable = () => {
     // Clear any previous error messages
     setError(null);
     try {
+      if (!userId || !role) {
+        message.error('Please log in to continue');
+        return;
+      }
+
       // Construct query parameters for the API request
       const queryParams = new URLSearchParams({
         page, // Current page number
@@ -107,7 +115,7 @@ const UserActivityLogsTable = () => {
     // Fetch logs with current filters and pagination
     fetchLogs(pagination.current, pagination.pageSize, {
       searchText, // Include current search text
-      activityType: activityTypeFilter, // Include current activity type filter
+      activityType: activityTypeFilter, // Include current activity type Chinese filter
       date: dateFilter, // Include current date filter
     });
 
@@ -201,117 +209,164 @@ const UserActivityLogsTable = () => {
 
   // Render the component UI
   return (
-    // Main container with conditional fade-in class
-    <div
-      className={`user-activity-logs-table ${shouldFadeIn ? 'fade-in' : ''}`}
-      style={{ fontFamily: 'Poppins, sans-serif' }}
+    <ConfigProvider
+      theme={{
+        token: {
+          fontFamily: 'Poppins, sans-serif', // Set global font to Poppins
+        },
+        components: {
+          Select: {
+            fontFamily: 'Poppins, sans-serif', // Ensure Select component uses Poppins
+            optionFontFamily: 'Poppins, sans-serif', // Ensure dropdown options use Poppins
+          },
+          DatePicker: {
+            fontFamily: 'Poppins, sans-serif', // Ensure DatePicker uses Poppins
+          },
+          Input: {
+            fontFamily: 'Poppins, sans-serif', // Ensure Input uses Poppins
+          },
+          Table: {
+            fontFamily: 'Poppins, sans-serif', // Ensure Table uses Poppins
+          },
+          Pagination: {
+            fontFamily: 'Poppins, sans-serif', // Ensure Pagination uses Poppins
+          },
+          Alert: {
+            fontFamily: 'Poppins, sans-serif', // Ensure Alert uses Poppins
+          },
+          Empty: {
+            fontFamily: 'Poppins, sans-serif', // Ensure Empty uses Poppins
+          },
+          Spin: {
+            fontFamily: 'Poppins, sans-serif', // Ensure Spin uses Poppins
+          },
+          Message: {
+            fontFamily: 'Poppins, sans-serif', // Ensure Message uses Poppins
+          },
+        },
+      }}
     >
-      
-      <Title level={2} style={{ marginBottom: 20, fontFamily: 'Poppins, sans-serif' }}>
-        Activity Logs
-      </Title>
-      
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20 }}>
-        
-        <Space>
-          
-          <DatePicker
-            onChange={handleDateChange} // Update date filter on selection
-            style={{ width: 200, fontFamily: 'Poppins, sans-serif' }} // Set width and font
-            placeholder="Select date" // Placeholder text
+      <style jsx global>{`
+        /* Ensure Poppins font is applied to all Ant Design component texts */
+        .ant-select-item-option-content,
+        .ant-picker-cell,
+        .ant-input::placeholder,
+        .ant-select-selection-placeholder,
+        .ant-picker-input input::placeholder,
+        .ant-empty-description,
+        .ant-spin-text,
+        .ant-message-notice-content,
+        .ant-table-thead th,
+        .ant-table-tbody td,
+        .ant-pagination-item,
+        .ant-pagination-options,
+        .ant-alert-message,
+        .ant-alert-description {
+          font-family: 'Poppins', sans-serif !important;
+        }
+      `}</style>
+      <div
+        className={`user-activity-logs-table ${shouldFadeIn ? 'fade-in' : ''}`}
+        style={{ fontFamily: 'Poppins, sans-serif' }}
+      >
+        <Title level={2} style={{ marginBottom: 20 }}>
+          Activity Logs
+        </Title>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20 }}>
+          <Space>
+            <DatePicker
+              onChange={handleDateChange} // Update date filter on selection
+              style={{ width: 200 }} // Set width
+              placeholder="Select date" // Placeholder text
+            />
+            <Select
+              placeholder="Filter by Activity Type" // Placeholder text
+              onChange={handleActivityTypeChange} // Update activity type filter on selection
+              allowClear // Allow clearing the selection
+              style={{ width: 200 }} // Set width
+            >
+              <Option value="ADD_DATA">Add Data</Option>
+              <Option value="LOGIN">Login</Option>
+              <Option value="DELETE_DATA">Delete Data</Option>
+              <Option value="EDIT_DATA">Edit Data</Option>
+              <Option value="LOGOUT">Logout</Option>
+            </Select>
+          </Space>
+          <Input
+            placeholder="Search by username or description" // Placeholder text
+            value={searchText} // Bind to search text state
+            onChange={(e) => handleSearch(e.target.value)} // Update search text on input change
+            prefix={<SearchOutlined />} // Add search icon prefix
+            style={{ width: 250 }} // Set width
+            allowClear // Allow clearing the input
           />
-          
-          <Select
-            placeholder="Filter by Activity Type" // Placeholder text
-            onChange={handleActivityTypeChange} // Update activity type filter on selection
-            allowClear // Allow clearing the selection
-            style={{ width: 200, fontFamily: 'Poppins, sans-serif' }} // Set width and font
+        </div>
+        {error && (
+          <Alert
+            message="Error" // Alert title
+            description={error} // Error message content
+            type="error" // Alert type
+            showIcon // Display an error icon
+            style={{ marginBottom: 20 }} // Styling
+          />
+        )}
+        {loading ? (
+          // Show a loading spinner while data is being fetched
+          <Spin
+            tip="Loading logs..." // Loading message
+            style={{ display: 'block', textAlign: 'center' }} // Center the spinner
+            wrapperClassName="poppins-spin" // Custom class for styling
+          />
+        ) : logs.length === 0 ? (
+          // Show an empty state message if no logs are available
+          <Empty
+            description="No relevant activity logs found." // Empty state text
+          />
+        ) : (
+          // Display the table with activity logs
+          <Table
+            dataSource={logs} // Data to populate the table
+            rowKey="key" // Unique key for each row
+            bordered // Add borders to table cells
+            scroll={{ x: true }} // Enable horizontal scrolling
+            components={tableComponents} // Apply custom components for font
+            pagination={{
+              current: pagination.current, // Current page
+              pageSize: pagination.pageSize, // Items per page
+              total: pagination.total, // Total items
+              showSizeChanger: true, // Allow changing page size
+              showQuickJumper: true, // Enable quick page jumping
+              pageSizeOptions: ['10', '20', '50', '100', '200'], // Page size options
+              showTotal: (total) => `Total ${total} user activity log records`, // Total items display
+              responsive: true, // Make pagination responsive
+              position: ['bottomCenter'], // Position pagination at bottom center
+            }}
+            loading={loading} // Show loading state
+            onChange={handleTableChange} // Handle pagination changes
           >
-            
-            <Option value="ADD_DATA">Add Data</Option>
-            <Option value="LOGIN">Login</Option>
-            <Option value="DELETE_DATA">Delete Data</Option>
-            <Option value="EDIT_DATA">Edit Data</Option>
-            <Option value="LOGOUT">Logout</Option>
-          </Select>
-        </Space>
-        
-        <Input
-          placeholder="Search by username or description" // Placeholder text
-          value={searchText} // Bind to search text state
-          onChange={(e) => handleSearch(e.target.value)} // Update search text on input change
-          prefix={<SearchOutlined />} // Add search icon prefix
-          style={{ width: 250, fontFamily: 'Poppins, sans-serif' }} // Set width and font
-          allowClear // Allow clearing the input
-        />
+            {/* Column for user IDs */}
+            <Column title="User ID" dataIndex="user_id" key="user_id" />
+            {/* Column for usernames */}
+            <Column title="Username" dataIndex="Username" key="Username" />
+            {/* Column for activity types */}
+            <Column title="Activity Type" dataIndex="activity_type" key="activity_type" />
+            {/* Column for affected tables */}
+            <Column title="Affected Table" dataIndex="affected_table" key="affected_table" />
+            {/* Column for affected record IDs */}
+            <Column title="Affected Record ID" dataIndex="affected_record_id" key="affected_record_id" />
+            {/* Column for activity descriptions */}
+            <Column title="Description" dataIndex="activity_description" key="activity_description" />
+            {/* Column for creation timestamps with custom rendering */}
+            <Column
+              title="Created At" // Column header
+              dataIndex="created_at" // Data field
+              key="created_at" // Unique key
+              render={(timestamp) => formatDateTime(timestamp)} // Format timestamp
+            />
+          </Table>
+        )}
       </div>
-      
-      {error && (
-        <Alert
-          message="Error" // Alert title
-          description={error} // Error message content
-          type="error" // Alert type
-          showIcon // Display an error icon
-          style={{ marginBottom: 20, fontFamily: 'Poppins, sans-serif' }} // Styling with font
-        />
-      )}
-      
-      {loading ? (
-        // Show a loading spinner while data is being fetched
-        <Spin
-          tip="Loading logs..." // Loading message
-          style={{ display: 'block', textAlign: 'center' }} // Center the spinner
-          wrapperClassName="poppins-spin" // Custom class for styling
-        />
-      ) : logs.length === 0 ? (
-        // Show an empty state message if no logs are available
-        <Empty
-          description={<span style={{ fontFamily: 'Poppins, sans-serif' }}>No relevant activity logs found.</span>} // Empty state text
-        />
-      ) : (
-        // Display the table with activity logs
-        <Table
-          dataSource={logs} // Data to populate the table
-          rowKey="key" // Unique key for each row
-          bordered // Add borders to table cells
-          scroll={{ x: true }} // Enable horizontal scrolling
-          components={tableComponents} // Apply custom components for font
-          pagination={{
-            current: pagination.current, // Current page
-            pageSize: pagination.pageSize, // Items per page
-            total: pagination.total, // Total items
-            showSizeChanger: true, // Allow changing page size
-            showQuickJumper: true, // Enable quick page jumping
-            pageSizeOptions: ['10', '20', '50', '100', '200'], // Page size options
-            showTotal: (total) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>Total {total} user activity log records</span>, // Total items display
-            responsive: true, // Make pagination responsive
-            position: ['bottomCenter'], // Position pagination at bottom center
-          }}
-          loading={loading} // Show loading state
-          onChange={handleTableChange} // Handle pagination changes
-        >
-          {/* Column for user IDs */}
-          <Column title="User ID" dataIndex="user_id" key="user_id" />
-          {/* Column for usernames */}
-          <Column title="Username" dataIndex="Username" key="Username" />
-          {/* Column for activity types */}
-          <Column title="Activity Type" dataIndex="activity_type" key="activity_type" />
-          {/* Column for affected tables */}
-          <Column title="Affected Table" dataIndex="affected_table" key="affected_table" />
-          {/* Column for affected record IDs */}
-          <Column title="Affected Record ID" dataIndex="affected_record_id" key="affected_record_id" />
-          {/* Column for activity descriptions */}
-          <Column title="Description" dataIndex="activity_description" key="activity_description" />
-          {/* Column for creation timestamps with custom rendering */}
-          <Column
-            title="Created At" // Column header
-            dataIndex="created_at" // Data field
-            key="created_at" // Unique key
-            render={(timestamp) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{formatDateTime(timestamp)}</span>} // Format timestamp
-          />
-        </Table>
-      )}
-    </div>
+    </ConfigProvider>
   );
 };
 

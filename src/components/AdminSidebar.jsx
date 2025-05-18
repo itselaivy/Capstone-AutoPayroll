@@ -92,6 +92,32 @@ const Sidebar = ({ collapsed, setCollapsed, setSelectedKey = () => {}, setSideba
     }
   };
 
+  const destroySession = async () => {
+    try {
+      const response = await fetch('http://localhost/AdminTableDB/AdminDB/logout.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to destroy session');
+      }
+      console.log('Session destroyed:', data);
+      return true;
+    } catch (error) {
+      console.error('Error destroying session:', error.message);
+      return false;
+    }
+  };
+
+  const clearCookies = () => {
+    document.cookie.split(";").forEach((c) => {
+      document.cookie = c
+        .replace(/^ +/, "")
+        .replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+    });
+  };
+
   const handleMenuClick = (e) => {
     if (e.key === '4') {
       setSelected(null);
@@ -122,16 +148,25 @@ const Sidebar = ({ collapsed, setCollapsed, setSelectedKey = () => {}, setSideba
 
   const handleLogoutConfirm = async () => {
     const userId = localStorage.getItem('userId');
-    const loggedOut = await logLogout(userId); // Use new logout function
-    
-    if (loggedOut) {
+    let loggedOut = true;
+    if (userId) {
+      loggedOut = await logLogout(userId);
+    }
+    if (!loggedOut) {
+      message.error('Failed to log logout activity. Please try again.');
+      return;
+    }
+
+    const sessionDestroyed = await destroySession();
+    if (sessionDestroyed) {
       localStorage.removeItem('authToken');
       localStorage.removeItem('userId');
+      clearCookies();
       navigate('/login');
       setIsModalVisible(false);
       message.success('Logged out successfully!');
     } else {
-      message.error('Failed to log logout activity. Please try again.');
+      message.error('Failed to destroy session. Please try again.');
     }
   };
 
@@ -140,7 +175,7 @@ const Sidebar = ({ collapsed, setCollapsed, setSelectedKey = () => {}, setSideba
   };
 
   useEffect(() => {
-    const updateHeights = () => {
+    const updateHeights = entities => {
       if (sidebarRef.current) {
         const viewportHeight = window.innerHeight;
         sidebarRef.current.style.height = `${viewportHeight}px`;

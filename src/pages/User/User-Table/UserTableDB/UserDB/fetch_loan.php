@@ -43,19 +43,29 @@ try {
     function recordExists($conn, $table, $id) {
         $idColumnMap = [
             'employees' => 'EmployeeID',
-            'allowances' => 'AllowanceID',
+            'Loans' => 'LoanID',
             'branches' => 'BranchID'
         ];
         $idColumn = $idColumnMap[$table] ?? 'ID';
         $stmt = $conn->prepare("SELECT * FROM $table WHERE $idColumn = ?");
+        if (!$stmt) {
+            error_log("Prepare failed for recordExists: " . $conn->error);
+            throw new Exception("Failed to check record existence: " . $conn->error);
+        }
         $stmt->bind_param("i", $id);
         $stmt->execute();
         $stmt->store_result();
-        return $stmt->num_rows > 0;
+        $exists = $stmt->num_rows > 0;
+        $stmt->close();
+        return $exists;
     }
 
     function getEmployeeNameById($conn, $employeeId) {
         $stmt = $conn->prepare("SELECT EmployeeName FROM employees WHERE EmployeeID = ?");
+        if (!$stmt) {
+            error_log("Prepare failed for getEmployeeNameById: " . $conn->error);
+            throw new Exception("Failed to fetch employee name: " . $conn->error);
+        }
         $stmt->bind_param("i", $employeeId);
         $stmt->execute();
         $result = $stmt->get_result();
@@ -75,6 +85,7 @@ try {
     $method = $_SERVER['REQUEST_METHOD'];
     $user_id = isset($_GET['user_id']) ? (int)$_GET['user_id'] : null;
     $role = isset($_GET['role']) ? $_GET['role'] : null;
+    $search = isset($_GET['search']) ? trim($_GET['search']) : '';
 
     if ($method == "GET") {
         if (isset($_GET['type'])) {
@@ -142,8 +153,13 @@ try {
             $branch_id = isset($_GET['branch_id']) ? (int)$_GET['branch_id'] : null;
 
             if (!$user_id || !$role) {
-                throw new Exception("user_id and role are required for allowances fetch.");
+                throw new Exception("user_id and role are required for loans fetch.");
             }
+
+            $params = [];
+            $types = '';
+            $countParams = [];
+            $countTypes = '';
 
             if ($role === 'Payroll Staff') {
                 $branchStmt = $conn->prepare("SELECT BranchID FROM UserBranches WHERE UserID = ?");
@@ -169,95 +185,125 @@ try {
                 }
 
                 $placeholders = implode(',', array_fill(0, count($allowedBranches), '?'));
+                $countSql = "SELECT COUNT(DISTINCT l2.EmployeeID) as total 
+                            FROM Loans l2
+                            JOIN employees e2 ON l2.EmployeeID = e2.EmployeeID
+                            WHERE e2.BranchID IN ($placeholders)";
+                
+                // Derived table for paginated EmployeeIDs
+                $subquery = "SELECT DISTINCT l2.EmployeeID
+                            FROM Loans l2
+                            JOIN employees e2 ON l2.EmployeeID = e2.EmployeeID
+                            WHERE e2.BranchID IN ($placeholders)";
+                if ($branch_id) {
+                    $subquery .= " AND e2.BranchID = ?";
+                    $countSql .= " AND e2.BranchID = ?";
+                    $params[] = $branch_id;
+                    $countParams[] = $branch_id;
+                    $types .= 'i';
+                    $countTypes .= 'i';
+                }
+                if ($search) {
+                    $subquery .= " AND (e2.EmployeeName LIKE ? OR l2.LoanKey LIKE ? OR l2.LoanType LIKE ?)";
+                    $countSql .= " AND (e2.EmployeeName LIKE ? OR l2.LoanKey LIKE ? OR l2.LoanType LIKE ?)";
+                    $searchParam = "%$search%";
+                    $params[] = $searchParam;
+                    $params[] = $searchParam;
+                    $params[] = $searchParam;
+                    $countParams[] = $searchParam;
+                    $countParams[] = $searchParam;
+                    $countParams[] = $searchParam;
+                    $types .= 'sss';
+                    $countTypes .= 'sss';
+                }
+                $subquery .= " ORDER BY l2.EmployeeID LIMIT ? OFFSET ?";
+                $params[] = $limit;
+                $params[] = $offset;
+                $types .= 'ii';
+
                 $sql = "SELECT 
-                            a.AllowanceID,
-                            a.EmployeeID,
+                            l.LoanID,
+                            l.EmployeeID,
                             e.EmployeeName,
                             e.BranchID,
                             b.BranchName,
-                            a.Description,
-                            a.Amount
-                        FROM allowances a
-                        JOIN employees e ON a.EmployeeID = e.EmployeeID
+                            l.LoanKey,
+                            l.LoanType,
+                            l.Amount
+                        FROM Loans l
+                        JOIN employees e ON l.EmployeeID = e.EmployeeID
                         JOIN branches b ON e.BranchID = b.BranchID
-                        WHERE e.BranchID IN ($placeholders)";
-                $countSql = "SELECT COUNT(DISTINCT a.EmployeeID) as total 
-                            FROM allowances a
-                            JOIN employees e ON a.EmployeeID = e.EmployeeID
-                            WHERE e.BranchID IN ($placeholders)";
+                        JOIN ($subquery) AS emp ON l.EmployeeID = emp.EmployeeID
+                        ORDER BY l.EmployeeID";
 
-                $params = $allowedBranches;
-                $types = str_repeat('i', count($allowedBranches));
-
-                if ($branch_id !== null) {
-                    if (!in_array($branch_id, $allowedBranches)) {
-                        throw new Exception("Selected branch is not assigned to this user.");
+                $countParams = array_merge($allowedBranches, $countParams);
+                $countTypes = str_repeat('i', count($allowedBranches)) . $countTypes;
+                $params = array_merge($allowedBranches, $params);
+                $types = str_repeat('i', count($allowedBranches)) . $types;
+            } else {
+                $countSql = "SELECT COUNT(DISTINCT l2.EmployeeID) as total 
+                            FROM Loans l2
+                            JOIN employees e2 ON l2.EmployeeID = e2.EmployeeID";
+                
+                $subquery = "SELECT DISTINCT l2.EmployeeID
+                            FROM Loans l2
+                            JOIN employees e2 ON l2.EmployeeID = e2.EmployeeID";
+                if ($branch_id) {
+                    if (!recordExists($conn, 'branches', $branch_id)) {
+                        throw new Exception("Invalid BranchID: Branch $branch_id does not exist.");
                     }
-                    $sql .= " AND e.BranchID = ?";
-                    $countSql .= " AND e.BranchID = ?";
+                    $subquery .= " WHERE e2.BranchID = ?";
+                    $countSql .= " WHERE e2.BranchID = ?";
                     $params[] = $branch_id;
+                    $countParams[] = $branch_id;
                     $types .= 'i';
+                    $countTypes .= 'i';
                 }
-
-                $sql .= " ORDER BY a.EmployeeID";
-                $sql .= " LIMIT ? OFFSET ?";
+                if ($search) {
+                    $where = $branch_id ? " AND" : " WHERE";
+                    $subquery .= "$where (e2.EmployeeName LIKE ? OR l2.LoanKey LIKE ? OR l2.LoanType LIKE ?)";
+                    $countSql .= "$where (e2.EmployeeName LIKE ? OR l2.LoanKey LIKE ? OR l2.LoanType LIKE ?)";
+                    $searchParam = "%$search%";
+                    $params[] = $searchParam;
+                    $params[] = $searchParam;
+                    $params[] = $searchParam;
+                    $countParams[] = $searchParam;
+                    $countParams[] = $searchParam;
+                    $countParams[] = $searchParam;
+                    $types .= 'sss';
+                    $countTypes .= 'sss';
+                }
+                $subquery .= " ORDER BY l2.EmployeeID LIMIT ? OFFSET ?";
                 $params[] = $limit;
                 $params[] = $offset;
                 $types .= 'ii';
 
-                $stmt = $conn->prepare($sql);
-                if (!$stmt) throw new Exception("Prepare failed for main query: " . $conn->error);
-                $countStmt = $conn->prepare($countSql);
-                if (!$countStmt) throw new Exception("Prepare failed for count query: " . $conn->error);
-
-                $countParams = array_slice($params, 0, $branch_id !== null ? count($allowedBranches) + 1 : count($allowedBranches));
-                $countTypes = $branch_id !== null ? str_repeat('i', count($allowedBranches)) . 'i' : str_repeat('i', count($allowedBranches));
-                $countStmt->bind_param($countTypes, ...$countParams);
-
-                $stmt->bind_param($types, ...$params);
-            } else {
                 $sql = "SELECT 
-                            a.AllowanceID,
-                            a.EmployeeID,
+                            l.LoanID,
+                            l.EmployeeID,
                             e.EmployeeName,
                             e.BranchID,
                             b.BranchName,
-                            a.Description,
-                            a.Amount
-                        FROM allowances a
-                        JOIN employees e ON a.EmployeeID = e.EmployeeID
-                        JOIN branches b ON e.BranchID = b.BranchID";
-                $countSql = "SELECT COUNT(DISTINCT a.EmployeeID) as total 
-                            FROM allowances a
-                            JOIN employees e ON a.EmployeeID = e.EmployeeID";
+                            l.LoanKey,
+                            l.LoanType,
+                            l.Amount
+                        FROM Loans l
+                        JOIN employees e ON l.EmployeeID = e.EmployeeID
+                        JOIN branches b ON e.BranchID = b.BranchID
+                        JOIN ($subquery) AS emp ON l.EmployeeID = emp.EmployeeID
+                        ORDER BY l.EmployeeID";
+            }
 
-                $params = [];
-                $types = '';
+            $stmt = $conn->prepare($sql);
+            if (!$stmt) throw new Exception("Prepare failed for main query: " . $conn->error);
+            if ($params) {
+                $stmt->bind_param($types, ...$params);
+            }
 
-                if ($branch_id !== null) {
-                    $sql .= " WHERE e.BranchID = ?";
-                    $countSql .= " WHERE e.BranchID = ?";
-                    $params[] = $branch_id;
-                    $types .= 'i';
-                }
-
-                $sql .= " ORDER BY a.EmployeeID";
-                $sql .= " LIMIT ? OFFSET ?";
-                $params[] = $limit;
-                $params[] = $offset;
-                $types .= 'ii';
-
-                $stmt = $conn->prepare($sql);
-                if (!$stmt) throw new Exception("Prepare failed for main query: " . $conn->error);
-                $countStmt = $conn->prepare($countSql);
-                if (!$countStmt) throw new Exception("Prepare failed for count query: " . $conn->error);
-
-                if ($branch_id !== null) {
-                    $countStmt->bind_param("i", $branch_id);
-                    $stmt->bind_param($types, $branch_id, $limit, $offset);
-                } else {
-                    $stmt->bind_param("ii", $limit, $offset);
-                }
+            $countStmt = $conn->prepare($countSql);
+            if (!$countStmt) throw new Exception("Prepare failed for count query: " . $conn->error);
+            if ($countParams) {
+                $countStmt->bind_param($countTypes, ...$countParams);
             }
 
             if (!$countStmt->execute()) {
@@ -297,12 +343,37 @@ try {
         }
 
         if (isset($data["EmployeeID"]) && 
-            !empty($data["Description"]) && 
+            !empty($data["LoanKey"]) && 
+            !empty($data["LoanType"]) && 
             !empty($data["Amount"])) {
             
             if (!recordExists($conn, "employees", $data["EmployeeID"])) {
                 throw new Exception("Invalid EmployeeID");
             }
+
+            $validKeys = ['Pag-Ibig', 'SSS'];
+            if (!in_array($data["LoanKey"], $validKeys)) {
+                throw new Exception("Invalid LoanKey");
+            }
+
+            $validTypes = ['Calamity', 'Salary'];
+            if (!in_array($data["LoanType"], $validTypes)) {
+                throw new Exception("Invalid LoanType");
+            }
+
+            $checkStmt = $conn->prepare("SELECT LoanID FROM Loans WHERE EmployeeID = ? AND LoanKey = ? AND LoanType = ?");
+            $checkStmt->bind_param("iss", $data["EmployeeID"], $data["LoanKey"], $data["LoanType"]);
+            $checkStmt->execute();
+            $checkStmt->store_result();
+            if ($checkStmt->num_rows > 0) {
+                $checkStmt->close();
+                echo json_encode([
+                    "success" => false,
+                    "warning" => "Warning: An employee with this loan record already exists."
+                ]);
+                exit;
+            }
+            $checkStmt->close();
 
             if ($role === 'Payroll Staff') {
                 $branchStmt = $conn->prepare("SELECT BranchID FROM UserBranches WHERE UserID = ?");
@@ -329,18 +400,18 @@ try {
 
             $conn->begin_transaction();
             try {
-                $stmt = $conn->prepare("INSERT INTO allowances (EmployeeID, Description, Amount) VALUES (?, ?, ?)");
-                $stmt->bind_param("isd", $data["EmployeeID"], $data["Description"], $data["Amount"]);
+                $stmt = $conn->prepare("INSERT INTO Loans (EmployeeID, LoanKey, LoanType, Amount) VALUES (?, ?, ?, ?)");
+                $stmt->bind_param("issd", $data["EmployeeID"], $data["LoanKey"], $data["LoanType"], $data["Amount"]);
 
                 if ($stmt->execute()) {
-                    $allowanceId = $conn->insert_id;
+                    $loanId = $conn->insert_id;
                     $employeeName = getEmployeeNameById($conn, $data["EmployeeID"]);
-                    $description = "Allowance '{$data["Description"]}' of ₱" . formatNumber($data["Amount"]) . " added for '$employeeName'";
-                    logUserActivity($conn, $user_id, "ADD_DATA", "Allowances", $allowanceId, $description);
+                    $description = "Loan '{$data["LoanKey"]} {$data["LoanType"]}' of ₱" . formatNumber($data["Amount"]) . " added for '$employeeName'";
+                    logUserActivity($conn, $user_id, "ADD_DATA", "Loans", $loanId, $description);
                     $conn->commit();
-                    echo json_encode(["success" => true, "id" => $allowanceId]);
+                    echo json_encode(["success" => true, "id" => $loanId]);
                 } else {
-                    throw new Exception("Failed to add allowance: " . $stmt->error);
+                    throw new Exception("Failed to add loan: " . $stmt->error);
                 }
                 $stmt->close();
             } catch (Exception $e) {
@@ -361,26 +432,37 @@ try {
             throw new Exception("user_id is required");
         }
 
-        if (!empty($data["AllowanceID"]) && 
+        if (!empty($data["LoanID"]) && 
             isset($data["EmployeeID"]) && 
-            !empty($data["Description"]) && 
+            !empty($data["LoanKey"]) && 
+            !empty($data["LoanType"]) && 
             !empty($data["Amount"])) {
             
             if (!recordExists($conn, "employees", $data["EmployeeID"])) {
                 throw new Exception("Invalid EmployeeID");
             }
 
+            $validKeys = ['Pag-Ibig', 'SSS'];
+            if (!in_array($data["LoanKey"], $validKeys)) {
+                throw new Exception("Invalid LoanKey");
+            }
+
+            $validTypes = ['Calamity', 'Salary'];
+            if (!in_array($data["LoanType"], $validTypes)) {
+                throw new Exception("Invalid LoanType");
+            }
+
             $conn->begin_transaction();
             try {
-                $stmt = $conn->prepare("SELECT EmployeeID, Description, Amount FROM allowances WHERE AllowanceID = ?");
-                $stmt->bind_param("i", $data["AllowanceID"]);
+                $stmt = $conn->prepare("SELECT EmployeeID, LoanKey, LoanType, Amount FROM Loans WHERE LoanID = ?");
+                $stmt->bind_param("i", $data["LoanID"]);
                 $stmt->execute();
                 $result = $stmt->get_result();
                 $currentRecord = $result->fetch_assoc();
                 $stmt->close();
 
                 if (!$currentRecord) {
-                    throw new Exception("Allowance record with ID {$data["AllowanceID"]} not found.");
+                    throw new Exception("Loan record with ID {$data["LoanID"]} not found.");
                 }
 
                 $changes = [];
@@ -389,26 +471,29 @@ try {
                     $newEmployeeName = getEmployeeNameById($conn, $data["EmployeeID"]);
                     $changes[] = "Employee from '$oldEmployeeName' to '$newEmployeeName'";
                 }
-                if ($currentRecord["Description"] != $data["Description"]) {
-                    $changes[] = "Description from '{$currentRecord["Description"]}' to '{$data["Description"]}'";
+                if ($currentRecord["LoanKey"] != $data["LoanKey"]) {
+                    $changes[] = "LoanKey from '{$currentRecord["LoanKey"]}' to '{$data["LoanKey"]}'";
+                }
+                if ($currentRecord["LoanType"] != $data["LoanType"]) {
+                    $changes[] = "LoanType from '{$currentRecord["LoanType"]}' to '{$data["LoanType"]}'";
                 }
                 if ($currentRecord["Amount"] != $data["Amount"]) {
                     $changes[] = "Amount from '₱" . formatNumber($currentRecord["Amount"]) . "' to '₱" . formatNumber($data["Amount"]) . "'";
                 }
 
-                $stmt = $conn->prepare("UPDATE allowances SET EmployeeID = ?, Description = ?, Amount = ? WHERE AllowanceID = ?");
-                $stmt->bind_param("isdi", $data["EmployeeID"], $data["Description"], $data["Amount"], $data["AllowanceID"]);
+                $stmt = $conn->prepare("UPDATE Loans SET EmployeeID = ?, LoanKey = ?, LoanType = ?, Amount = ? WHERE LoanID = ?");
+                $stmt->bind_param("issdi", $data["EmployeeID"], $data["LoanKey"], $data["LoanType"], $data["Amount"], $data["LoanID"]);
 
                 if ($stmt->execute()) {
                     $employeeName = getEmployeeNameById($conn, $data["EmployeeID"]);
                     $description = empty($changes)
-                        ? "Allowance '{$data["Description"]}' for '$employeeName' updated: No changes made"
-                        : "Allowance '{$data["Description"]}' for '$employeeName' updated: " . implode('/ ', $changes);
-                    logUserActivity($conn, $user_id, "UPDATE_DATA", "Allowances", $data["AllowanceID"], $description);
+                        ? "Loan '{$data["LoanKey"]} {$data["LoanType"]}' for '$employeeName' updated: No changes made"
+                        : "Loan '{$data["LoanKey"]} {$data["LoanType"]}' for '$employeeName' updated: " . implode('/ ', $changes);
+                    logUserActivity($conn, $user_id, "UPDATE_DATA", "Loans", $data["LoanID"], $description);
                     $conn->commit();
                     echo json_encode(["success" => true]);
                 } else {
-                    throw new Exception("Failed to update allowance: " . $stmt->error);
+                    throw new Exception("Failed to update loan: " . $stmt->error);
                 }
                 $stmt->close();
             } catch (Exception $e) {
@@ -429,31 +514,31 @@ try {
             throw new Exception("user_id is required");
         }
 
-        if (!empty($data["AllowanceID"])) {
+        if (!empty($data["LoanID"])) {
             $conn->begin_transaction();
             try {
-                $stmt = $conn->prepare("SELECT EmployeeID, Description, Amount FROM allowances WHERE AllowanceID = ?");
-                $stmt->bind_param("i", $data["AllowanceID"]);
+                $stmt = $conn->prepare("SELECT EmployeeID, LoanKey, LoanType, Amount FROM Loans WHERE LoanID = ?");
+                $stmt->bind_param("i", $data["LoanID"]);
                 $stmt->execute();
                 $result = $stmt->get_result();
                 $record = $result->fetch_assoc();
                 $stmt->close();
 
                 if (!$record) {
-                    throw new Exception("Allowance record with ID {$data["AllowanceID"]} not found.");
+                    throw new Exception("Loan record with ID {$data["LoanID"]} not found.");
                 }
 
-                $stmt = $conn->prepare("DELETE FROM allowances WHERE AllowanceID = ?");
-                $stmt->bind_param("i", $data["AllowanceID"]);
+                $stmt = $conn->prepare("DELETE FROM Loans WHERE LoanID = ?");
+                $stmt->bind_param("i", $data["LoanID"]);
 
                 if ($stmt->execute()) {
                     $employeeName = getEmployeeNameById($conn, $record["EmployeeID"]);
-                    $description = "Allowance '{$record["Description"]}' of ₱" . formatNumber($record["Amount"]) . " deleted for '$employeeName'";
-                    logUserActivity($conn, $user_id, "DELETE_DATA", "Allowances", $data["AllowanceID"], $description);
+                    $description = "Loan '{$record["LoanKey"]} {$record["LoanType"]}' of ₱" . formatNumber($record["Amount"]) . " deleted for '$employeeName'";
+                    logUserActivity($conn, $user_id, "DELETE_DATA", "Loans", $data["LoanID"], $description);
                     $conn->commit();
                     echo json_encode(["success" => true]);
                 } else {
-                    throw new Exception("Failed to delete allowance: " . $stmt->error);
+                    throw new Exception("Failed to delete loan: " . $stmt->error);
                 }
                 $stmt->close();
             } catch (Exception $e) {
@@ -461,13 +546,14 @@ try {
                 throw $e;
             }
         } else {
-            throw new Exception("Allowance ID is required");
+            throw new Exception("Loan ID is required");
         }
     } else {
         throw new Exception("Method not allowed");
     }
 } catch (Exception $e) {
     http_response_code(500);
+    error_log("Error in fetch_loans.php: " . $e->getMessage());
     echo json_encode(["error" => $e->getMessage()]);
 }
 

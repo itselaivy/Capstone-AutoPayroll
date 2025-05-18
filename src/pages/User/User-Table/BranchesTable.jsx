@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Modal, Space, Table, Button, Input, Form, message, Typography, Pagination } from 'antd';
+import { ConfigProvider, Modal, Space, Table, Button, Input, Form, message, Typography, Pagination, Tooltip } from 'antd';
 import { EyeOutlined, EditOutlined, DeleteOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import './UserTable.css';
 
@@ -207,245 +207,247 @@ const BranchesTable = () => {
   };
 
   return (
-    <div className="fade-in" style={{ padding: '20px' }}>
-      <Title level={2} style={{ fontFamily: 'Poppins, sans-serif', marginBottom: '20px' }}>
-        Branches
-      </Title>
+    <ConfigProvider theme={{ token: { fontFamily: 'Poppins, sans-serif' } }}>
+      <div className="fade-in" style={{ padding: '20px' }}>
+        <Title level={2} style={{ marginBottom: '20px' }}>
+          Branches
+        </Title>
 
-      <div style={{
-        display: 'flex',
-        justifyContent: 'right',
-        alignItems: 'center',
-        gap: 16,
-        marginBottom: 20,
-        flexWrap: 'wrap'
-      }}>
-        {userRole === 'Payroll Admin' && (
-          <Button
-            icon={<PlusOutlined />}
-            size="middle"
-            style={{
-              backgroundColor: '#2C3743',
-              borderColor: '#2C3743',
-              color: 'white',
-              fontFamily: 'Poppins, sans-serif'
-            }}
-            onClick={() => openModal('Add')}
-          >
-            {showLabels && 'Add Branch'}
-          </Button>
-        )}
-        <Input
-          placeholder="Search Branch"
-          allowClear
-          value={searchText}
-          onChange={(e) => handleSearch(e.target.value)}
-          prefix={<SearchOutlined />}
-          style={{
-            width: screenWidth < 480 ? '100%' : '250px',
-            marginTop: screenWidth < 480 ? 10 : 0,
-            fontFamily: 'Poppins, sans-serif'
-          }}
-        />
-      </div>
-
-      {userRole === 'Payroll Staff' && filteredData.length === 0 && (
-        <Text type="warning" style={{ display: 'block', marginBottom: 20, fontFamily: 'Poppins, sans-serif' }}>
-        </Text>
-      )}
-
-      <Table
-        dataSource={paginatedData}
-        bordered
-        scroll={{ x: true }}
-        pagination={false}
-        style={{ fontFamily: 'Poppins, sans-serif' }}
-      >
-        <Column
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Branch Name</span>}
-          dataIndex="BranchName"
-          key="BranchName"
-          sorter={(a, b) => a.BranchName.localeCompare(b.BranchName)}
-          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
-        />
-        <Column
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Branch Address</span>}
-          dataIndex="BranchAddress"
-          key="BranchAddress"
-          sorter={(a, b) => a.BranchAddress.localeCompare(b.BranchAddress)}
-          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
-        />
-        <Column
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Branch Contact</span>}
-          dataIndex="BranchContact"
-          key="BranchContact"
-          sorter={(a, b) => a.BranchContact.localeCompare(b.BranchContact)}
-          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
-        />
-        <Column
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Action</span>}
-          key="action"
-          render={(_, record) => (
-            <Space size="middle" wrap>
-              <Button
-                icon={<EyeOutlined />}
-                size="middle"
-                style={{
-                  backgroundColor: '#52c41a',
-                  borderColor: '#52c41a',
-                  color: 'white',
-                  fontFamily: 'Poppins, sans-serif'
-                }}
-                onClick={() => openModal('View', record)}
-              >
-                {showLabels && 'View'}
-              </Button>
-              <Button
-                icon={<EditOutlined />}
-                size="middle"
-                style={{
-                  backgroundColor: '#722ed1',
-                  borderColor: '#722ed1',
-                  color: 'white',
-                  fontFamily: 'Poppins, sans-serif'
-                }}
-                onClick={() => openModal('Edit', record)}
-              >
-                {showLabels && 'Edit'}
-              </Button>
-              <Button
-                icon={<DeleteOutlined />}
-                size="middle"
-                style={{
-                  backgroundColor: '#ff4d4f',
-                  borderColor: '#ff4d4f',
-                  color: 'white',
-                  fontFamily: 'Poppins, sans-serif'
-                }}
-                onClick={() => openModal('Delete', record)}
-              >
-                {showLabels && 'Delete'}
-              </Button>
-            </Space>
+        <div style={{
+          display: 'flex',
+          justifyContent: 'right',
+          alignItems: 'center',
+          gap: 16,
+          marginBottom: 20,
+          flexWrap: 'wrap'
+        }}>
+          {userRole === 'Payroll Admin' && (
+            <Button
+              icon={<PlusOutlined />}
+              size="middle"
+              style={{
+                backgroundColor: '#2C3743',
+                borderColor: '#2C3743',
+                color: 'white'
+              }}
+              onClick={() => openModal('Add')}
+            >
+              {showLabels && 'Add Branch'}
+            </Button>
           )}
+          <Input
+            placeholder="Search Branch"
+            allowClear
+            value={searchText}
+            onChange={(e) => handleSearch(e.target.value)}
+            prefix={<SearchOutlined />}
+            style={{
+              width: screenWidth < 480 ? '100%' : '250px',
+              marginTop: screenWidth < 480 ? 10 : 0
+            }}
+          />
+        </div>
+
+        {userRole === 'Payroll Staff' && filteredData.length === 0 && (
+          <Text type="warning" style={{ display: 'block', marginBottom: 20 }}>
+          </Text>
+        )}
+
+        <Table
+          dataSource={paginatedData}
+          bordered
+          scroll={{ x: true }}
+          pagination={false}
+        >
+          <Column
+            title="Branch Name"
+            dataIndex="BranchName"
+            key="BranchName"
+            sorter={(a, b) => a.BranchName.localeCompare(b.BranchName)}
+            render={(text) => <span>{text}</span>}
+          />
+          <Column
+            title="Branch Address"
+            dataIndex="BranchAddress"
+            key="BranchAddress"
+            sorter={(a, b) => a.BranchAddress.localeCompare(b.BranchAddress)}
+            render={(text) => <span>{text}</span>}
+          />
+          <Column
+            title="Branch Contact"
+            dataIndex="BranchContact"
+            key="BranchContact"
+            sorter={(a, b) => a.BranchContact.localeCompare(b.BranchContact)}
+            render={(text) => <span>{text}</span>}
+          />
+          <Column
+            title="Action"
+            key="action"
+            render={(_, record) => (
+              <Space size={7} wrap>
+                <Tooltip title="View">
+                  <Button
+                    icon={<EyeOutlined />}
+                    size="middle"
+                    style={{
+                      width: '40px',
+                      backgroundColor: '#52c41a',
+                      borderColor: '#52c41a',
+                      color: 'white'
+                    }}
+                    onClick={() => openModal('View', record)}
+                  />
+                </Tooltip>
+                <Tooltip title="Edit">
+                  <Button
+                    icon={<EditOutlined />}
+                    size="middle"
+                    style={{
+                      width: '40px',
+                      backgroundColor: '#722ed1',
+                      borderColor: '#722ed1',
+                      color: 'white'
+                    }}
+                    onClick={() => openModal('Edit', record)}
+                  />
+                </Tooltip>
+                <Tooltip title="Delete">
+                  <Button
+                    icon={<DeleteOutlined />}
+                    size="middle"
+                    style={{
+                      width: '40px',
+                      backgroundColor: '#ff4d4f',
+                      borderColor: '#ff4d4f',
+                      color: 'white'
+                    }}
+                    onClick={() => openModal('Delete', record)}
+                  />
+                </Tooltip>
+              </Space>
+            )}
+          />
+        </Table>
+
+        <Pagination
+          current={currentPage}
+          pageSize={pageSize}
+          total={filteredData.length}
+          onChange={handlePageChange}
+          showSizeChanger
+          showQuickJumper
+          showTotal={(total) => <span>Total {total} branch records</span>}
+          pageSizeOptions={['10', '20', '50', '100']}
+          style={{ marginTop: 16, textAlign: 'right', justifyContent: 'center' }}
         />
-      </Table>
 
-      <Pagination
-        current={currentPage}
-        pageSize={pageSize}
-        total={filteredData.length}
-        onChange={handlePageChange}
-        showSizeChanger
-        showQuickJumper
-        showTotal={(total) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>Total {total} branch records</span>}
-        pageSizeOptions={['10', '20', '50', '100']}
-        style={{ marginTop: 16, textAlign: 'right', justifyContent: 'center', fontFamily: 'Poppins, sans-serif' }}
-      />
+        <Modal
+          title={
+            <div style={{ textAlign: 'center' }}>
+              <span style={{ fontSize: '22px', fontWeight: 'bold' }}>
+                {modalType === 'Add' ? 'Add New Branch' :
+                 modalType === 'Edit' ? 'Edit Branch Details' :
+                 modalType === 'View' ? 'View Branch Information' :
+                 'Confirm Branch Deletion'}
+              </span>
+            </div>
+          }
+          open={isModalOpen}
+          onOk={modalType === 'View' ? handleCancel : handleOk}
+          onCancel={handleCancel}
+          okText={modalType === 'Delete' ? 'Delete' : 'OK'}
+          okButtonProps={{
+            danger: modalType === 'Delete'
+          }}
+          cancelButtonProps={{}}
+          width={600}
+          centered
+          bodyStyle={{ minHeight: '180px', padding: '20px', margin: 20 }}
+        >
+          {modalType === 'Add' && (
+            <Form form={form} layout="vertical">
+              <Form.Item
+                label={<span>Branch Name<span style={{ color: 'red' }}>*</span></span>}
+                name="branchName"
+                rules={[{ required: true, message: 'Please enter branch name!' }]}
+              >
+                <Input
+                  placeholder="e.g., Kia, Cebu Branch"
+                  style={{ border: '1px solid #d9d9d9' }}
+                />
+              </Form.Item>
+              <Form.Item
+                label={<span>Branch Address<span style={{ color: 'red' }}>*</span></span>}
+                name="branchAddress"
+                rules={[{ required: true, message: 'Please enter branch address!' }]}
+              >
+                <Input
+                  placeholder="e.g., 123 Main St, Cebu City"
+                  style={{ border: '1px solid #d9d9d9' }}
+                />
+              </Form.Item>
+              <Form.Item
+                label={<span>Branch Contact<span style={{ color: 'red' }}>*</span></span>}
+                name="branchContact"
+                rules={[{ required: true, message: 'Please enter branch contact!' }]}
+              >
+                <Input
+                  placeholder="e.g., +63-912-345-6789"
+                  style={{ border: '1px solid #d9d9d9' }}
+                />
+              </Form.Item>
+            </Form>
+          )}
 
-      <Modal
-        title={
-          <div style={{ textAlign: 'center' }}>
-            <span style={{ fontSize: '22px', fontWeight: 'bold', fontFamily: 'Poppins, sans-serif' }}>
-              {modalType === 'Add' ? 'Add New Branch' :
-               modalType === 'Edit' ? 'Edit Branch Details' :
-               modalType === 'View' ? 'View Branch Information' :
-               'Confirm Branch Deletion'}
-            </span>
-          </div>
-        }
-        open={isModalOpen}
-        onOk={modalType === 'View' ? handleCancel : handleOk}
-        onCancel={handleCancel}
-        okText={modalType === 'Delete' ? 'Delete' : 'OK'}
-        ottonProps={{
-          danger: modalType === 'Delete',
-          style: { fontFamily: 'Poppins, sans-serif' }
-        }}
-        cancelButtonProps={{ style: { fontFamily: 'Poppins, sans-serif' } }}
-        width={600}
-        centered
-        bodyStyle={{ minHeight: '180px', padding: '20px', margin: 20 }}
-      >
-        {modalType === 'Add' && (
-          <Form form={form} layout="vertical" style={{ fontFamily: 'Poppins, sans-serif' }}>
-            <Form.Item
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Branch Name<span style={{ color: 'red' }}>*</span></span>}
-              name="branchName"
-              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please enter branch name!</span> }]}
-            >
-              <Input
-                placeholder="e.g., Kia, Cebu Branch"
-                style={{ border: '1px solid #d9d9d9', fontFamily: 'Poppins, sans-serif' }}
-              />
-            </Form.Item>
-            <Form.Item
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Branch Address<span style={{ color: 'red' }}>*</span></span>}
-              name="branchAddress"
-              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please enter branch address!</span> }]}
-            >
-              <Input
-                placeholder="e.g., 123 Main St, Cebu City"
-                style={{ border: '1px solid #d9d9d9', fontFamily: 'Poppins, sans-serif' }}
-              />
-            </Form.Item>
-            <Form.Item
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Branch Contact<span style={{ color: 'red' }}>*</span></span>}
-              name="branchContact"
-              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please enter branch contact!</span> }]}
-            >
-              <Input
-                placeholder="e.g., +63-912-345-6789"
-                style={{ border: '1px solid #d9d9d9', fontFamily: 'Poppins, sans-serif' }}
-              />
-            </Form.Item>
-          </Form>
-        )}
+          {modalType === 'Edit' && (
+            <Form form={form} layout="vertical">
+              <Form.Item
+                label={<span>Branch Name<span style={{ color: 'red' }}>*</span></span>}
+                name="branchName"
+                rules={[{ required: true, message: 'Please enter branch name!' }]}
+              >
+                <Input style={{ border: '1px solid #d9d9d9' }} />
+              </Form.Item>
+              <Form.Item
+                label={<span>Branch Address<span style={{ color: 'red' }}>*</span></span>}
+                name="branchAddress"
+                rules={[{ required: true, message: 'Please enter branch address!' }]}
+              >
+                <Input style={{ border: '1px solid #d9d9d9' }} />
+              </Form.Item>
+              <Form.Item
+                label={<span>Branch Contact<span style={{ color: 'red' }}>*</span></span>}
+                name="branchContact"
+                rules={[{ required: true, message: 'Please enter branch contact!' }]}
+              >
+                <Input style={{ border: '1px solid #d9d9d9' }} />
+              </Form.Item>
+            </Form>
+          )}
 
-        {modalType === 'Edit' && (
-          <Form form={form} layout="vertical" style={{ fontFamily: 'Poppins, sans-serif' }}>
-            <Form.Item
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Branch Name<span style={{ color: 'red' }}>*</span></span>}
-              name="branchName"
-              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please enter branch name!</span> }]}
-            >
-              <Input style={{ border: '1px solid #d9d9d9', fontFamily: 'Poppins, sans-serif' }} />
-            </Form.Item>
-            <Form.Item
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Branch Address<span style={{ color: 'red' }}>*</span></span>}
-              name="branchAddress"
-              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please enter branch address!</span> }]}
-            >
-              <Input style={{ border: '1px solid #d9d9d9', fontFamily: 'Poppins, sans-serif' }} />
-            </Form.Item>
-            <Form.Item
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Branch Contact<span style={{ color: 'red' }}>*</span></span>}
-              name="branchContact"
-              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please enter branch contact!</span> }]}
-            >
-              <Input style={{ border: '1px solid #d9d9d9', fontFamily: 'Poppins, sans-serif' }} />
-            </Form.Item>
-          </Form>
-        )}
+          {modalType === 'View' && (
+            <div>
+              <p><strong>Name:</strong> {selectedBranch?.BranchName}</p>
+              <p><strong>Address:</strong> {selectedBranch?.BranchAddress}</p>
+              <p><strong>Contact:</strong> {selectedBranch?.BranchContact}</p>
+            </div>
+          )}
 
-        {modalType === 'View' && (
-          <div style={{ fontFamily: 'Poppins, sans-serif' }}>
-            <p style={{ fontFamily: 'Poppins, sans-serif' }}><strong style={{ fontFamily: 'Poppins, sans-serif' }}>Name:</strong> {selectedBranch?.BranchName}</p>
-            <p style={{ fontFamily: 'Poppins, sans-serif' }}><strong style={{ fontFamily: 'Poppins, sans-serif' }}>Address:</strong> {selectedBranch?.BranchAddress}</p>
-            <p style={{ fontFamily: 'Poppins, sans-serif' }}><strong style={{ fontFamily: 'Poppins, sans-serif' }}>Contact:</strong> {selectedBranch?.BranchContact}</p>
-          </div>
-        )}
-
-        {modalType === 'Delete' && (
-          <div style={{ fontFamily: 'Poppins, sans-serif', textAlign: 'center' }}>
-            <p style={{ fontSize: '18px', fontWeight: 'bold', color: '#ff4d4f', fontFamily: 'Poppins, sans-serif' }}>
-              ⚠️ Are you sure you want to delete this branch?
-            </p>
-            <p style={{ fontFamily: 'Poppins, sans-serif' }}>This action <strong style={{ fontFamily: 'Poppins, sans-serif' }}>cannot be undone</strong>. The branch "<strong style={{ fontFamily: 'Poppins, sans-serif' }}>{selectedBranch?.BranchName}</strong>" will be permanently removed.</p>
-          </div>
-        )}
-      </Modal>
-    </div>
+          {modalType === 'Delete' && (
+            <div style={{ textAlign: 'center' }}>
+              <p style={{ fontSize: '18px', fontWeight: 'bold', color: '#ff4d4f' }}>
+                ⚠️ Are you sure you want to delete this branch?
+              </p>
+              <p>
+                This action <strong>cannot be undone</strong>. 
+                The branch "<strong>{selectedBranch?.BranchName}</strong>" 
+                will be permanently removed including all the records that has been assigned by this Branch <strong>(Employee Records and all of its assigned records).</strong>
+              </p>
+            </div>
+          )}
+        </Modal>
+      </div>
+    </ConfigProvider>
   );
 };
 

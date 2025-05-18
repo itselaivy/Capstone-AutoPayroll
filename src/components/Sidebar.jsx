@@ -11,6 +11,8 @@ import {
   BankOutlined,
   IdcardOutlined,
   MinusCircleOutlined,
+  InsuranceOutlined,
+  CreditCardOutlined,
   SolutionOutlined,
   TransactionOutlined,
   CarryOutOutlined,
@@ -35,7 +37,7 @@ const UserSidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysS
   const routeToKeyMap = {
     '/user/': '1',
     '/user/branches': '2',
-    '/user/attendance': '3',
+    '/user/attendance': '15',
     '/user/employees': '4',
     '/user/position': '5',
     '/user/schedules': '6',
@@ -44,8 +46,9 @@ const UserSidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysS
     '/user/holidaytype': '9',
     '/user/leavetype': '10',
     '/user/allowances': '11',
-    '/user/deduction': '12',
-    '/user/cash-advance': '13'
+    '/user/contributions': '12', 
+    '/user/loan': '13', 
+    '/user/cash-advance': '14'
   };
 
   // Sync selectedKey with current route
@@ -143,7 +146,7 @@ const UserSidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysS
     { key: '1', icon: <DashboardOutlined />, label: 'Dashboard', route: '/user/' },
     { key: 'manage', label: 'MANAGE', type: 'group' },
     { key: '2', icon: <BranchesOutlined />, label: 'Branches', route: '/user/branches' },
-    { key: '3', icon: <CalendarOutlined />, label: 'Attendance', route: '/user/attendance' },
+    { key: '15', icon: <CalendarOutlined />, label: 'Attendance', route: '/user/attendance' },
     {
       key: 'employees',
       icon: <UserOutlined />,
@@ -164,16 +167,24 @@ const UserSidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysS
         { key: '8', icon: <BankOutlined />, label: 'Payroll', route: '/user/payroll' },
         { key: '9', icon: <CarryOutOutlined />, label: 'Holiday', route: '/user/holidaytype' },
         { key: '10', icon: <SolutionOutlined />, label: 'Leave Type', route: '/user/leavetype' },
-        { key: '11', icon: <TransactionOutlined />, label: 'Allowances', route: '/user/allowances' },
-        { key: '12', icon: <MinusCircleOutlined />, label: 'Deductions', route: '/user/deduction' },
-        { key: '13', icon: <IoCashOutline />, label: 'Cash Advance', route: '/user/cash-advance' }
+        { key: '11', icon: <TransactionOutlined />, label: 'Allowance', route: '/user/allowances' },
+        {
+          key: 'deductions',
+          icon: <MinusCircleOutlined />,
+          label: 'Deductions',
+          children: [
+            { key: '12', icon: <InsuranceOutlined />, label: 'Contribution', route: '/user/contributions' },
+            { key: '13', icon: <CreditCardOutlined />, label: 'Loan', route: '/user/loan' }
+          ]
+        },
+        { key: '14', icon: <IoCashOutline />, label: 'Cash Advance', route: '/user/cash-advance' }
       ]
-    },
+    }
   ];
 
   const logoutMenuItems = [
     { key: 'session', label: 'SESSION', type: 'group' },
-    { key: '14', icon: <LogoutOutlined />, label: 'Logout', onClick: showLogoutModal }
+    { key: 'logout', icon: <LogoutOutlined />, label: 'Logout', onClick: showLogoutModal }
   ];
 
   return (
@@ -261,17 +272,39 @@ const UserSidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysS
                 key: item.key,
                 icon: item.icon,
                 label: item.label,
-                children: item.children.map((child) => ({
-                  key: child.key,
-                  icon: child.icon,
-                  label: child.label,
-                  onClick: () => navigate(child.route),
-                  style: {
-                    background: selectedKey === child.key ? '#DCEFFF' : 'transparent',
-                    color: selectedKey === child.key ? '#000' : 'white',
-                    fontFamily: 'Poppins, sans-serif'
+                children: item.children.map((child) => 
+                  child.children ? {
+                    key: child.key,
+                    icon: child.icon,
+                    label: child.label,
+                    children: child.children.map((subChild) => ({
+                      key: subChild.key,
+                      icon: subChild.icon,
+                      label: subChild.label,
+                      onClick: () => navigate(subChild.route),
+                      style: {
+                        background: selectedKey === subChild.key ? '#DCEFFF' : 'transparent',
+                        color: selectedKey === subChild.key ? '#000' : 'white',
+                        fontFamily: 'Poppins, sans-serif'
+                      }
+                    })),
+                    style: {
+                      background: selectedKey === child.key ? '#DCEFFF' : 'transparent',
+                      color: selectedKey === child.key ? '#000' : 'white',
+                      fontFamily: 'Poppins, sans-serif'
+                    }
+                  } : {
+                    key: child.key,
+                    icon: child.icon,
+                    label: child.label,
+                    onClick: () => navigate(child.route),
+                    style: {
+                      background: selectedKey === child.key ? '#DCEFFF' : 'transparent',
+                      color: selectedKey === child.key ? '#000' : 'white',
+                      fontFamily: 'Poppins, sans-serif'
+                    }
                   }
-                })),
+                ),
                 style: { fontFamily: 'Poppins, sans-serif' }
               } : {
                 key: item.key,
@@ -337,7 +370,7 @@ const UserSidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysS
         okButtonProps={{ danger: true, style: { fontFamily: 'Poppins, sans-serif' } }}
         cancelButtonProps={{ style: { fontFamily: 'Poppins, sans-serif' } }}
         centered
-        bodyStyle={{ padding: '20px', fontFamily: 'Poppins, sans-serif' }}
+        styles={{ padding: '20px', fontFamily: 'Poppins, sans-serif' }}
       >
         <p style={{ fontFamily: 'Poppins, sans-serif' }}>Are you sure you want to logout?</p>
       </Modal>

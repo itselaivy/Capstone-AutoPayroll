@@ -4,7 +4,6 @@ import PayrollTable from './User-Table/PayrollTable';
 const Payroll = () => {
   return (
     <div>
-      <h1>Payroll</h1>
       <PayrollTable /> 
     </div>
   );

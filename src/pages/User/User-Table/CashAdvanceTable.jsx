@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Space, Table, Button, Input, Modal, Form, message, DatePicker, Select, Typography, Pagination, Tooltip } from 'antd';
-import { EyeOutlined, EditOutlined, DeleteOutlined, PlusOutlined, SearchOutlined, DollarOutlined } from '@ant-design/icons';
+import { ConfigProvider, Space, Table, Button, Input, Modal, Form, message, DatePicker, Select, Typography, Pagination, Tooltip } from 'antd';
+import { EyeOutlined, EditOutlined, DeleteOutlined, PlusOutlined, SearchOutlined, WalletOutlined } from '@ant-design/icons';
 import moment from 'moment';
 
 const { Column } = Table;
@@ -19,6 +19,7 @@ const CashAdvanceTable = () => {
   const [form] = Form.useForm();
   const [employees, setEmployees] = useState([]);
   const [branches, setBranches] = useState([]);
+  const [dateRange, setDateRange] = useState([]);
   const [assignedBranches, setAssignedBranches] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -91,6 +92,11 @@ const CashAdvanceTable = () => {
       if (selectedBranch) {
         url += `&branch_id=${selectedBranch}`;
       }
+      if (dateRange[0] && dateRange[1]) {
+        const startDate = dateRange[0].format('YYYY-MM-DD');
+        const endDate = dateRange[1].format('YYYY-MM-DD');
+        url += `&start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`;
+      }
 
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Cash Advance fetch failed: ${res.statusText}`);
@@ -157,7 +163,7 @@ const CashAdvanceTable = () => {
   useEffect(() => {
     fetchDropdownData();
     fetchData();
-  }, [currentPage, pageSize, selectedBranch]);
+  }, [currentPage, pageSize, selectedBranch, dateRange]);
 
   useEffect(() => {
     const handleResize = () => setScreenWidth(window.innerWidth);
@@ -248,7 +254,6 @@ const CashAdvanceTable = () => {
       }
     } else {
       form.resetFields();
-      form.setFieldsValue({ date: moment() });
       setPaymentHistory([]);
     }
   };
@@ -330,12 +335,12 @@ const CashAdvanceTable = () => {
           const proceed = await new Promise((resolve) => {
             confirm({
               title: (
-                <span style={{ fontFamily: 'Poppins, sans-serif', fontSize: '18px', fontWeight: 'bold' }}>
+                <span style={{ fontSize: '18px', fontWeight: 'bold' }}>
                   Confirm Changes
                 </span>
               ),
               content: (
-                <span style={{ fontFamily: 'Poppins, sans-serif', fontSize: '16px' }}>
+                <span style={{ fontSize: '16px' }}>
                   Please confirm your changes. Once payments are made for this cash advance, you will no longer be able to edit its details.
                 </span>
               ),
@@ -343,14 +348,8 @@ const CashAdvanceTable = () => {
               cancelText: 'Cancel',
               okButtonProps: { 
                 type: 'primary',
-                style: { 
-                  backgroundColor: '#1890ff', 
-                  borderColor: '#1890ff', 
-                  color: '#ffffff', 
-                  fontFamily: 'Poppins, sans-serif' 
-                } 
+                style: { backgroundColor: '#1890ff', borderColor: '#1890ff', color: '#ffffff' } 
               },
-              cancelButtonProps: { style: { fontFamily: 'Poppins, sans-serif' } },
               centered: true,
               width: 500,
               onOk() {
@@ -473,346 +472,389 @@ const CashAdvanceTable = () => {
     return parseFloat(number).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
-  const showLabels = screenWidth >= 600;
   const role = localStorage.getItem('role');
 
   return (
-    <div className="fade-in" style={{ padding: '20px' }}>
-      <Title level={2} style={{ fontFamily: 'Poppins, sans-serif', marginBottom: '20px' }}>
-        Cash Advances
-      </Title>
+    <ConfigProvider theme={{ token: { fontFamily: 'Poppins, sans-serif' } }}>
+      <div className="fade-in" style={{ padding: '20px' }}>
+        <style>
+          {`
+            @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
+            
+            /* Ensure custom elements use Poppins */
+            .fade-in, .fade-in * {
+              font-family: 'Poppins', sans-serif !important;
+            }
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
-        <Select
-          placeholder="Filter by Branch"
-          value={selectedBranch}
-          onChange={handleBranchFilterChange}
-          allowClear
-          style={{ width: screenWidth < 480 ? '100%' : '250px', fontFamily: 'Poppins, sans-serif' }}
-        >
-          <Option value="" style={{ fontFamily: 'Poppins, sans-serif' }}>All Branches</Option>
-          {(role === 'Payroll Staff' ? assignedBranches : branches).map(branch => (
-            <Option key={branch.BranchID} value={branch.BranchID} style={{ fontFamily: 'Poppins, sans-serif' }}>
-              {branch.BranchName}
-            </Option>
-          ))}
-        </Select>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-          <Button 
-            icon={<PlusOutlined />} 
-            size="middle" 
-            style={{ backgroundColor: '#2C3743', borderColor: '#2C3743', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
-            onClick={() => openModal('Add')}
-          >
-            {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Add Cash Advance</span>}
-          </Button>
-          <Input
-            placeholder="Search by any field (e.g., name, date, branch)"
-            allowClear
-            value={searchText}
-            onChange={(e) => handleSearch(e.target.value)}
-            prefix={<SearchOutlined />}
-            style={{ width: screenWidth < 480 ? '100%' : '250px', marginTop: screenWidth < 480 ? 10 : 0, fontFamily: 'Poppins, sans-serif' }}
-          />
+            /* Override Ant Design components */
+            .ant-select-item, .ant-tooltip-inner, .ant-message-notice-content, .ant-picker, .ant-modal-confirm-title, .ant-modal-confirm-content {
+              font-family: 'Poppins', sans-serif !important;
+            }
+          `}
+        </style>
+        <Title level={2} style={{ marginBottom: '20px' }}>
+          Cash Advances
+        </Title>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+            <DatePicker.RangePicker
+              format={DATE_FORMAT}
+              onChange={(dates) => {
+                setDateRange(dates || []);
+                setCurrentPage(1);
+              }}
+              style={{ width: screenWidth < 480 ? '100%' : '250px' }}
+            />
+            <Select
+              placeholder="Filter by Branch"
+              value={selectedBranch}
+              onChange={handleBranchFilterChange}
+              allowClear
+              style={{ width: screenWidth < 480 ? '100%' : '250px' }}
+            >
+              <Option value="">All Branches</Option>
+              {(role === 'Payroll Staff' ? assignedBranches : branches).map(branch => (
+                <Option key={branch.BranchID} value={branch.BranchID}>
+                  {branch.BranchName}
+                </Option>
+              ))}
+            </Select>
+          </div>  
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+            <Button 
+              icon={<PlusOutlined />} 
+              size="middle" 
+              style={{ backgroundColor: '#2C3743', borderColor: '#2C3743', color: 'white' }} 
+              onClick={() => openModal('Add')}
+            >
+              Add Cash Advance
+            </Button>
+            <Input
+              placeholder="Search by any field (e.g., name, date, branch)"
+              allowClear
+              value={searchText}
+              onChange={(e) => handleSearch(e.target.value)}
+              prefix={<SearchOutlined />}
+              style={{ width: screenWidth < 480 ? '100%' : '250px', marginTop: screenWidth < 480 ? 10 : 0 }}
+            />
+          </div>
         </div>
-      </div>
 
-      <Table 
-        dataSource={filteredData} 
-        bordered 
-        scroll={{ x: true }} 
-        pagination={false}
-        style={{ fontFamily: 'Poppins, sans-serif' }}
-      >
-        <Column 
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Date</span>} 
-          dataIndex="date" 
-          key="date" 
-          sorter={(a, b) => moment(a.date, DATE_FORMAT).diff(moment(b.date, DATE_FORMAT))}
-          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
-        />
-        <Column 
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Employee ID</span>} 
-          dataIndex="employeeId" 
-          key="employeeId" 
-          sorter={(a, b) => a.employeeId - b.employeeId}
-          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
-        />
-        <Column 
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Employee Name</span>} 
-          dataIndex="employeeName" 
-          key="employeeName" 
-          sorter={(a, b) => a.employeeName.localeCompare(b.employeeName)}
-          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
-        />
-        <Column 
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Branch</span>} 
-          dataIndex="branch" 
-          key="branch" 
-          sorter={(a, b) => a.branch.localeCompare(b.branch)}
-          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
-        />
-        <Column 
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Amount</span>} 
-          dataIndex="amount" 
-          key="amount" 
-          sorter={(a, b) => a.amount - b.amount}
-          render={(amount) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>₱{formatNumberWithCommas(amount)}</span>}
-        />
-        <Column 
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Balance</span>} 
-          dataIndex="balance" 
-          key="balance" 
-          sorter={(a, b) => a.balance - b.balance}
-          render={(balance) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>₱{formatNumberWithCommas(balance)}</span>}
-        />
-        <Column
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Action</span>}
-          key="action"
-          render={(_, record) => (
-            <Space size="middle" wrap>
-              <Button 
-                icon={<EyeOutlined />} 
-                size="middle" 
-                style={{ backgroundColor: '#52c41a', borderColor: '#52c41a', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
-                onClick={() => openModal('View', record)}
-              >
-                {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>View</span>}
-              </Button>
-              <Tooltip
-                title={record.balance === "0.00" ? 'This cash advance is fully paid and cannot be paid further.' : ''}
-              >
-                <Button 
-                  icon={<DollarOutlined />} 
-                  size="middle" 
-                  style={{ backgroundColor: '#1890ff', borderColor: '#1890ff', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
-                  onClick={() => openModal('Pay', record)}
-                  disabled={record.balance === "0.00"}
-                >
-                  {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Pay</span>}
-                </Button>
-              </Tooltip>
-              <Tooltip
-                title={paymentStatus[record.key] ? 'This cash advance cannot be edited because payments have already been made.' : ''}
-              >
-                <Button 
-                  icon={<EditOutlined />} 
-                  size="middle" 
-                  style={{ backgroundColor: '#722ed1', borderColor: '#722ed1', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
-                  onClick={() => openModal('Edit', record)}
-                  disabled={paymentStatus[record.key]}
-                >
-                  {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Edit</span>}
-                </Button>
-              </Tooltip>
-              <Button 
-                icon={<DeleteOutlined />} 
-                size="middle" 
-                style={{ backgroundColor: '#ff4d4f', borderColor: '#ff4d4f', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
-                onClick={() => openModal('Delete', record)}
-              >
-                {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Delete</span>}
-              </Button>
-            </Space>
-          )}
-        />
-      </Table>
+        <Table 
+          dataSource={filteredData} 
+          bordered 
+          scroll={{ x: true }} 
+          pagination={false}
+        >
+          <Column 
+            title="Date" 
+            dataIndex="date" 
+            key="date" 
+            sorter={(a, b) => moment(a.date, DATE_FORMAT).diff(moment(b.date, DATE_FORMAT))}
+            render={(text) => <span>{text}</span>}
+          />
+          <Column 
+            title="Employee ID" 
+            dataIndex="employeeId" 
+            key="employeeId" 
+            sorter={(a, b) => a.employeeId - b.employeeId}
+            render={(text) => <span>{text}</span>}
+          />
+          <Column 
+            title="Employee Name" 
+            dataIndex="employeeName" 
+            key="employeeName" 
+            sorter={(a, b) => a.employeeName.localeCompare(b.employeeName)}
+            render={(text) => <span>{text}</span>}
+          />
+          <Column 
+            title="Branch" 
+            dataIndex="branch" 
+            key="branch" 
+            sorter={(a, b) => a.branch.localeCompare(b.branch)}
+            render={(text) => <span>{text}</span>}
+          />
+          <Column 
+            title="Amount" 
+            dataIndex="amount" 
+            key="amount" 
+            sorter={(a, b) => a.amount - b.amount}
+            render={(amount) => <span>₱{formatNumberWithCommas(amount)}</span>}
+          />
+          <Column 
+            title="Balance" 
+            dataIndex="balance" 
+            key="balance" 
+            sorter={(a, b) => a.balance - b.balance}
+            render={(balance) => <span>₱{formatNumberWithCommas(balance)}</span>}
+          />
+          <Column
+            title="Action"
+            key="action"
+            render={(_, record) => {
+              const isFullyPaid = parseFloat(record.balance) === 0;
+              const isPartiallyPaid = parseFloat(record.balance) < parseFloat(record.amount) && parseFloat(record.balance) > 0;
+              return (
+                <Space size={7} wrap>
+                  <Tooltip title="View">
+                    <Button
+                      icon={<EyeOutlined />}
+                      size="middle"
+                      style={{
+                        width: '40px',
+                        backgroundColor: '#52c41a',
+                        borderColor: '#52c41a',
+                        color: 'white'
+                      }}
+                      onClick={() => openModal('View', record)}
+                    />
+                  </Tooltip>
+                  <Tooltip title={isFullyPaid ? 'This cash advance record is fully paid and cannot be paid further' : 'Pay'}>
+                    <Button
+                      icon={<WalletOutlined />}
+                      size="middle"
+                      style={{
+                        width: '40px',
+                        backgroundColor: '#1890ff',
+                        borderColor: '#1890ff',
+                        color: 'white'
+                      }}
+                      onClick={() => openModal('Pay', record)}
+                      disabled={isFullyPaid}
+                    />
+                  </Tooltip>
+                  <Tooltip title={
+                    isFullyPaid
+                      ? 'This cash advance record is fully paid and cannot be edited further'
+                      : isPartiallyPaid
+                      ? 'This cash advance record cannot be edited because the payment has already been made'
+                      : 'Edit'
+                  }>
+                    <Button
+                      icon={<EditOutlined />}
+                      size="middle"
+                      style={{
+                        width: '40px',
+                        backgroundColor: '#722ed1',
+                        borderColor: '#722ed1',
+                        color: 'white'
+                      }}
+                      onClick={() => openModal('Edit', record)}
+                      disabled={isFullyPaid || isPartiallyPaid}
+                    />
+                  </Tooltip>
+                  <Tooltip title="Delete">
+                    <Button
+                      icon={<DeleteOutlined />}
+                      size="middle"
+                      style={{
+                        width: '40px',
+                        backgroundColor: '#ff4d4f',
+                        borderColor: '#ff4d4f',
+                        color: 'white'
+                      }}
+                      onClick={() => openModal('Delete', record)}
+                    />
+                  </Tooltip>
+                </Space>
+              );
+            }}
+          />
+        </Table>
 
-      <Pagination
-        current={currentPage}
-        pageSize={pageSize}
-        total={searchText.trim() ? filteredPaginationTotal : paginationTotal}
-        onChange={handlePageChange}
-        onShowSizeChange={handlePageChange}
-        showSizeChanger
-        showQuickJumper
-        showTotal={(total) => `Total ${total} cash advance records`}
-        pageSizeOptions={['10', '20', '50', '100']}
-        style={{ marginTop: 16, textAlign: 'right', justifyContent: 'center', fontFamily: 'Poppins, sans-serif' }}
-      />
+        <Pagination
+          current={currentPage}
+          pageSize={pageSize}
+          total={searchText.trim() ? filteredPaginationTotal : paginationTotal}
+          onChange={handlePageChange}
+          onShowSizeChange={handlePageChange}
+          showSizeChanger
+          showQuickJumper
+          showTotal={(total) => `Total ${total} cash advance records`}
+          pageSizeOptions={['10', '20', '50', '100']}
+          style={{ marginTop: 16, textAlign: 'right', justifyContent: 'center' }}
+        />
 
-      <Modal
-        title={
-          <div style={{ textAlign: 'center' }}>
-            <span style={{ fontSize: '22px', fontWeight: 'bold', fontFamily: 'Poppins, sans-serif' }}>
-              {modalType === 'Add' ? 'Add New Cash Advance' : 
-               modalType === 'Edit' ? 'Edit Cash Advance Details' : 
-               modalType === 'View' ? 'View Cash Advance Information' : 
-               modalType === 'Pay' ? 'Pay Cash Advance' :
-               'Confirm Cash Advance Deletion'}
-            </span>
-          </div>
-        }
-        open={isModalOpen}
-        onOk={handleOk}
-        onCancel={handleCancel}
-        okText={modalType === 'Delete' ? 'Delete' : modalType === 'Pay' ? 'Pay' : 'OK'}
-        okButtonProps={{ 
-          danger: modalType === 'Delete', 
-          style: { fontFamily: 'Poppins, sans-serif' }
-        }}
-        cancelButtonProps={{ style: { fontFamily: 'Poppins, sans-serif' } }}
-        width={600}
-        centered
-        styles={{ body: { padding: '20px', fontFamily: 'Poppins, sans-serif' } }}
-      >
-        {(modalType === 'Add') && (
-          <Form form={form} layout="vertical" style={{ fontFamily: 'Poppins, sans-serif' }}>
-            <Form.Item 
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Date<span style={{ color: 'red' }}>*</span></span>} 
-              name="date" 
-              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select a date!</span> }]}
-            >
-              <DatePicker 
-                format={DATE_FORMAT} 
-                style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }} 
-              />
-            </Form.Item>
-            <Form.Item 
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Employee<span style={{ color: 'red' }}>*</span></span>} 
-              name="employeeId" 
-              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select an employee!</span> }]}
-            >
-              <Select
-                showSearch
-                placeholder="Type or select an employee"
-                optionFilterProp="children"
-                onChange={handleEmployeeChange}
-                filterOption={(input, option) => option.children.toLowerCase().includes(input.toLowerCase())}
-                style={{ fontFamily: 'Poppins, sans-serif' }}
-              >
-                {(role === 'Payroll Staff' ? 
-                  employees.filter(emp => assignedBranches.some(ab => ab.BranchID === emp.BranchID)) : 
-                  employees).map((employee) => (
-                    <Option key={employee.EmployeeID} value={employee.EmployeeID} style={{ fontFamily: 'Poppins, sans-serif' }}>
-                      {employee.EmployeeName}
-                    </Option>
-                  ))}
-              </Select>
-            </Form.Item>
-            <Form.Item 
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Amount (₱)<span style={{ color: 'red' }}>*</span></span>} 
-              name="amount" 
-              rules={[
-                { required: true, message: 'Please enter the amount!' },
-                { validator: (_, value) => value >= 0 ? Promise.resolve() : Promise.reject(new Error('Amount cannot be negative!')) }
-              ]}
-            >
-              <Input 
-                type="number" 
-                step="0.01" 
-                min="0" 
-                style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }} 
-              />
-            </Form.Item>
-          </Form>
-        )}
-
-        {(modalType === 'Edit') && (
-          <Form form={form} layout="vertical" style={{ fontFamily: 'Poppins, sans-serif' }}>
-            <Form.Item 
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Date<span style={{ color: 'red' }}>*</span></span>} 
-              name="date" 
-              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select a date!</span> }]}
-            >
-              <DatePicker 
-                format={DATE_FORMAT} 
-                style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }} 
-              />
-            </Form.Item>
-            <Form.Item 
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Amount (₱)<span style={{ color: 'red' }}>*</span></span>} 
-              name="amount" 
-              rules={[
-                { required: true, message: 'Please enter the amount!' },
-                { validator: (_, value) => value >= 0 ? Promise.resolve() : Promise.reject(new Error('Amount cannot be negative!')) }
-              ]}
-            >
-              <Input 
-                type="number" 
-                step="0.01" 
-                min="0" 
-                style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }} 
-              />
-            </Form.Item>
-          </Form>
-        )}
-
-        {(modalType === 'Pay') && (
-          <Form form={form} layout="vertical" style={{ fontFamily: 'Poppins, sans-serif' }}>
-            <Form.Item 
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Current Balance</span>}
-            >
-              <Input 
-                value={`₱${formatNumberWithCommas(selectedCashAdvance?.balance)}`} 
-                disabled 
-                style={{ fontFamily: 'Poppins, sans-serif' }}
-              />
-            </Form.Item>
-            <Form.Item 
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Payment Amount (₱)<span style={{ color: 'red' }}>*</span></span>} 
-              name="paymentAmount" 
-              rules={[
-                { required: true, message: 'Please enter the payment amount!' },
-                { validator: (_, value) => value > 0 ? Promise.resolve() : Promise.reject(new Error('Payment amount must be greater than zero!')) }
-              ]}
-            >
-              <Input 
-                type="number" 
-                step="0.01" 
-                min="0" 
-                style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }} 
-              />
-            </Form.Item>
-          </Form>
-        )}
-
-        {modalType === 'View' && selectedCashAdvance && (
-          <div style={{ fontFamily: 'Poppins, sans-serif' }}>
-            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Date:</strong> {selectedCashAdvance.date}
-            </p>
-            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Employee Name:</strong> {selectedCashAdvance.employeeName}
-            </p>
-            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Branch:</strong> {selectedCashAdvance.branch}
-            </p>
-            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Amount:</strong> ₱{formatNumberWithCommas(selectedCashAdvance.amount)}
-            </p>
-            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Balance:</strong> ₱{formatNumberWithCommas(selectedCashAdvance.balance)}
-            </p>
-            <div style={{ marginTop: '20px' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Payment History:</strong>
-              {paymentHistory.length > 0 ? (
-                <ul style={{ listStyleType: 'none', padding: 0, marginTop: '10px' }}>
-                  {paymentHistory.map((payment, index) => (
-                    <li key={index} style={{ fontFamily: 'Poppins, sans-serif', marginBottom: '8px' }}>
-                      <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Date:</strong> {payment.date} | <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Amount:</strong> ₱{formatNumberWithCommas(selectedCashAdvance.amount)} | <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Paid:</strong> ₱{formatNumberWithCommas(payment.amount)}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p style={{ fontFamily: 'Poppins, sans-serif', color: '#000' }}>No payments recorded.</p>
-              )}
+        <Modal
+          title={
+            <div style={{ textAlign: 'center' }}>
+              <span style={{ fontSize: '22px', fontWeight: 'bold' }}>
+                {modalType === 'Add' ? 'Add New Cash Advance' : 
+                 modalType === 'Edit' ? 'Edit Cash Advance Details' : 
+                 modalType === 'View' ? 'View Cash Advance Information' : 
+                 modalType === 'Pay' ? 'Pay Cash Advance' :
+                 'Confirm Cash Advance Deletion'}
+              </span>
             </div>
-          </div>
-        )}
+          }
+          open={isModalOpen}
+          onOk={handleOk}
+          onCancel={handleCancel}
+          okText={modalType === 'Delete' ? 'Delete' : modalType === 'Pay' ? 'Pay' : 'OK'}
+          okButtonProps={{ 
+            danger: modalType === 'Delete'
+          }}
+          width={600}
+          centered
+          styles={{ body: { padding: '20px' } }}
+        >
+          {(modalType === 'Add') && (
+            <Form form={form} layout="vertical">
+              <Form.Item 
+                label={<span>Date<span style={{ color: 'red' }}>*</span></span>} 
+                name="date" 
+                rules={[{ required: true, message: 'Please select a date!' }]}
+              >
+                <DatePicker 
+                  format={DATE_FORMAT} 
+                  style={{ width: '100%' }} 
+                />
+              </Form.Item>
+              <Form.Item 
+                label={<span>Employee<span style={{ color: 'red' }}>*</span></span>} 
+                name="employeeId" 
+                rules={[{ required: true, message: 'Please select an employee!' }]}
+              >
+                <Select
+                  showSearch
+                  placeholder="Type or select an employee"
+                  optionFilterProp="children"
+                  onChange={handleEmployeeChange}
+                  filterOption={(input, option) => option.children.toLowerCase().includes(input.toLowerCase())}
+                >
+                  {(role === 'Payroll Staff' ? 
+                    employees.filter(emp => assignedBranches.some(ab => ab.BranchID === emp.BranchID)) : 
+                    employees).map((employee) => (
+                      <Option key={employee.EmployeeID} value={employee.EmployeeID}>
+                        {employee.EmployeeName}
+                      </Option>
+                    ))}
+                </Select>
+              </Form.Item>
+              <Form.Item 
+                label={<span>Amount (₱)<span style={{ color: 'red' }}>*</span></span>} 
+                name="amount" 
+                rules={[
+                  { required: true, message: 'Please enter the amount!' },
+                  { validator: (_, value) => value >= 0 ? Promise.resolve() : Promise.reject('Amount cannot be negative!') }
+                ]}
+              >
+                <Input 
+                  type="number" 
+                  step="0.01" 
+                  min="0" 
+                  style={{ width: '100%' }} 
+                />
+              </Form.Item>
+            </Form>
+          )}
 
-        {modalType === 'Delete' && selectedCashAdvance && (
-          <div style={{ fontFamily: 'Poppins, sans-serif', textAlign: 'center' }}>
-            <p style={{ fontSize: '18px', fontWeight: 'bold', color: '#ff4d4f', fontFamily: 'Poppins, sans-serif' }}>
-              ⚠️ Are you sure you want to delete this cash advance record?
-            </p>
-            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
-              This action <strong style={{ fontFamily: 'Poppins, sans-serif' }}>cannot be undone</strong>. The cash advance record for "<strong style={{ fontFamily: 'Poppins, sans-serif' }}>{selectedCashAdvance.employeeName}</strong>" will be permanently removed.
-            </p>
-          </div>
-        )}
-      </Modal>
-    </div>
+          {(modalType === 'Edit') && (
+            <Form form={form} layout="vertical">
+              <Form.Item 
+                label={<span>Date<span style={{ color: 'red' }}>*</span></span>} 
+                name="date" 
+                rules={[{ required: true, message: 'Please select a date!' }]}
+              >
+                <DatePicker 
+                  format={DATE_FORMAT} 
+                  style={{ width: '100%' }} 
+                />
+              </Form.Item>
+              <Form.Item 
+                label={<span>Amount (₱)<span style={{ color: 'red' }}>*</span></span>} 
+                name="amount" 
+                rules={[
+                  { required: true, message: 'Please enter the amount!' },
+                  { validator: (_, value) => value >= 0 ? Promise.resolve() : Promise.reject('Amount cannot be negative!') }
+                ]}
+              >
+                <Input 
+                  type="number" 
+                  step="0.01" 
+                  min="0" 
+                  style={{ width: '100%' }} 
+                />
+              </Form.Item>
+            </Form>
+          )}
+
+          {(modalType === 'Pay') && (
+            <Form form={form} layout="vertical">
+              <Form.Item 
+                label="Current Balance"
+              >
+                <Input 
+                  value={`₱${formatNumberWithCommas(selectedCashAdvance?.balance)}`} 
+                  disabled 
+                />
+              </Form.Item>
+              <Form.Item 
+                label={<span>Payment Amount (₱)<span style={{ color: 'red' }}>*</span></span>} 
+                name="paymentAmount" 
+                rules={[
+                  { required: true, message: 'Please enter the payment amount!' },
+                  { validator: (_, value) => value > 0 ? Promise.resolve() : Promise.reject('Payment amount must be greater than zero!') }
+                ]}
+              >
+                <Input 
+                  type="number" 
+                  step="0.01" 
+                  min="0" 
+                  style={{ width: '100%' }} 
+                />
+              </Form.Item>
+            </Form>
+          )}
+
+          {modalType === 'View' && selectedCashAdvance && (
+            <div>
+              <p>
+                <strong>Date:</strong> {selectedCashAdvance.date}
+              </p>
+              <p>
+                <strong>Employee Name:</strong> {selectedCashAdvance.employeeName}
+              </p>
+              <p>
+                <strong>Branch:</strong> {selectedCashAdvance.branch}
+              </p>
+              <p>
+                <strong>Amount:</strong> ₱{formatNumberWithCommas(selectedCashAdvance.amount)}
+              </p>
+              <p>
+                <strong>Balance:</strong> ₱{formatNumberWithCommas(selectedCashAdvance.balance)}
+              </p>
+              <div style={{ marginTop: '20px' }}>
+                <strong>Payment History:</strong>
+                {paymentHistory.length > 0 ? (
+                  <ul style={{ listStyleType: 'none', padding: 0, marginTop: '10px' }}>
+                    {paymentHistory.map((payment, index) => (
+                      <li key={index} style={{ marginBottom: '8px' }}>
+                        <strong>Date:</strong> {payment.date} | <strong>Amount:</strong> ₱{formatNumberWithCommas(selectedCashAdvance.amount)} | <strong>Paid:</strong> ₱{formatNumberWithCommas(payment.amount)}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p style={{ color: '#000' }}>No payments recorded.</p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {modalType === 'Delete' && selectedCashAdvance && (
+            <div style={{ textAlign: 'center' }}>
+              <p style={{ fontSize: '18px', fontWeight: 'bold', color: '#ff4d4f' }}>
+                ⚠️ Are you sure you want to delete this cash advance record?
+              </p>
+              <p>
+                This action <strong>cannot be undone</strong>. The cash advance record for "<strong>{selectedCashAdvance.employeeName}</strong>" will be permanently removed.
+              </p>
+            </div>
+          )}
+        </Modal>
+      </div>
+    </ConfigProvider>
   );
 };
 

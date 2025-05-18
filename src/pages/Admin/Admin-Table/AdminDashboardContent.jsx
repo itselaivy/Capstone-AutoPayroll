@@ -53,9 +53,18 @@ const AdminDashboardContent = () => {
   // Hook to enable navigation functionality within the component
   const navigate = useNavigate();
 
+  const userId = localStorage.getItem('userId');
+  const role = localStorage.getItem('role');
+
   // Async function to fetch dashboard statistics from the server
   const fetchDashboardStats = async () => {
     try {
+
+      if (!userId || !role) {
+        message.error('Please log in to continue');
+        return;
+      }
+
       // Fetch stats data from the API with no caching
       const res = await fetch(`${API_BASE_URL}/fetch_dashboardcontent.php?type=stats`, { cache: 'no-store' });
       // Check if the response is not OK, throw an error if so

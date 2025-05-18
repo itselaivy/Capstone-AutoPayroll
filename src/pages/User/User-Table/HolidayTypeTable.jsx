@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Space, Table, Button, Input, Modal, Form, message, DatePicker, Select, Typography, Pagination, Switch, Alert, Tag } from 'antd';
+import { ConfigProvider, Space, Table, Button, Input, Modal, Form, message, DatePicker, Select, Typography, Pagination, Switch, Alert, Tag, Tooltip } from 'antd';
 import { EyeOutlined, EditOutlined, DeleteOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import moment from 'moment';
 
@@ -106,9 +106,9 @@ const HolidayTypeTable = () => {
         if (allBranchesSelected) {
           branchDisplay = 'All Branches';
         } else if (holiday.branchIds.length === 1) {
-          branchDisplay = holiday.branchNames[0]; // Display the single branch name
+          branchDisplay = holiday.branchNames[0];
         } else {
-          branchDisplay = 'Custom'; // Should not occur with new validation
+          branchDisplay = 'Custom';
         }
         return {
           ...holiday,
@@ -214,100 +214,95 @@ const HolidayTypeTable = () => {
   const handleOk = async () => {
     const userId = localStorage.getItem('userId');
     if (!userId) {
-      message.error('User not logged in');
-      return;
+        message.error('User not logged in');
+        return;
     }
 
     if (modalType === "View") {
-      handleCancel();
-      return;
+        handleCancel();
+        return;
     }
 
     if (modalType === "Add" || modalType === "Edit") {
-      try {
-        const values = await form.validateFields();
-        const monthDay = values.monthDay.format('MM-DD'); // Format as MM-DD for MySQL DATE
-        const description = values.description;
-        const excludeId = modalType === "Edit" && selectedHoliday ? selectedHoliday.key : null;
+        try {
+            const values = await form.validateFields();
+            const monthDay = values.monthDay.format('MM-DD');
+            const description = values.description;
+            const excludeId = modalType === "Edit" && selectedHoliday ? selectedHoliday.key : null;
 
-        console.log('Checking duplicate with:', { monthDay, description, excludeId });
+            console.log('Checking duplicate with:', { monthDay, description, excludeId });
 
-        const isDuplicate = await checkForDuplicate(monthDay, description, excludeId);
-        if (isDuplicate) {
-          message.warning("Warning: The holiday that you're adding/updating already exists.");
-          return;
+            const isDuplicate = await checkForDuplicate(monthDay, description, excludeId);
+            if (isDuplicate) {
+                message.warning("Warning: The holiday that you're adding/updating already exists.");
+                return;
+            }
+
+            let branchIds = values.branchId;
+            if (branchIds.length === 0) {
+                message.warning('Please select at least one branch.');
+                return;
+            }
+
+            const payload = {
+                Description: values.description,
+                MonthDay: monthDay,
+                HolidayType: values.holidayType,
+                BranchID: branchIds,
+                Recurring: values.recurring ? 1 : 0,
+                FixedYear: values.recurring ? null : (values.fixedYear ? values.fixedYear.format('YYYY') : null),
+                user_id: parseInt(userId),
+            };
+
+            if (modalType === "Edit" && selectedHoliday) {
+                payload.HolidayID = selectedHoliday.key;
+            }
+
+            console.log('Submitting payload:', payload);
+
+            const res = await fetch(`${API_BASE_URL}/fetch_holiday.php`, {
+                method: modalType === "Add" ? "POST" : "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+            });
+
+            if (!res.ok) throw new Error(`Server error: ${res.statusText}`);
+            const data = await res.json();
+
+            if (data.success) {
+                message.success(`Holiday ${modalType === "Add" ? "added" : "updated"} successfully!`);
+                setIsModalOpen(false);
+                form.resetFields();
+                fetchData();
+            } else {
+                throw new Error(data.error || "Operation failed");
+            }
+        } catch (err) {
+            console.error("Form Submission Error:", err.message, err.stack);
+            message.error(`Failed to ${modalType === "Add" ? "add" : "update"} holiday: ${err.message || 'Please ensure all required fields are completed correctly.'}`);
         }
-
-        let branchId = values.branchId;
-        let branchIdForPayload;
-        if (branchId.includes("All")) {
-          branchIdForPayload = "All"; // Backend expects "All" as a string
-        } else if (Array.isArray(branchId) && branchId.length === 1) {
-          branchIdForPayload = branchId[0]; // Send single branch ID as a string
-        } else {
-          message.warning('Please select either "All Branches" or just one specific branch.');
-          return;
-        }
-
-        const payload = {
-          Description: values.description,
-          MonthDay: monthDay,
-          HolidayType: values.holidayType,
-          BranchID: branchIdForPayload,
-          Recurring: values.recurring ? 1 : 0,
-          FixedYear: values.recurring ? null : (values.fixedYear ? values.fixedYear.format('YYYY') : null),
-          user_id: parseInt(userId),
-        };
-
-        if (modalType === "Edit" && selectedHoliday) {
-          payload.HolidayID = selectedHoliday.key;
-        }
-
-        console.log('Submitting payload:', payload);
-
-        const res = await fetch(`${API_BASE_URL}/fetch_holiday.php`, {
-          method: modalType === "Add" ? "POST" : "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-
-        if (!res.ok) throw new Error(`Server error: ${res.statusText}`);
-        const data = await res.json();
-
-        if (data.success) {
-          message.success(`Holiday ${modalType === "Add" ? "added" : "updated"} successfully!`);
-          setIsModalOpen(false);
-          form.resetFields();
-          fetchData();
-        } else {
-          throw new Error(data.error || "Operation failed");
-        }
-      } catch (err) {
-        console.error("Form Submission Error:", err.message, err.stack);
-        message.error(`Failed to ${modalType === "Add" ? "add" : "update"} holiday: ${err.message || 'Please ensure all required fields are completed correctly.'}`);
-      }
     } else if (modalType === "Delete" && selectedHoliday) {
-      try {
-        const res = await fetch(`${API_BASE_URL}/fetch_holiday.php`, {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ HolidayID: selectedHoliday.key, user_id: parseInt(userId) }),
-        });
+        try {
+            const res = await fetch(`${API_BASE_URL}/fetch_holiday.php`, {
+                method: "DELETE",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ HolidayID: selectedHoliday.key, user_id: parseInt(userId) }),
+            });
 
-        const data = await res.json();
-        if (data.success) {
-          message.success("Holiday deleted successfully!");
-          setIsModalOpen(false);
-          fetchData();
-        } else {
-          throw new Error(data.error || "Unknown error during deletion");
+            const data = await res.json();
+            if (data.success) {
+                message.success("Holiday deleted successfully!");
+                setIsModalOpen(false);
+                fetchData();
+            } else {
+                throw new Error(data.error || "Unknown error during deletion");
+            }
+        } catch (err) {
+            console.error("Delete Error:", err.message);
+            message.error(`Failed to delete holiday: ${err.message}`);
         }
-      } catch (err) {
-        console.error("Delete Error:", err.message);
-        message.error(`Failed to delete holiday: ${err.message}`);
-      }
     }
-  };
+};
 
   const handleCancel = () => {
     setIsModalOpen(false);
@@ -316,313 +311,330 @@ const HolidayTypeTable = () => {
 
   const handleBranchChange = (value) => {
     if (value.includes("All")) {
-      form.setFieldsValue({ branchId: ["All"] });
-    } else if (value.length === branches.length) {
-      form.setFieldsValue({ branchId: ["All"] });
-    } else if (value.length > 1) {
-      message.warning('Please choose either "All Branches" or a single branch only.');
-      form.setFieldsValue({ branchId: value.slice(0, 1) }); // Keep only the first selected branch
+        form.setFieldsValue({ branchId: branches.map(branch => branch.BranchID) });
+    } else {
+        form.setFieldsValue({ branchId: value });
     }
-  };
+};
 
   const showLabels = screenWidth >= 600;
 
   return (
-    <div className="fade-in" style={{ padding: '20px' }}>
-      <Title level={2} style={{ fontFamily: 'Poppins, sans-serif', marginBottom: '20px' }}>
-        Holidays
-      </Title>
-
-      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-          <Button 
-            icon={<PlusOutlined />} 
-            size="middle" 
-            style={{ backgroundColor: '#2C3743', borderColor: '#2C3743', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
-            onClick={() => openModal('Add')}
-          >
-            {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Add Holiday</span>}
-          </Button>
-          <Input
-            placeholder="Search by any field (e.g., description, date, type)"
-            allowClear
-            value={searchText}
-            onChange={(e) => handleSearch(e.target.value)}
-            prefix={<SearchOutlined />}
-            style={{ width: screenWidth < 480 ? '100%' : '250px', marginTop: screenWidth < 480 ? 10 : 0, fontFamily: 'Poppins, sans-serif' }}
-          />
-        </div>
-      </div>
-
-      <Table 
-        dataSource={filteredData} 
-        bordered 
-        scroll={{ x: true }} 
-        pagination={false}
-        style={{ fontFamily: 'Poppins, sans-serif' }}
-      >
-        <Column 
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Description</span>} 
-          dataIndex="description" 
-          key="description" 
-          sorter={(a, b) => a.description.localeCompare(b.description)}
-          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
-        />
-        <Column 
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Date</span>} 
-          dataIndex="date" 
-          key="date" 
-          sorter={(a, b) => moment(a.date, DATE_FORMAT).diff(moment(b.date, DATE_FORMAT))}
-          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
-        />
-        <Column 
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Holiday Type</span>} 
-          dataIndex="holidayType" 
-          key="holidayType" 
-          sorter={(a, b) => a.holidayType.localeCompare(b.holidayType)}
-          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
-        />
-        <Column 
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Branch</span>} 
-          dataIndex="branchDisplay" 
-          key="branchDisplay" 
-          sorter={(a, b) => a.branchDisplay.localeCompare(b.branchDisplay)}
-          render={(branchDisplay, record) => {
-            if (branchDisplay === 'All Branches') {
-              return <Tag color="blue" style={{ fontFamily: 'Poppins, sans-serif' }}>All Branches</Tag>;
+    <ConfigProvider theme={{ token: { fontFamily: 'Poppins, sans-serif' } }}>
+      <div className="fade-in" style={{ padding: '20px', fontFamily: 'Poppins, sans-serif' }}>
+        <style>
+          {`
+            @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
+            
+            /* Ensure custom elements use Poppins */
+            .fade-in, .fade-in * {
+              font-family: 'Poppins', sans-serif !important;
             }
-            if (branchDisplay === 'Custom') {
-              return <Tag color="blue" style={{ fontFamily: 'Poppins, sans-serif' }}>All Branches</Tag>;
-            }
-            if (!branchDisplay || branchDisplay === 'N/A') {
-              return <Tag color="blue" style={{ fontFamily: 'Poppins, sans-serif' }}>N/A</Tag>;
-            }
-            return (
-              <Tag color="blue" style={{ fontFamily: 'Poppins, sans-serif' }}>
-                {branchDisplay}
-              </Tag>
-            );
-          }}
-        />
-        <Column 
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Recurring</span>} 
-          dataIndex="recurring" 
-          key="recurring" 
-          sorter={(a, b) => Number(a.recurring) - Number(b.recurring)}
-          render={(recurring) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{recurring ? 'Yes' : 'No'}</span>}
-        />
-        <Column
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Action</span>}
-          key="action"
-          render={(_, record) => (
-            <Space size="middle" wrap>
-              <Button 
-                icon={<EyeOutlined />} 
-                size="middle" 
-                style={{ backgroundColor: '#52c41a', borderColor: '#52c41a', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
-                onClick={() => openModal('View', record)}
-              >
-                {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>View</span>}
-              </Button>
-              <Button 
-                icon={<EditOutlined />} 
-                size="middle" 
-                style={{ backgroundColor: '#722ed1', borderColor: '#722ed1', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
-                onClick={() => openModal('Edit', record)}
-              >
-                {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Edit</span>}
-              </Button>
-              <Button 
-                icon={<DeleteOutlined />} 
-                size="middle" 
-                style={{ backgroundColor: '#ff4d4f', borderColor: '#ff4d4f', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
-                onClick={() => openModal('Delete', record)}
-              >
-                {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Delete</span>}
-              </Button>
-            </Space>
-          )}
-        />
-      </Table>
+          `}
+        </style>
+        <Title level={2} style={{ marginBottom: '20px' }}>
+          Holidays
+        </Title>
 
-      <Pagination
-        current={currentPage}
-        pageSize={pageSize}
-        total={searchText.trim() ? filteredPaginationTotal : paginationTotal}
-        onChange={handlePageChange}
-        onShowSizeChange={handlePageChange}
-        showSizeChanger
-        showQuickJumper
-        showTotal={(total) => `Total ${total} holiday records`}
-        pageSizeOptions={['10', '20', '50', '100']}
-        style={{ marginTop: 16, textAlign: 'right', justifyContent: 'center', fontFamily: 'Poppins, sans-serif' }}
-      />
-
-      <Modal
-        title={
-          <div style={{ textAlign: 'center' }}>
-            <span style={{ fontSize: '22px', fontWeight: 'bold', fontFamily: 'Poppins, sans-serif' }}>
-              {modalType === 'Add' ? 'Add New Holiday' : 
-               modalType === 'Edit' ? 'Edit Holiday Details' : 
-               modalType === 'View' ? 'View Holiday Information' : 
-               'Confirm Holiday Deletion'}
-            </span>
-          </div>
-        }
-        open={isModalOpen}
-        onOk={handleOk}
-        onCancel={handleCancel}
-        okText={modalType === 'Delete' ? 'Delete' : 'OK'}
-        okButtonProps={{ 
-          danger: modalType === 'Delete', 
-          style: { fontFamily: 'Poppins, sans-serif' }
-        }}
-        cancelButtonProps={{ style: { fontFamily: 'Poppins, sans-serif' } }}
-        width={600}
-        centered
-        styles={{ body: { padding: '20px', fontFamily: 'Poppins, sans-serif' } }}
-      >
-        {(modalType === 'Add' || modalType === 'Edit') && (
-          <Form form={form} layout="vertical" style={{ fontFamily: 'Poppins, sans-serif' }} onValuesChange={(changedValues, allValues) => {
-            if (changedValues.recurring !== undefined) {
-              form.setFieldsValue({ fixedYear: allValues.recurring ? null : allValues.fixedYear });
-              console.log('Form Values Updated:', allValues);
-            }
-          }}>
-            <Form.Item 
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Description<span style={{ color: 'red' }}>*</span></span>} 
-              name="description" 
-              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please enter a description!</span> }]}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+            <Button 
+              icon={<PlusOutlined />} 
+              size="middle" 
+              style={{ backgroundColor: '#2C3743', borderColor: '#2C3743', color: 'white' }} 
+              onClick={() => openModal('Add')}
             >
-              <Input style={{ fontFamily: 'Poppins, sans-serif' }} />
-            </Form.Item>
-            <Form.Item 
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Month and Day<span style={{ color: 'red' }}>*</span></span>} 
-              name="monthDay" 
-              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select a month and day!</span> }]}
-            >
-              <DatePicker 
-                format={MONTH_DAY_FORMAT} 
-                picker="date" 
-                style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }} 
-                disabledDate={(current) => current && current.year() !== moment().year()}
-              />
-            </Form.Item>
-            <Form.Item 
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Recurring<span style={{ color: 'red' }}>*</span></span>} 
-              name="recurring" 
-              valuePropName="checked"
-              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please specify if this holiday is recurring!</span> }]}
-            >
-              <Switch 
-                checkedChildren="Yes" 
-                unCheckedChildren="No" 
-                style={{ fontFamily: 'Poppins, sans-serif' }} 
-                onChange={(checked) => {
-                  form.setFieldsValue({ recurring: checked });
-                  console.log('Recurring Switch Changed to:', checked);
-                }}
-              />
-            </Form.Item>
-            <Alert 
-              message="Set to 'Yes' if this holiday happens every year on the same date. Set to 'No' if it’s a one-time event, and you can pick a specific year for it." 
-              type="info" 
-              style={{ marginBottom: '30px', fontFamily: 'Poppins, sans-serif', fontSize: '14px' }} 
+              {showLabels && 'Add Holiday'}
+            </Button>
+            <Input
+              placeholder="Search by any field (e.g., description, date, type)"
+              allowClear
+              value={searchText}
+              onChange={(e) => handleSearch(e.target.value)}
+              prefix={<SearchOutlined />}
+              style={{ width: screenWidth < 480 ? '100%' : '250px', marginTop: screenWidth < 480 ? 10 : 0 }}
             />
-            <Form.Item 
-              noStyle
-              shouldUpdate={(prevValues, currentValues) => prevValues.recurring !== currentValues.recurring}
-            >
-              {({ getFieldValue }) => {
-                const isRecurring = getFieldValue('recurring');
-                console.log('Rendering Fixed Year Field, Recurring:', isRecurring);
-                return !isRecurring ? (
-                  <Form.Item 
-                    label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Fixed Year<span style={{ color: 'red' }}>*</span></span>} 
-                    name="fixedYear" 
-                    rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select a year for this non-recurring holiday!</span> }]}
-                  >
-                    <DatePicker 
-                      picker="year" 
-                      style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }} 
-                      disabledDate={(current) => current && current.year() < moment().year()}
-                    />
-                  </Form.Item>
-                ) : null;
-              }}
-            </Form.Item>
-            <Form.Item 
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Holiday Type<span style={{ color: 'red' }}>*</span></span>} 
-              name="holidayType" 
-              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select a holiday type!</span> }]}
-            >
-              <Select style={{ fontFamily: 'Poppins, sans-serif' }}>
-                <Option value="Special Non-Working Holiday" style={{ fontFamily: 'Poppins, sans-serif' }}>Special Non-Working Holiday</Option>
-                <Option value="Legal Holiday" style={{ fontFamily: 'Poppins, sans-serif' }}>Legal Holiday</Option>
-              </Select>
-            </Form.Item>
-            {(modalType === 'Add' || modalType === 'Edit') && (
+          </div>
+        </div>
+
+        <Table 
+          dataSource={filteredData} 
+          bordered 
+          scroll={{ x: true }} 
+          pagination={false}
+        >
+          <Column 
+            title="Description" 
+            dataIndex="description" 
+            key="description" 
+            sorter={(a, b) => a.description.localeCompare(b.description)}
+            render={(text) => <span>{text}</span>}
+          />
+          <Column 
+            title="Date" 
+            dataIndex="date" 
+            key="date" 
+            sorter={(a, b) => moment(a.date, DATE_FORMAT).diff(moment(b.date, DATE_FORMAT))}
+            render={(text) => <span>{text}</span>}
+          />
+          <Column 
+            title="Holiday Type" 
+            dataIndex="holidayType" 
+            key="holidayType" 
+            sorter={(a, b) => a.holidayType.localeCompare(b.holidayType)}
+            render={(text) => <span>{text}</span>}
+          />
+          <Column 
+            title="Branch" 
+            dataIndex="branchDisplay" 
+            key="branchDisplay" 
+            sorter={(a, b) => a.branchDisplay.localeCompare(b.branchDisplay)}
+            render={(branchDisplay, record) => {
+              if (branchDisplay === 'All Branches') {
+                return <Tag color="blue">All Branches</Tag>;
+              }
+              if (branchDisplay === 'Custom') {
+                return <Tag color="blue">All Branches</Tag>;
+              }
+              if (!branchDisplay || branchDisplay === 'N/A') {
+                return <Tag color="blue">N/A</Tag>;
+              }
+              return <Tag color="blue">{branchDisplay}</Tag>;
+            }}
+          />
+          <Column 
+            title="Recurring" 
+            dataIndex="recurring" 
+            key="recurring" 
+            sorter={(a, b) => Number(a.recurring) - Number(b.recurring)}
+            render={(recurring) => <span>{recurring ? 'Yes' : 'No'}</span>}
+          />
+          <Column
+            title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Action</span>}
+            key="action"
+            render={(_, record) => (
+              <Space size={7} wrap>
+                <Tooltip title="View">
+                  <Button
+                    icon={<EyeOutlined />}
+                    size="middle"
+                    style={{
+                      width: '40px',
+                      backgroundColor: '#52c41a',
+                      borderColor: '#52c41a',
+                      color: 'white',
+                      fontFamily: 'Poppins, sans-serif'
+                    }}
+                    onClick={() => openModal('View', record)}
+                  />
+                </Tooltip>
+                <Tooltip title="Edit">
+                  <Button
+                    icon={<EditOutlined />}
+                    size="middle"
+                    style={{
+                      width: '40px',
+                      backgroundColor: '#722ed1',
+                      borderColor: '#722ed1',
+                      color: 'white',
+                      fontFamily: 'Poppins, sans-serif'
+                    }}
+                    onClick={() => openModal('Edit', record)}
+                  />
+                </Tooltip>
+                <Tooltip title="Delete">
+                  <Button
+                    icon={<DeleteOutlined />}
+                    size="middle"
+                    style={{
+                      width: '40px',
+                      backgroundColor: '#ff4d4f',
+                      borderColor: '#ff4d4f',
+                      color: 'white',
+                      fontFamily: 'Poppins, sans-serif'
+                    }}
+                    onClick={() => openModal('Delete', record)}
+                  />
+                </Tooltip>
+              </Space>
+            )}
+          />
+        </Table>
+
+        <Pagination
+          current={currentPage}
+          pageSize={pageSize}
+          total={searchText.trim() ? filteredPaginationTotal : paginationTotal}
+          onChange={handlePageChange}
+          onShowSizeChange={handlePageChange}
+          showSizeChanger
+          showQuickJumper
+          showTotal={(total) => `Total ${total} holiday records`}
+          pageSizeOptions={['10', '20', '50', '100']}
+          style={{ marginTop: 16, textAlign: 'right', justifyContent: 'center' }}
+        />
+
+        <Modal
+          title={
+            <div style={{ textAlign: 'center' }}>
+              <span style={{ fontSize: '22px', fontWeight: 'bold' }}>
+                {modalType === 'Add' ? 'Add New Holiday' : 
+                 modalType === 'Edit' ? 'Edit Holiday Details' : 
+                 modalType === 'View' ? 'View Holiday Information' : 
+                 'Confirm Holiday Deletion'}
+              </span>
+            </div>
+          }
+          open={isModalOpen}
+          onOk={handleOk}
+          onCancel={handleCancel}
+          okText={modalType === 'Delete' ? 'Delete' : 'OK'}
+          okButtonProps={{ danger: modalType === 'Delete' }}
+          cancelButtonProps={{}}
+          width={600}
+          centered
+          styles={{ body: { padding: '20px' } }}
+        >
+          {(modalType === 'Add' || modalType === 'Edit') && (
+            <Form form={form} layout="vertical" onValuesChange={(changedValues, allValues) => {
+              if (changedValues.recurring !== undefined) {
+                form.setFieldsValue({ fixedYear: allValues.recurring ? null : allValues.fixedYear });
+                console.log('Form Values Updated:', allValues);
+              }
+            }}>
               <Form.Item 
-                label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Branch<span style={{ color: 'red' }}>*</span></span>} 
-                name="branchId" 
-                rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select a branch!</span> }]}
+                label={<span>Description<span style={{ color: 'red' }}>*</span></span>} 
+                name="description" 
+                rules={[{ required: true, message: 'Please enter a description!' }]}
               >
-                <Select 
-                  mode="multiple" 
-                  allowClear 
-                  style={{ fontFamily: 'Poppins, sans-serif' }}
-                  placeholder="Select branch(es)"
-                  onChange={handleBranchChange}
-                >
-                  <Option value="All" style={{ fontFamily: 'Poppins, sans-serif' }}>All Branches</Option>
-                  {branches.map(branch => (
-                    <Option key={branch.BranchID} value={branch.BranchID} style={{ fontFamily: 'Poppins, sans-serif' }}>
-                      {branch.BranchName}
-                    </Option>
-                  ))}
+                <Input />
+              </Form.Item>
+              <Form.Item 
+                label={<span>Month and Day<span style={{ color: 'red' }}>*</span></span>} 
+                name="monthDay" 
+                rules={[{ required: true, message: 'Please select a month and day!' }]}
+              >
+                <DatePicker 
+                  format={MONTH_DAY_FORMAT} 
+                  picker="date" 
+                  style={{ width: '100%' }} 
+                  disabledDate={(current) => current && current.year() !== moment().year()}
+                />
+              </Form.Item>
+              <Form.Item 
+                label={<span>Recurring<span style={{ color: 'red' }}>*</span></span>} 
+                name="recurring" 
+                valuePropName="checked"
+                rules={[{ required: true, message: 'Please specify if this holiday is recurring!' }]}
+              >
+                <Switch 
+                  checkedChildren="Yes" 
+                  unCheckedChildren="No" 
+                  onChange={(checked) => {
+                    form.setFieldsValue({ recurring: checked });
+                    console.log('Recurring Switch Changed to:', checked);
+                  }}
+                />
+              </Form.Item>
+              <Alert 
+                message="Set to 'Yes' if this holiday happens every year on the same date. Set to 'No' if it’s a one-time event, and you can pick a specific year for it." 
+                type="info" 
+                style={{ marginBottom: '30px', fontSize: '14px' }} 
+              />
+              <Form.Item 
+                noStyle
+                shouldUpdate={(prevValues, currentValues) => prevValues.recurring !== currentValues.recurring}
+              >
+                {({ getFieldValue }) => {
+                  const isRecurring = getFieldValue('recurring');
+                  console.log('Rendering Fixed Year Field, Recurring:', isRecurring);
+                  return !isRecurring ? (
+                    <Form.Item 
+                      label={<span>Fixed Year<span style={{ color: 'red' }}>*</span></span>} 
+                      name="fixedYear" 
+                      rules={[{ required: true, message: 'Please select a year for this non-recurring holiday!' }]}
+                    >
+                      <DatePicker 
+                        picker="year" 
+                        style={{ width: '100%' }} 
+                        disabledDate={(current) => current && current.year() < moment().year()}
+                      />
+                    </Form.Item>
+                  ) : null;
+                }}
+              </Form.Item>
+              <Form.Item 
+                label={<span>Holiday Type<span style={{ color: 'red' }}>*</span></span>} 
+                name="holidayType" 
+                rules={[{ required: true, message: 'Please select a holiday type!' }]}
+              >
+                <Select>
+                  <Option value="Special Non-Working Holiday">Special Non-Working Holiday</Option>
+                  <Option value="Legal Holiday">Legal Holiday</Option>
                 </Select>
               </Form.Item>
-            )}
-          </Form>
-        )}
+              {(modalType === 'Add' || modalType === 'Edit') && (
+                <Form.Item 
+                  label={<span>Branch<span style={{ color: 'red' }}>*</span></span>} 
+                  name="branchId" 
+                  rules={[{ required: true, message: 'Please select a branch!' }]}
+                >
+                  <Select 
+                    mode="multiple" 
+                    allowClear 
+                    placeholder="Select branch(es)"
+                    onChange={handleBranchChange}
+                  >
+                    <Option value="All">All Branches</Option>
+                    {branches.map(branch => (
+                      <Option key={branch.BranchID} value={branch.BranchID}>
+                        {branch.BranchName}
+                      </Option>
+                    ))}
+                  </Select>
+                </Form.Item>
+              )}
+            </Form>
+          )}
 
-        {modalType === 'View' && selectedHoliday && (
-          <div style={{ fontFamily: 'Poppins, sans-serif' }}>
-            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Description:</strong> {selectedHoliday.description}
-            </p>
-            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Date:</strong> {selectedHoliday.date}
-            </p>
-            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Holiday Type:</strong> {selectedHoliday.holidayType}
-            </p>
-            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Branch:</strong> {selectedHoliday.branchDisplay}
-            </p>
-            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Recurring:</strong> {selectedHoliday.recurring ? 'Yes' : 'No'}
-            </p>
-            {!selectedHoliday.recurring && (
-              <p style={{ fontFamily: 'Poppins, sans-serif' }}>
-                <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Fixed Year:</strong> {selectedHoliday.fixedYear}
+          {modalType === 'View' && selectedHoliday && (
+            <div>
+              <p>
+                <strong>Description:</strong> {selectedHoliday.description}
               </p>
-            )}
-          </div>
-        )}
+              <p>
+                <strong>Date:</strong> {selectedHoliday.date}
+              </p>
+              <p>
+                <strong>Holiday Type:</strong> {selectedHoliday.holidayType}
+              </p>
+              <p>
+                <strong>Branch:</strong> {selectedHoliday.branchDisplay}
+              </p>
+              <p>
+                <strong>Recurring:</strong> {selectedHoliday.recurring ? 'Yes' : 'No'}
+              </p>
+              {!selectedHoliday.recurring && (
+                <p>
+                  <strong>Fixed Year:</strong> {selectedHoliday.fixedYear}
+                </p>
+              )}
+            </div>
+          )}
 
-        {modalType === 'Delete' && selectedHoliday && (
-          <div style={{ fontFamily: 'Poppins, sans-serif', textAlign: 'center' }}>
-            <p style={{ fontSize: '18px', fontWeight: 'bold', color: '#ff4d4f', fontFamily: 'Poppins, sans-serif' }}>
-              ⚠️ Are you sure you want to delete this holiday record?
-            </p>
-            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
-              This action <strong style={{ fontFamily: 'Poppins, sans-serif' }}>cannot be undone</strong>. The holiday record for "<strong style={{ fontFamily: 'Poppins, sans-serif' }}>{selectedHoliday.description}</strong>" will be permanently removed.
-            </p>
-          </div>
-        )}
-      </Modal>
-    </div>
+          {modalType === 'Delete' && selectedHoliday && (
+            <div style={{ textAlign: 'center' }}>
+              <p style={{ fontSize: '18px', fontWeight: 'bold', color: '#ff4d4f' }}>
+                ⚠️ Are you sure you want to delete this holiday record?
+              </p>
+              <p>
+                This action <strong>cannot be undone</strong>. The holiday record for "<strong>{selectedHoliday.description}</strong>" will be permanently removed.
+              </p>
+            </div>
+          )}
+        </Modal>
+      </div>
+    </ConfigProvider>
   );
 };
 

@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Space, Table, Button, Input, Modal, Form, message, Select, Tag, Radio, Typography, Pagination } from 'antd';
+import { Space, Table, Button, Input, Modal, Form, message, Select, Tag, Radio, Typography, Pagination, Tooltip } from 'antd';
 import { EyeOutlined, EditOutlined, DeleteOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons';
 
 const { Column } = Table;
 const { Option } = Select;
 const { Title } = Typography;
 
-const DeductionsTable = () => {
+const ContributionsTable = () => {
   const [searchText, setSearchText] = useState('');
   const [selectedBranch, setSelectedBranch] = useState('all');
   const [filteredData, setFilteredData] = useState([]);
@@ -24,7 +24,6 @@ const DeductionsTable = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [paginationTotal, setPaginationTotal] = useState(0);
-  const [filteredPaginationTotal, setFilteredPaginationTotal] = useState(0);
 
   const API_BASE_URL = "http://localhost/UserTableDB/UserDB";
   const userId = localStorage.getItem('userId');
@@ -34,8 +33,8 @@ const DeductionsTable = () => {
     try {
       if (!userId || !role) throw new Error('Missing userId or role');
       const [employeesRes, branchesRes, assignedBranchesRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/fetch_deductions.php?type=employees&user_id=${userId}&role=${encodeURIComponent(role)}`),
-        fetch(`${API_BASE_URL}/fetch_deductions.php?type=branches`),
+        fetch(`${API_BASE_URL}/fetch_contribution.php?type=employees&user_id=${userId}&role=${encodeURIComponent(role)}`),
+        fetch(`${API_BASE_URL}/fetch_contribution.php?type=branches`),
         fetch(`${API_BASE_URL}/fetch_branches.php?user_id=${userId}&role=${encodeURIComponent(role)}`)
       ]);
 
@@ -61,37 +60,40 @@ const DeductionsTable = () => {
   const fetchData = async () => {
     try {
       if (!userId || !role) {
-        message.error('Please log in to view deductions');
+        message.error('Please log in to view contributions');
         return;
       }
 
-      let url = `${API_BASE_URL}/fetch_deductions.php?user_id=${userId}&role=${encodeURIComponent(role)}&page=${currentPage - 1}&limit=${pageSize}`;
+      let url = `${API_BASE_URL}/fetch_contribution.php?user_id=${userId}&role=${encodeURIComponent(role)}&page=${currentPage - 1}&limit=${pageSize}`;
       if (selectedBranch !== 'all') {
         url += `&branch_id=${selectedBranch}`;
+      }
+      if (searchText.trim()) {
+        url += `&search=${encodeURIComponent(searchText.trim())}`;
       }
       const res = await fetch(url);
       if (!res.ok) {
         const errorText = await res.text();
-        throw new Error(`Deductions fetch failed: ${res.statusText} - ${errorText}`);
+        throw new Error(`Contributions fetch failed: ${res.statusText} - ${errorText}`);
       }
       const response = await res.json();
 
-      if (!response.success) throw new Error(response.error || 'Failed to fetch deductions');
+      if (!response.success) throw new Error(response.error || 'Failed to fetch contributions');
 
-      const mappedRawData = response.data.map(deduction => ({
-        key: deduction.DeductionID,
-        employeeId: deduction.EmployeeID,
-        employeeName: deduction.EmployeeName,
-        branchId: deduction.BranchID,
-        branchName: deduction.BranchName,
-        deductionType: deduction.DeductionType,
-        amount: parseFloat(deduction.Amount).toFixed(2),
+      const mappedRawData = response.data.map(contribution => ({
+        key: contribution.ContributionID,
+        employeeId: contribution.EmployeeID,
+        employeeName: contribution.EmployeeName,
+        branchId: contribution.BranchID,
+        branchName: contribution.BranchName,
+        contributionType: contribution.ContributionType,
+        amount: parseFloat(contribution.Amount).toFixed(2),
       }));
       setRawData(mappedRawData);
 
       const groupedData = Object.values(
-        response.data.reduce((acc, deduction) => {
-          const { EmployeeID, EmployeeName, BranchID, BranchName, DeductionID, DeductionType, Amount } = deduction;
+        response.data.reduce((acc, contribution) => {
+          const { EmployeeID, EmployeeName, BranchID, BranchName, ContributionID, ContributionType, Amount } = contribution;
           if (!acc[EmployeeID]) {
             acc[EmployeeID] = {
               key: EmployeeID,
@@ -99,13 +101,13 @@ const DeductionsTable = () => {
               employeeName: EmployeeName,
               branchId: BranchID,
               branchName: BranchName,
-              deductions: [],
+              contributions: [],
               totalAmount: 0,
             };
           }
-          acc[EmployeeID].deductions.push({
-            deductionId: DeductionID,
-            type: DeductionType,
+          acc[EmployeeID].contributions.push({
+            contributionId: ContributionID,
+            type: ContributionType,
             amount: parseFloat(Amount).toFixed(2),
           });
           acc[EmployeeID].totalAmount += parseFloat(Amount);
@@ -113,20 +115,26 @@ const DeductionsTable = () => {
         }, {})
       );
 
+      // Verify all employees have complete contributions
+      const employeeIds = [...new Set(response.data.map(d => d.EmployeeID))];
+      console.log(`Fetched ${groupedData.length} employees for page ${currentPage}, expected up to ${pageSize}`);
+      if (groupedData.length !== employeeIds.length) {
+        console.warn("Incomplete employee data: some contributions may be missing.");
+      }
+
       setOriginalData(groupedData);
       setFilteredData(groupedData);
       setPaginationTotal(response.total);
-      setFilteredPaginationTotal(groupedData.length);
     } catch (err) {
-      console.error("Fetch Deductions Error:", err.message);
-      message.error(`Failed to load deductions data: ${err.message}`);
+      console.error("Fetch Contributions Error:", err.message);
+      message.error(`Failed to load contributions data: ${err.message}`);
     }
   };
 
   useEffect(() => {
     fetchDropdownData();
     fetchData();
-  }, [currentPage, pageSize, selectedBranch]);
+  }, [currentPage, pageSize, selectedBranch, searchText]);
 
   useEffect(() => {
     const handleResize = () => setScreenWidth(window.innerWidth);
@@ -135,21 +143,6 @@ const DeductionsTable = () => {
   }, []);
 
   const handleSearch = (value) => {
-    const lowerValue = value.toLowerCase().trim();
-    let filtered = originalData;
-    if (selectedBranch !== 'all') {
-      filtered = filtered.filter(item => item.branchId === selectedBranch);
-    }
-    if (lowerValue) {
-      filtered = filtered.filter(item =>
-        item.employeeId.toString().toLowerCase().includes(lowerValue) ||
-        item.employeeName.toLowerCase().includes(lowerValue) ||
-        item.branchName.toLowerCase().includes(lowerValue) ||
-        item.deductions.some(d => d.type.toLowerCase().includes(lowerValue))
-      );
-    }
-    setFilteredData(filtered);
-    setFilteredPaginationTotal(filtered.length);
     setSearchText(value);
     setCurrentPage(1);
   };
@@ -173,9 +166,9 @@ const DeductionsTable = () => {
     setDeleteOption('all');
     if (type === "Edit" && record) {
       form.setFieldsValue({
-        deductions: record.deductions.map(d => ({
-          deductionId: d.deductionId,
-          deductionType: d.type,
+        contributions: record.contributions.map(d => ({
+          contributionId: d.contributionId,
+          contributionType: d.type,
           amount: d.amount,
         })),
       });
@@ -197,12 +190,12 @@ const DeductionsTable = () => {
           const payload = {
             EmployeeID: values.employeeId,
             BranchID: values.branchId,
-            DeductionType: values.deductionType,
+            ContributionType: values.contributionType,
             Amount: parseFloat(values.amount).toFixed(2),
             user_id: userId,
           };
 
-          return fetch(`${API_BASE_URL}/fetch_deductions.php`, {
+          return fetch(`${API_BASE_URL}/fetch_contribution.php`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
@@ -213,36 +206,36 @@ const DeductionsTable = () => {
             })
             .then((data) => {
               if (data.success) {
-                message.success("Deduction added successfully!");
+                message.success("Contribution added successfully!");
                 setIsModalOpen(false);
                 form.resetFields();
                 fetchData();
               } else if (data.warning) {
                 message.warning(data.warning);
               } else {
-                throw new Error(data.error || "Failed to add deduction");
+                throw new Error(data.error || "Failed to add contribution");
               }
             })
             .catch((err) => {
-              message.error(`Failed to add deduction: ${err.message || 'Please ensure all required fields are completed correctly.'}`);
+              message.error(`Failed to add contribution: ${err.message || 'Please ensure all required fields are completed correctly.'}`);
             });
         })
         .catch((err) => {
-          message.error(`Failed to add deduction: ${err.message || 'Please ensure all required fields are completed correctly.'}`);
+          message.error(`Failed to add contribution: ${err.message || 'Please ensure all required fields are completed correctly.'}`);
         });
     } else if (modalType === "Edit" && selectedEmployee) {
       form.validateFields()
         .then((values) => {
-          const payloads = values.deductions.map(deduction => ({
-            DeductionID: deduction.deductionId,
+          const payloads = values.contributions.map(contribution => ({
+            ContributionID: contribution.contributionId,
             EmployeeID: selectedEmployee.employeeId,
-            DeductionType: deduction.deductionType,
-            Amount: parseFloat(deduction.amount).toFixed(2),
+            ContributionType: contribution.contributionType,
+            Amount: parseFloat(contribution.amount).toFixed(2),
             user_id: userId,
           }));
 
           const updatePromises = payloads.map(payload =>
-            fetch(`${API_BASE_URL}/fetch_deductions.php`, {
+            fetch(`${API_BASE_URL}/fetch_contribution.php`, {
               method: "PUT",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(payload),
@@ -255,27 +248,27 @@ const DeductionsTable = () => {
           return Promise.all(updatePromises)
             .then((results) => {
               if (results.every(result => result.success)) {
-                message.success("Deductions updated successfully!");
+                message.success("Contributions updated successfully!");
                 setIsModalOpen(false);
                 form.resetFields();
                 fetchData();
               } else {
-                throw new Error("Failed to update some deductions");
+                throw new Error("Failed to update some contributions");
               }
             });
         })
         .catch((err) => {
-          message.error(`Failed to update deductions: ${err.message || 'Validation failed'}`);
+          message.error(`Failed to update contributions: ${err.message || 'Validation failed'}`);
         });
     } else if (modalType === "Delete" && selectedEmployee) {
       try {
         let deletePromises;
         if (deleteOption === 'all') {
-          deletePromises = selectedEmployee.deductions.map(deduction =>
-            fetch(`${API_BASE_URL}/fetch_deductions.php`, {
+          deletePromises = selectedEmployee.contributions.map(contribution =>
+            fetch(`${API_BASE_URL}/fetch_contribution.php`, {
               method: "DELETE",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ DeductionID: deduction.deductionId, user_id: userId }),
+              body: JSON.stringify({ ContributionID: contribution.contributionId, user_id: userId }),
             }).then(res => {
               if (!res.ok) throw new Error(`Delete failed: ${res.statusText}`);
               return res.json();
@@ -283,10 +276,10 @@ const DeductionsTable = () => {
           );
         } else {
           deletePromises = [
-            fetch(`${API_BASE_URL}/fetch_deductions.php`, {
+            fetch(`${API_BASE_URL}/fetch_contribution.php`, {
               method: "DELETE",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ DeductionID: deleteOption, user_id: userId }),
+              body: JSON.stringify({ ContributionID: deleteOption, user_id: userId }),
             }).then(res => {
               if (!res.ok) throw new Error(`Delete failed: ${res.statusText}`);
               return res.json();
@@ -297,15 +290,15 @@ const DeductionsTable = () => {
         const results = await Promise.all(deletePromises);
 
         if (results.every(result => result.success)) {
-          message.success(`Deduction${deleteOption === 'all' ? 's' : ''} deleted successfully!`);
+          message.success(`Contribution${deleteOption === 'all' ? 's' : ''} deleted successfully!`);
           setIsModalOpen(false);
           fetchData();
         } else {
-          throw new Error("Failed to delete some deductions");
+          throw new Error("Failed to delete some contributions");
         }
       } catch (err) {
         console.error("Delete Error:", err.message);
-        message.error(`Failed to delete deductions: ${err.message}`);
+        message.error(`Failed to delete contributions: ${err.message}`);
       }
     }
   };
@@ -319,7 +312,7 @@ const DeductionsTable = () => {
     return parseFloat(number).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
-  const getDeductionLabel = (type) => {
+  const getContributionLabel = (type) => {
     switch (type) {
       case 'Pag-Ibig':
         return 'Pag-Ibig Contribution';
@@ -346,7 +339,7 @@ const DeductionsTable = () => {
   return (
     <div className="fade-in" style={{ padding: '20px' }}>
       <Title level={2} style={{ fontFamily: 'Poppins, sans-serif', marginBottom: '20px' }}>
-        Deductions
+        Contributions
       </Title>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
@@ -371,10 +364,10 @@ const DeductionsTable = () => {
             style={{ backgroundColor: '#2C3743', borderColor: '#2C3743', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
             onClick={() => openModal('Add')}
           >
-            {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Add Deduction</span>}
+            {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Add Contribution</span>}
           </Button>
           <Input
-            placeholder="Search by any field (e.g., name, type, branch)"
+            placeholder="Search by name or contribution type"
             allowClear
             value={searchText}
             onChange={(e) => handleSearch(e.target.value)}
@@ -413,14 +406,14 @@ const DeductionsTable = () => {
           render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
         />
         <Column
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Deductions</span>}
-          dataIndex="deductions"
-          key="deductions"
-          render={(deductions) => (
+          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Contributions</span>}
+          dataIndex="contributions"
+          key="contributions"
+          render={(contributions) => (
             <Space wrap>
-              {deductions.map((deduction) => (
-                <Tag key={deduction.deductionId} color="blue" style={{ fontFamily: 'Poppins, sans-serif' }}>
-                  {deduction.type}: ₱{formatNumberWithCommas(deduction.amount)}
+              {contributions.map((contribution) => (
+                <Tag key={contribution.contributionId} color="blue" style={{ fontFamily: 'Poppins, sans-serif' }}>
+                  {contribution.type}: ₱{formatNumberWithCommas(contribution.amount)}
                 </Tag>
               ))}
             </Space>
@@ -434,34 +427,52 @@ const DeductionsTable = () => {
           render={(totalAmount) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>₱{formatNumberWithCommas(totalAmount)}</span>}
         />
         <Column
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Action</span>}
-          key="action"
-          render={(_, record) => (
-            <Space size="middle" wrap>
-              <Button 
-                icon={<EyeOutlined />} 
-                size="middle" 
-                style={{ backgroundColor: '#52c41a', borderColor: '#52c41a', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
-                onClick={() => openModal('View', record)}
-              >
-                {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>View</span>}
-              </Button>
-              <Button 
-                icon={<EditOutlined />} 
-                size="middle" 
-                style={{ backgroundColor: '#722ed1', borderColor: '#722ed1', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
-                onClick={() => openModal('Edit', record)}
-              >
-                {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Edit</span>}
-              </Button>
-              <Button 
-                icon={<DeleteOutlined />} 
-                size="middle" 
-                style={{ backgroundColor: '#ff4d4f', borderColor: '#ff4d4f', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
-                onClick={() => openModal('Delete', record)}
-              >
-                {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Delete</span>}
-              </Button>
+            title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Action</span>}
+            key="action"
+            render={(_, record) => (
+              <Space size={7} wrap>
+                <Tooltip title="View">
+                  <Button
+                    icon={<EyeOutlined />}
+                    size="middle"
+                    style={{
+                      width: '40px',
+                      backgroundColor: '#52c41a',
+                      borderColor: '#52c41a',
+                      color: 'white',
+                      fontFamily: 'Poppins, sans-serif'
+                    }}
+                    onClick={() => openModal('View', record)}
+                  />
+                </Tooltip>
+                <Tooltip title="Edit">
+                  <Button
+                    icon={<EditOutlined />}
+                    size="middle"
+                    style={{
+                      width: '40px',
+                      backgroundColor: '#722ed1',
+                      borderColor: '#722ed1',
+                      color: 'white',
+                      fontFamily: 'Poppins, sans-serif'
+                    }}
+                    onClick={() => openModal('Edit', record)}
+                  />
+                </Tooltip>
+                <Tooltip title="Delete">
+                  <Button
+                    icon={<DeleteOutlined />}
+                    size="middle"
+                    style={{
+                      width: '40px',
+                      backgroundColor: '#ff4d4f',
+                      borderColor: '#ff4d4f',
+                      color: 'white',
+                      fontFamily: 'Poppins, sans-serif'
+                    }}
+                    onClick={() => openModal('Delete', record)}
+                  />
+                </Tooltip>
             </Space>
           )}
         />
@@ -470,12 +481,12 @@ const DeductionsTable = () => {
       <Pagination
         current={currentPage}
         pageSize={pageSize}
-        total={searchText.trim() || selectedBranch !== 'all' ? filteredPaginationTotal : paginationTotal}
+        total={paginationTotal}
         onChange={handlePageChange}
         onShowSizeChange={handlePageChange}
         showSizeChanger
         showQuickJumper={{ goButton: false }}
-        showTotal={(total) => `Total ${total} deduction records`}
+        showTotal={(total) => `Total ${total} employee records`}
         pageSizeOptions={['10', '20', '50', '100']}
         style={{ marginTop: 16, textAlign: 'center', fontFamily: 'Poppins, sans-serif', justifyContent: 'center' }}
       />
@@ -484,10 +495,10 @@ const DeductionsTable = () => {
         title={
           <div style={{ textAlign: 'center' }}>
             <span style={{ fontSize: '22px', fontWeight: 'bold', fontFamily: 'Poppins, sans-serif' }}>
-              {modalType === 'Add' ? 'Add New Deduction Details' : 
-               modalType === 'Edit' ? 'Edit Deduction Details' : 
-               modalType === 'View' ? 'View Deduction Details' : 
-               'Confirm Deductions Deletion'}
+              {modalType === 'Add' ? 'Add New Contribution Details' : 
+               modalType === 'Edit' ? 'Edit Contribution Details' : 
+               modalType === 'View' ? 'View Contribution Details' : 
+               'Confirm Contributions Deletion'}
             </span>
           </div>
         }
@@ -525,11 +536,11 @@ const DeductionsTable = () => {
               </Select>
             </Form.Item>
             <Form.Item 
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Deduction Type<span style={{ color: 'red' }}>*</span></span>} 
-              name="deductionType" 
-              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select a deduction type!</span> }]}
+              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Contribution Type<span style={{ color: 'red' }}>*</span></span>} 
+              name="contributionType" 
+              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select a contribution type!</span> }]}
             >
-              <Select placeholder="Select deduction type" style={{ fontFamily: 'Poppins, sans-serif' }}>
+              <Select placeholder="Select contribution type" style={{ fontFamily: 'Poppins, sans-serif' }}>
                 <Option value="Pag-Ibig" style={{ fontFamily: 'Poppins, sans-serif' }}>Pag-Ibig</Option>
                 <Option value="SSS" style={{ fontFamily: 'Poppins, sans-serif' }}>SSS</Option>
                 <Option value="PhilHealth" style={{ fontFamily: 'Poppins, sans-serif' }}>PhilHealth</Option>
@@ -550,17 +561,17 @@ const DeductionsTable = () => {
 
         {modalType === 'Edit' && selectedEmployee && (
           <Form form={form} layout="vertical" style={{ fontFamily: 'Poppins, sans-serif' }}>
-            <Form.List name="deductions">
+            <Form.List name="contributions">
               {(fields) => (
                 <>
                   {fields.map((field, index) => (
                     <div key={field.key} style={{ marginBottom: 16 }}>
                       <Form.Item
-                        label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>{getDeductionLabel(selectedEmployee.deductions[index]?.type)}<span style={{ color: 'red' }}>*</span></span>}
-                        name={[field.name, 'deductionType']}
-                        rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select a deduction type!</span> }]}
+                        label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>{getContributionLabel(selectedEmployee.contributions[index]?.type)}<span style={{ color: 'red' }}>*</span></span>}
+                        name={[field.name, 'contributionType']}
+                        rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select a contribution type!</span> }]}
                       >
-                        <Select placeholder="Select deduction type" disabled style={{ fontFamily: 'Poppins, sans-serif' }}>
+                        <Select placeholder="Select contribution type" disabled style={{ fontFamily: 'Poppins, sans-serif' }}>
                           <Option value="Pag-Ibig" style={{ fontFamily: 'Poppins, sans-serif' }}>Pag-Ibig</Option>
                           <Option value="SSS" style={{ fontFamily: 'Poppins, sans-serif' }}>SSS</Option>
                           <Option value="PhilHealth" style={{ fontFamily: 'Poppins, sans-serif' }}>PhilHealth</Option>
@@ -576,7 +587,7 @@ const DeductionsTable = () => {
                       >
                         <Input type="number" step="0.01" min="0" style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }} />
                       </Form.Item>
-                      <Form.Item name={[field.name, 'deductionId']} hidden>
+                      <Form.Item name={[field.name, 'contributionId']} hidden>
                         <Input type="hidden" />
                       </Form.Item>
                     </div>
@@ -589,13 +600,16 @@ const DeductionsTable = () => {
 
         {modalType === 'View' && selectedEmployee && (
           <div style={{ fontFamily: 'Poppins, sans-serif' }}>
-            <p style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: 30, fontFamily: 'Poppins, sans-serif' }}>
-              Deductions for {selectedEmployee.employeeName} ({selectedEmployee.branchName})
+            <p style={{ fontSize: '14px', fontFamily: 'Poppins, sans-serif' }}>
+              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Employee Name:</strong> {selectedEmployee.employeeName}
             </p>
-            {selectedEmployee.deductions.map((deduction) => (
-              <div key={deduction.deductionId} style={{ marginBottom: 8, fontFamily: 'Poppins, sans-serif' }}>
+            <p style={{ fontSize: '14px', fontFamily: 'Poppins, sans-serif' }}>
+              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Branch:</strong> {selectedEmployee.branchName}
+            </p>
+            {selectedEmployee.contributions.map((contribution) => (
+              <div key={contribution.contributionId} style={{ marginBottom: 8, fontFamily: 'Poppins, sans-serif' }}>
                 <p style={{ fontFamily: 'Poppins, sans-serif' }}>
-                  <strong style={{ fontFamily: 'Poppins, sans-serif' }}>{getDeductionLabel(deduction.type)}:</strong> ₱{formatNumberWithCommas(deduction.amount)}
+                  <strong style={{ fontFamily: 'Poppins, sans-serif' }}>{getContributionLabel(contribution.type)}:</strong> ₱{formatNumberWithCommas(contribution.amount)}
                 </p>
               </div>
             ))}
@@ -608,18 +622,18 @@ const DeductionsTable = () => {
         {modalType === 'Delete' && selectedEmployee && (
           <div style={{ fontFamily: 'Poppins, sans-serif' }}>
             <p style={{ fontSize: '17px', fontWeight: 'bold', color: '#ff4d4f', marginBottom: 16, fontFamily: 'Poppins, sans-serif', textAlign: 'center' }}>
-              ⚠️ Select what to delete a deduction record for {selectedEmployee.employeeName}:
+              ⚠️ Select what to delete a contribution record for {selectedEmployee.employeeName}:
             </p>
-            <p style={{ fontFamily: 'Poppins, sans-serif', textAlign: 'center', marginBottom: 16 }}>This action <strong>cannot be undone</strong>. The deduction record assigned to employee "<strong>{selectedEmployee.employeeName}</strong>" will be permanently removed.</p>
+            <p style={{ fontFamily: 'Poppins, sans-serif', textAlign: 'center', marginBottom: 16 }}>This action <strong>cannot be undone</strong>. The contribution record assigned to employee "<strong>{selectedEmployee.employeeName}</strong>" will be permanently removed.</p>
             <Radio.Group
               onChange={(e) => setDeleteOption(e.target.value)}
               value={deleteOption}
               style={{ display: 'flex', flexDirection: 'column', gap: 8, fontFamily: 'Poppins, sans-serif' }}
             >
-              <Radio value="all" style={{ fontFamily: 'Poppins, sans-serif' }}>Delete all deductions</Radio>
-              {selectedEmployee.deductions.map((deduction) => (
-                <Radio key={deduction.deductionId} value={deduction.deductionId} style={{ fontFamily: 'Poppins, sans-serif' }}>
-                  Delete {getDeductionLabel(deduction.type)} (₱{formatNumberWithCommas(deduction.amount)})
+              <Radio value="all" style={{ fontFamily: 'Poppins, sans-serif' }}>Delete all contributions</Radio>
+              {selectedEmployee.contributions.map((contribution) => (
+                <Radio key={contribution.contributionId} value={contribution.contributionId} style={{ fontFamily: 'Poppins, sans-serif' }}>
+                  Delete {getContributionLabel(contribution.type)} (₱{formatNumberWithCommas(contribution.amount)})
                 </Radio>
               ))}
             </Radio.Group>
@@ -630,4 +644,4 @@ const DeductionsTable = () => {
   );
 };
 
-export default DeductionsTable;
+export default ContributionsTable;

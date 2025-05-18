@@ -254,6 +254,8 @@ try {
             $page = isset($_GET['page']) ? (int)$_GET['page'] : 0;
             $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 10;
             $branch_id = isset($_GET['branch_id']) ? (int)$_GET['branch_id'] : null;
+            $start_date = isset($_GET['start_date']) ? $_GET['start_date'] : null;
+            $end_date = isset($_GET['end_date']) ? $_GET['end_date'] : null;
 
             if (!$user_id || !$role) {
                 throw new Exception("user_id and role are required for cash advance fetch.");
@@ -312,6 +314,14 @@ try {
                     $types .= "i";
                     $params[] = $branch_id;
                 }
+
+                if ($start_date && $end_date) {
+                    $sql .= " AND ca.Date BETWEEN ? AND ?";
+                    $countSql .= " AND ca.Date BETWEEN ? AND ?";
+                    $types .= "ss";
+                    $params[] = $start_date;
+                    $params[] = $end_date;
+                }
             } else {
                 $sql = "SELECT 
                             ca.CashAdvanceID,
@@ -329,11 +339,30 @@ try {
                 $types = "";
                 $params = [];
 
-                if ($branch_id !== null) {
-                    $sql .= " WHERE ca.BranchID = ?";
-                    $countSql .= " WHERE ca.BranchID = ?";
-                    $types .= "i";
-                    $params[] = $branch_id;
+                if ($branch_id !== null || ($start_date && $end_date)) {
+                    $sql .= " WHERE";
+                    $countSql .= " WHERE";
+                    $firstCondition = true;
+
+                    if ($branch_id !== null) {
+                        $sql .= " ca.BranchID = ?";
+                        $countSql .= " ca.BranchID = ?";
+                        $types .= "i";
+                        $params[] = $branch_id;
+                        $firstCondition = false;
+                    }
+
+                    if ($start_date && $end_date) {
+                        if (!$firstCondition) {
+                            $sql .= " AND";
+                            $countSql .= " AND";
+                        }
+                        $sql .= " ca.Date BETWEEN ? AND ?";
+                        $countSql .= " ca.Date BETWEEN ? AND ?";
+                        $types .= "ss";
+                        $params[] = $start_date;
+                        $params[] = $end_date;
+                    }
                 }
             }
 
@@ -354,7 +383,13 @@ try {
                 $countParams = array_slice($params, 0, -2);
                 if ($countTypes) {
                     $countStmt->bind_param($countTypes, ...$countParams);
+                } else {
+                    // If no parameters for count query, execute without binding
+                    $countStmt->execute();
                 }
+            } else {
+                $stmt->execute();
+                $countStmt->execute();
             }
 
             $countStmt->execute();

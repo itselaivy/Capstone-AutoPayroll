@@ -13,7 +13,8 @@ import Overtime from '../pages/User/Overtime';
 import CashAdvance from '../pages/User/CashAdvance';
 import Schedules from '../pages/User/Schedules';
 import Allowances from '../pages/User/Allowances';
-import Deductions from '../pages/User/Deductions';
+import Contributions from '../pages/User/Contributions';
+import Loan from '../pages/User/Loan';
 import Position from '../pages/User/Position';
 import HolidayType from '../pages/User/HolidayType';
 import LeaveType from '../pages/User/LeaveType';
@@ -91,7 +92,8 @@ const UserMainLayout = () => {
             <Route path="/cash-advance" element={<CashAdvance />} />
             <Route path="/schedules" element={<Schedules />} />
             <Route path="/allowances" element={<Allowances />} />
-            <Route path="/deduction" element={<Deductions />} />
+            <Route path="/contributions" element={<Contributions />} />
+            <Route path="/loan" element={<Loan />} />
             <Route path="/position" element={<Position />} />
             <Route path="/holidaytype" element={<HolidayType />} />
             <Route path="/leavetype" element={<LeaveType />} />

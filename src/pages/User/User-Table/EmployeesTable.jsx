@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Modal, Space, Table, Button, Input, Form, message, Select, Typography, Pagination, DatePicker, Tooltip } from 'antd';
+import { ConfigProvider, Modal, Space, Table, Button, Input, Form, message, Select, Typography, Pagination, DatePicker, Tooltip } from 'antd';
 import { EyeOutlined, EditOutlined, DeleteOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import moment from 'moment';
 import './UserTable.css';
@@ -18,6 +18,7 @@ const EmployeesTable = () => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [modalType, setModalType] = useState('');
     const [selectedEmployee, setSelectedEmployee] = useState(null);
+    const [dateRange, setDateRange] = useState([null, null]);
     const [form] = Form.useForm();
     const [branches, setBranches] = useState([]);
     const [positions, setPositions] = useState([]);
@@ -28,10 +29,11 @@ const EmployeesTable = () => {
     const [pageSize, setPageSize] = useState(10);
     const [paginationTotal, setPaginationTotal] = useState(0);
     const [allowances, setAllowances] = useState([]);
-    const [deductions, setDeductions] = useState([]);
+    const [contributions, setContributions] = useState([]);
     const [paymentHistory, setPaymentHistory] = useState([]);
     const [ratePerHour, setRatePerHour] = useState(null);
     const [cashAdvances, setCashAdvances] = useState([]);
+    const [loans, setLoans] = useState([]);
 
     const API_BASE_URL = "http://localhost/UserTableDB/UserDB";
     const userId = localStorage.getItem('userId');
@@ -172,17 +174,31 @@ const EmployeesTable = () => {
             
             if (searchText) {
                 url += `&search=${encodeURIComponent(searchText)}`;
+                console.log('Search Parameter:', searchText);
             }
             
-            if (selectedBranch) {
+            if (selectedBranch && branches.some(b => b.BranchID === selectedBranch)) {
                 url += `&branch=${encodeURIComponent(selectedBranch)}`;
+                console.log('Branch Parameter:', selectedBranch);
             }
             
-            if (selectedPosition) {
+            if (selectedPosition && Number.isInteger(selectedPosition) && selectedPosition > 0) {
                 url += `&position=${encodeURIComponent(selectedPosition)}`;
+                console.log('Position Parameter:', selectedPosition);
             }
 
-            console.log('Fetching URL:', url);
+            if (dateRange[0] && dateRange[1]) {
+                const startDate = moment(dateRange[0]).isValid() ? dateRange[0].format('YYYY-MM-DD') : null;
+                const endDate = moment(dateRange[1]).isValid() ? dateRange[1].format('YYYY-MM-DD') : null;
+                if (startDate && endDate) {
+                    url += `&start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`;
+                    console.log('Date Range Parameters:', { startDate, endDate });
+                } else {
+                    console.warn('Invalid date range selected:', { startDate, endDate });
+                }
+            }
+
+            console.log('Fetching Employees URL:', url);
             const res = await fetch(url);
             
             if (!res.ok) {
@@ -190,7 +206,8 @@ const EmployeesTable = () => {
             }
             
             const response = await res.json();
-            console.log("Fetch Employees Response:", response);
+            console.log('Fetch Employees Response:', response);
+            console.log('Response Employees Count:', response.employees ? response.employees.length : 0);
 
             if (!response.success) {
                 throw new Error(response.error || 'Failed to fetch employees');
@@ -200,25 +217,29 @@ const EmployeesTable = () => {
                 key: employee.key,
                 "Employee ID": employee.key,
                 "Employee Name": employee.EmployeeName,
-                "Branch Name": employee.BranchName,
-                "Position Title": employee.PositionTitle,
-                "Schedule": employee.Schedule,
+                "Branch Name": employee.BranchName || 'N/A',
+                "Position Title": employee.PositionTitle || 'N/A',
+                "Schedule": employee.Schedule || 'N/A',
                 "Member Since": formatDateToMMDDYYYY(employee.MemberSince),
-                BranchID: Number(employee.BranchID),
-                PositionID: Number(employee.PositionID),
-                ScheduleID: Number(employee.ScheduleID),
+                BranchID: employee.BranchID ? Number(employee.BranchID) : null,
+                PositionID: employee.PositionID ? Number(employee.PositionID) : null,
+                ScheduleID: employee.ScheduleID ? Number(employee.ScheduleID) : null,
                 EmployeeName: employee.EmployeeName,
                 MemberSince: employee.MemberSince
             }));
 
-            console.log("Mapped Data:", mappedData);
+            console.log("Mapped Employee Data:", mappedData);
             
             setData(mappedData);
             setFilteredData(mappedData);
             setPaginationTotal(response.total || 0);
         } catch (err) {
             console.error("Fetch Employees Error:", err.message);
-            message.error(`Failed to load employee data: ${err.message}`);
+            let errorMessage = 'Failed to load employee data. Please try again later.';
+            if (err.message.includes('Internal Server Error')) {
+                errorMessage = 'Server error occurred while fetching employees. Please check the server logs or contact support.';
+            }
+            message.error(errorMessage);
             setData([]);
             setFilteredData([]);
             setPaginationTotal(0);
@@ -243,18 +264,20 @@ const EmployeesTable = () => {
                 throw new Error(response.error || "Failed to fetch data");
             }
             setAllowances(response.allowances || []);
-            setDeductions(response.deductions || []);
+            setContributions(response.contributions || []);
             setPaymentHistory(response.payment_history || []);
             setRatePerHour(response.rate_per_hour || null);
             setCashAdvances(response.cash_advances || []);
+            setLoans(response.loans || []);
         } catch (err) {
             console.error("Fetch Employee Details Error:", err.message);
             message.error("Failed to load employee details.");
             setAllowances([]);
-            setDeductions([]);
+            setContributions([]);
             setPaymentHistory([]);
             setRatePerHour(null);
             setCashAdvances([]);
+            setLoans([]);
         } finally {
             setLoading(false);
         }
@@ -265,8 +288,9 @@ const EmployeesTable = () => {
     }, []);
 
     useEffect(() => {
+        console.log('Triggering fetchData with dependencies:', { currentPage, pageSize, selectedBranch, selectedPosition, searchText, dateRange });
         fetchData();
-    }, [currentPage, pageSize, selectedBranch, selectedPosition, searchText]);
+    }, [currentPage, pageSize, selectedBranch, selectedPosition, searchText, dateRange]);
 
     useEffect(() => {
         const handleResize = () => setScreenWidth(window.innerWidth);
@@ -281,12 +305,14 @@ const EmployeesTable = () => {
     };
 
     const handleBranchChange = (value) => {
-        setSelectedBranch(value === 'all' ? null : Number(value));
+        setSelectedBranch(value === 'all' || value === undefined ? null : Number(value));
         setCurrentPage(1);
     };
 
     const handlePositionChange = (value) => {
-        setSelectedPosition(value === 'all' ? null : Number(value));
+        const newPosition = value === 'all' || value === undefined ? null : Number(value);
+        console.log('Position Changed:', { old: selectedPosition, new: newPosition });
+        setSelectedPosition(newPosition);
         setCurrentPage(1);
     };
 
@@ -306,9 +332,9 @@ const EmployeesTable = () => {
         if (type === 'Edit' && record) {
             form.setFieldsValue({
                 EmployeeName: record["Employee Name"],
-                BranchID: String(record.BranchID),
-                PositionID: String(record.PositionID),
-                ScheduleID: String(record.ScheduleID),
+                BranchID: record.BranchID ? String(record.BranchID) : null,
+                PositionID: record.PositionID ? String(record.PositionID) : null,
+                ScheduleID: record.ScheduleID ? String(record.ScheduleID) : null,
                 MemberSince: record["Member Since"] ? moment(record["Member Since"], 'MM/DD/YYYY') : null
             });
         } else if (type === 'Add') {
@@ -336,11 +362,11 @@ const EmployeesTable = () => {
                 const values = form.getFieldsValue();
                 console.log("Form Values:", values);
 
-                if (!values.EmployeeName || !values.BranchID || !values.PositionID || !values.ScheduleID || !values.MemberSince) {
-                    throw new Error("All fields are required");
+                if (!values.EmployeeName || !values.ScheduleID || !values.MemberSince) {
+                    throw new Error("Employee Name, Schedule, and Member Since are required");
                 }
 
-                if (role === 'Payroll Staff') {
+                if (role === 'Payroll Staff' && values.BranchID) {
                     const isAuthorizedBranch = assignedBranches.some(ab => String(ab.BranchID) === values.BranchID);
                     if (!isAuthorizedBranch) {
                         throw new Error("You are not authorized to add/edit employees for this branch");
@@ -351,8 +377,8 @@ const EmployeesTable = () => {
 
                 const payload = {
                     EmployeeName: values.EmployeeName,
-                    BranchID: parseInt(values.BranchID),
-                    PositionID: parseInt(values.PositionID),
+                    BranchID: values.BranchID ? parseInt(values.BranchID) : null,
+                    PositionID: values.PositionID ? parseInt(values.PositionID) : null,
                     ScheduleID: parseInt(values.ScheduleID),
                     MemberSince: memberSinceFormatted,
                     role: role
@@ -443,371 +469,438 @@ const EmployeesTable = () => {
         setPaymentHistory([]);
         setRatePerHour(null);
         setCashAdvances([]);
+        setLoans([]);
     };
 
     const showLabels = screenWidth >= 600;
     const branchOptions = role === 'Payroll Staff' ? assignedBranches : branches;
 
     return (
-        <div className="fade-in" style={{ padding: '20px' }}>
-            <Title level={2} style={{ fontFamily: 'Poppins, sans-serif', marginBottom: '20px' }}>
-                Employees
-            </Title>
+        <ConfigProvider theme={{ token: { fontFamily: 'Poppins, sans-serif' } }}>
+            <div className="fade-in" style={{ padding: '20px', fontFamily: 'Poppins, sans-serif' }}>
+                <style>
+                    {`
+                        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
+                        
+                        /* Ensure custom elements use Poppins */
+                        .fade-in, .fade-in * {
+                            font-family: 'Poppins', sans-serif !important;
+                        }
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-                    <Select
-                        value={selectedBranch ? branchOptions.find(b => String(b.BranchID) === String(selectedBranch))?.BranchName : 'all'}
-                        onChange={(value) => setSelectedBranch(value === 'all' ? null : Number(value))}
-                        style={{ width: screenWidth < 480 ? '100%' : '250px', marginTop: screenWidth < 480 ? 10 : 0, fontFamily: 'Poppins, sans-serif' }}
-                        placeholder="Select a Branch"
-                        loading={loading}
-                        disabled={loading}
-                        showSearch={false}
-                        optionFilterProp="children"
-                        filterOption={(input, option) => option.children.toLowerCase().includes(input.toLowerCase())}
-                    >
-                        <Option value="all" style={{ fontFamily: 'Poppins, sans-serif' }}>All Branches</Option>
-                        {branchOptions.map(branch => (
-                            <Option key={branch.BranchID} value={String(branch.BranchID)} style={{ fontFamily: 'Poppins, sans-serif' }}>
-                                {branch.BranchName}
-                            </Option>
-                        ))}
-                    </Select>
-                    <Select
-                        value={selectedPosition ? positions.find(p => String(p.PositionID) === String(selectedPosition))?.PositionTitle : 'all'}
-                        onChange={(value) => setSelectedPosition(value === 'all' ? null : Number(value))}
-                        style={{ width: screenWidth < 480 ? '100%' : '250px', marginTop: screenWidth < 480 ? 10 : 0, fontFamily: 'Poppins, sans-serif' }}
-                        placeholder="Select a Position"
-                        loading={loading}
-                        disabled={loading}
-                        showSearch={false}
-                        optionFilterProp="children"
-                        filterOption={(input, option) => option.children.toLowerCase().includes(input.toLowerCase())}
-                    >
-                        <Option value="all" style={{ fontFamily: 'Poppins, sans-serif' }}>All Positions</Option>
-                        {positions.map(position => (
-                            <Option key={position.PositionID} value={String(position.PositionID)} style={{ fontFamily: 'Poppins, sans-serif' }}>
-                                {position.PositionTitle}
-                            </Option>
-                        ))}
-                    </Select>
+                        @media (max-width: 600px) {
+                            .contributions-loans-container {
+                                flex-direction: column !important;
+                            }
+                            .contributions-loans-section {
+                                width: 100% !important;
+                            }
+                        }
+                    `}
+                </style>
+                <Title level={2} style={{ marginBottom: '20px' }}>
+                    Employees
+                </Title>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+                        <DatePicker.RangePicker
+                            value={dateRange}
+                            onChange={(dates) => {
+                                setDateRange(dates || [null, null]);
+                                setCurrentPage(1);
+                            }}
+                            format="MM/DD/YYYY"
+                            placeholder={['Start Date', 'End Date']}
+                            style={{ width: screenWidth < 480 ? '100%' : '250px', marginTop: screenWidth < 480 ? 10 : 0 }}
+                            allowClear
+                        />
+                        <Select
+                            value={selectedBranch !== null ? String(selectedBranch) : 'all'}
+                            onChange={handleBranchChange}
+                            style={{ width: screenWidth < 480 ? '100%' : '250px', marginTop: screenWidth < 480 ? 10 : 0 }}
+                            placeholder="Select a Branch"
+                            loading={loading}
+                            optionFilterProp="children"
+                            filterOption={(input, option) => option.children.toLowerCase().includes(input.toLowerCase())}
+                            allowClear
+                        >
+                            <Option value="all">All Branches</Option>
+                            {branchOptions.map(branch => (
+                                <Option key={branch.BranchID} value={String(branch.BranchID)}>
+                                    {branch.BranchName}
+                                </Option>
+                            ))}
+                        </Select>
+                        <Select
+                            value={selectedPosition !== null ? String(selectedPosition) : 'all'}
+                            onChange={handlePositionChange}
+                            style={{ width: screenWidth < 480 ? '100%' : '250px', marginTop: screenWidth < 480 ? 10 : 0 }}
+                            placeholder="Select a Position"
+                            loading={loading}
+                            optionFilterProp="children"
+                            filterOption={(input, option) => option.children.toLowerCase().includes(input.toLowerCase())}
+                            allowClear
+                        >
+                            <Option value="all">All Positions</Option>
+                            {positions.map(position => (
+                                <Option key={position.PositionID} value={String(position.PositionID)}>
+                                    {position.PositionTitle}
+                                </Option>
+                            ))}
+                        </Select>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+                        <Button
+                            icon={<PlusOutlined />}
+                            size="middle"
+                            style={{ backgroundColor: '#2C3743', borderColor: '#2C3743', color: 'white' }}
+                            onClick={() => openModal('Add')}
+                        >
+                            {showLabels && 'Add Employee'}
+                        </Button>
+                        <Input
+                            placeholder="Search Employees"
+                            allowClear
+                            value={searchText}
+                            onChange={(e) => handleSearch(e.target.value)}
+                            prefix={<SearchOutlined />}
+                            style={{ width: screenWidth < 480 ? '100%' : '250px', marginTop: screenWidth < 480 ? 10 : 0 }}
+                        />
+                    </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-                    <Button
-                        icon={<PlusOutlined />}
-                        size="middle"
-                        style={{ backgroundColor: '#2C3743', borderColor: '#2C3743', color: 'white', fontFamily: 'Poppins, sans-serif' }}
-                        onClick={() => openModal('Add')}
-                        disabled={loading}
-                    >
-                        {showLabels && 'Add Employee'}
-                    </Button>
-                    <Input
-                        placeholder="Search..."
-                        allowClear
-                        value={searchText}
-                        onChange={(e) => handleSearch(e.target.value)}
-                        prefix={<SearchOutlined />}
-                        style={{ width: screenWidth < 480 ? '100%' : '250px', marginTop: screenWidth < 480 ? 10 : 0, fontFamily: 'Poppins, sans-serif' }}
-                        disabled={loading}
+
+                <Table 
+                    dataSource={filteredData}
+                    bordered
+                    scroll={{ x: true }}
+                    pagination={false}
+                    loading={loading}
+                    locale={{ emptyText: <span>No employees found</span> }}
+                >
+                    <Column 
+                        title="Employee ID"
+                        dataIndex="Employee ID" 
+                        stringency="Employee ID" 
+                        sorter={(a, b) => a["Employee ID"] - b["Employee ID"]}
+                        render={(text) => <span>{text}</span>}
                     />
-                </div>
-            </div>
-
-            <Table 
-                dataSource={filteredData}
-                bordered
-                scroll={{ x: true }}
-                pagination={false}
-                style={{ fontFamily: 'Poppins, sans-serif' }}
-                loading={loading}
-                locale={{ emptyText: <span style={{ fontFamily: 'Poppins, sans-serif' }}>No employees found</span> }}
-            >
-                <Column 
-                    title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Employee ID</span>}
-                    dataIndex="Employee ID" 
-                    key="Employee ID" 
-                    sorter={(a, b) => a["Employee ID"] - b["Employee ID"]}
-                    render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
-                />
-                <Column 
-                    title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Employee Name</span>}
-                    dataIndex="Employee Name" 
-                    key="Employee Name" 
-                    sorter={(a, b) => a["Employee Name"].localeCompare(b["Employee Name"])}
-                    render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
-                />
-                <Column 
-                    title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Branch</span>}
-                    dataIndex="Branch Name" 
-                    key="Branch Name" 
-                    sorter={(a, b) => a["Branch Name"].localeCompare(b["Branch Name"])}
-                    render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
-                />
-                <Column 
-                    title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Company Position</span>} 
-                    dataIndex="Position Title" 
-                    key="Position Title" 
-                    sorter={(a, b) => a["Position Title"].localeCompare(b["Position Title"])}
-                    render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
-                />
-                <Column 
-                    title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Schedule</span>}
-                    dataIndex="Schedule" 
-                    key="Schedule" 
-                    render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
-                />
-                <Column 
-                    title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Member Since</span>} 
-                    dataIndex="Member Since" 
-                    key="Member Since" 
-                    sorter={(a, b) => {
-                        const [aMonth, aDay, aYear] = a["Member Since"].split('/');
-                        const [bMonth, bDay, bYear] = b["Member Since"].split('/');
-                        return new Date(`${aYear}-${aMonth}-${aDay}`) - new Date(`${bYear}-${bMonth}-${bDay}`);
-                    }}
-                    render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
-                />
-                <Column
-                    title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Action</span>}
-                    key="action"
-                    render={(_, record) => (
-                        <Space size="middle">
+                    <Column 
+                        title="Employee Name"
+                        dataIndex="Employee Name" 
+                        key="Employee Name" 
+                        sorter={(a, b) => a["Employee Name"].localeCompare(b["Employee Name"])}
+                        render={(text) => <span>{text}</span>}
+                    />
+                    <Column 
+                        title="Branch"
+                        dataIndex="Branch Name" 
+                        key="Branch Name" 
+                        sorter={(a, b) => (a["Branch Name"] || '').localeCompare(b["Branch Name"] || '')}
+                        render={(text) => <span>{text}</span>}
+                    />
+                    <Column 
+                        title="Company Position" 
+                        dataIndex="Position Title" 
+                        key="Position Title" 
+                        sorter={(a, b) => (a["Position Title"] || '').localeCompare(b["Position Title"] || '')}
+                        render={(text) => <span>{text}</span>}
+                    />
+                    <Column 
+                        title="Schedule"
+                        dataIndex="Schedule" 
+                        key="Schedule" 
+                        sorter={(a, b) => (a["Schedule"] || '').localeCompare(b["Schedule"] || '')}
+                        render={(text) => <span>{text}</span>}
+                    />
+                    <Column 
+                        title="Member Since" 
+                        dataIndex="Member Since" 
+                        key="Member Since" 
+                        sorter={(a, b) => {
+                            const [aMonth, aDay, aYear] = a["Member Since"].split('/');
+                            const [bMonth, bDay, bYear] = b["Member Since"].split('/');
+                            return new Date(`${aYear}-${aMonth}-${aDay}`) - new Date(`${bYear}-${bMonth}-${bDay}`);
+                        }}
+                        render={(text) => <span>{text}</span>}
+                    />
+                    <Column
+                        title="Action"
+                        key="action"
+                        render={(_, record) => (
+                        <Space size={7} wrap>
+                            <Tooltip title="View">
                             <Button
                                 icon={<EyeOutlined />}
-                                size="small"
-                                style={{ backgroundColor: '#52c41a', borderColor: '#52c41a', color: 'white', padding: 15, fontFamily: 'Poppins, sans-serif' }}
+                                size="middle"
+                                style={{
+                                width: '40px',
+                                backgroundColor: '#52c41a',
+                                borderColor: '#52c41a',
+                                color: 'white'
+                                }}
                                 onClick={() => openModal('View', record)}
-                                disabled={loading}
-                            >
-                                View
-                            </Button>
+                            />
+                            </Tooltip>
+                            <Tooltip title="Edit">
                             <Button
                                 icon={<EditOutlined />}
-                                size="small"
-                                style={{ backgroundColor: '#722ed1', borderColor: '#722ed1', color: 'white', padding: 15, fontFamily: 'Poppins, sans-serif' }}
+                                size="middle"
+                                style={{
+                                width: '40px',
+                                backgroundColor: '#722ed1',
+                                borderColor: '#722ed1',
+                                color: 'white'
+                                }}
                                 onClick={() => openModal('Edit', record)}
-                                disabled={loading}
-                            >
-                                Edit
-                            </Button>
+                            />
+                            </Tooltip>
+                            <Tooltip title="Delete">
                             <Button
                                 icon={<DeleteOutlined />}
-                                size="small"
-                                style={{ backgroundColor: '#ff4d4f', borderColor: '#ff4d4f', color: 'white', padding: 15, fontFamily: 'Poppins, sans-serif' }}
+                                size="middle"
+                                style={{
+                                width: '40px',
+                                backgroundColor: '#ff4d4f',
+                                borderColor: '#ff4d4f',
+                                color: 'white'
+                                }}
                                 onClick={() => openModal('Delete', record)}
-                                disabled={loading}
-                            >
-                                Delete
-                            </Button>
-                        </Space>
-                    )}
-                />
-            </Table>
-
-            <div style={{ textAlign: 'center', marginTop: 16, fontFamily: 'Poppins, sans-serif' }}>
-                <Pagination
-                    current={currentPage}
-                    pageSize={pageSize}
-                    total={paginationTotal}
-                    onChange={handlePaginationChange}
-                    onShowSizeChange={handlePaginationChange}
-                    showSizeChanger
-                    showQuickJumper={{ goButton: false }}
-                    showTotal={(total) => `Total ${total} employee records`}
-                    pageSizeOptions={['10', '20', '50', '100']}
-                    style={{ fontFamily: 'Poppins, sans-serif', justifyContent: 'center' }}
-                    disabled={loading}
-                />
-            </div>
-
-            <Modal 
-                title={
-                    <div style={{ textAlign: 'center' }}>
-                        <span style={{ fontSize: '22px', fontWeight: 'bold', fontFamily: 'Poppins, sans-serif' }}>
-                            {modalType === 'Add' ? 'Add New Employee' :
-                             modalType === 'Edit' ? 'Edit Employee Details' :
-                             modalType === 'View' ? 'View Employee Information' :
-                             'Confirm Employee Deletion'}
-                        </span>
-                    </div>
-                }
-                open={isModalOpen}
-                onOk={modalType === 'View' ? handleCancel : handleOk}
-                onCancel={handleCancel}
-                okText={modalType === 'Delete' ? 'Delete' : 'OK'}
-                okButtonProps={{ danger: modalType === 'Delete', style: { fontFamily: 'Poppins, sans-serif' }, disabled: loading }}
-                cancelButtonProps={{ style: { fontFamily: 'Poppins, sans-serif' }, disabled: loading }}
-                width={600}
-                centered
-                styles={{ body: { minHeight: '100px', padding: '20px', margin: 20, fontFamily: 'Poppins, sans-serif' } }}
-            >
-                {(modalType === 'Add' || modalType === 'Edit') && (
-                    <Form form={form} layout="vertical" style={{ fontFamily: 'Poppins, sans-serif' }}>
-                        <Form.Item 
-                            label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Employee Name<span style={{ color: 'red' }}>*</span></span>} 
-                            name="EmployeeName" 
-                            rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please enter Employee Name!</span> }]}
-                        >
-                            <Input placeholder="Enter Employee Name" style={{ fontFamily: 'Poppins, sans-serif' }} disabled={loading} />
-                        </Form.Item>
-                        <Form.Item 
-                            label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Branch<span style={{ color: 'red' }}>*</span></span>}
-                            name="BranchID" 
-                            rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select a Branch!</span> }]}
-                        >
-                            <Select 
-                                placeholder="Select Branch" 
-                                style={{ fontFamily: 'Poppins, sans-serif' }}
-                                loading={loading}
-                                showSearch
-                                optionFilterProp="children"
-                                disabled={loading}
-                            >
-                                {branchOptions.map((branch) => (
-                                    <Option key={branch.BranchID} value={String(branch.BranchID)} style={{ fontFamily: 'Poppins, sans-serif' }}>
-                                        {branch.BranchName}
-                                    </Option>
-                                ))}
-                            </Select>
-                        </Form.Item>
-                        <Form.Item 
-                            label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Company Position<span style={{ color: 'red' }}>*</span></span>}
-                            name="PositionID" 
-                            rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select a company position!</span> }]}
-                        >
-                            <Select 
-                                placeholder="Select Position" 
-                                style={{ fontFamily: 'Poppins, sans-serif' }}
-                                loading={loading}
-                                showSearch
-                                optionFilterProp="children"
-                                disabled={loading}
-                            >
-                                {positions.map((position) => (
-                                    <Option key={position.PositionID} value={String(position.PositionID)} style={{ fontFamily: 'Poppins, sans-serif' }}>
-                                        {position.PositionTitle}
-                                    </Option>
-                                ))}
-                            </Select>
-                        </Form.Item>
-                        <Form.Item 
-                            label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Schedule<span style={{ color: 'red' }}>*</span></span>} 
-                            name="ScheduleID" 
-                            rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select a company schedule!</span> }]}
-                        >
-                            <Select 
-                                placeholder="Select Schedule" 
-                                style={{ fontFamily: 'Poppins, sans-serif' }}
-                                loading={loading}
-                                showSearch
-                                optionFilterProp="children"
-                                disabled={loading}
-                            >
-                                {schedules.map((schedule) => (
-                                    <Option key={schedule.ScheduleID} value={String(schedule.ScheduleID)} style={{ fontFamily: 'Poppins, sans-serif' }}>
-                                        {`${schedule.ShiftStart} - ${schedule.ShiftEnd}`}
-                                    </Option>
-                                ))}
-                            </Select>
-                        </Form.Item>
-                        <Form.Item 
-                            label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Member Since<span style={{ color: 'red' }}>*</span></span>} 
-                            name="MemberSince" 
-                            rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select a joined date!</span> }]}
-                        >
-                            <DatePicker 
-                                format="MM/DD/YYYY"
-                                placeholder="Select Date (MM/DD/YYYY)"
-                                style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }}
-                                disabled={loading}
                             />
-                        </Form.Item>
-                    </Form>
-                )}
+                            </Tooltip>
+                        </Space>
+                        )}
+                    />
+                </Table>
 
-                {modalType === 'View' && selectedEmployee && (
-                    <div style={{ fontFamily: 'Poppins, sans-serif' }}>
-                        <p><strong>Employee Name:</strong> {selectedEmployee["Employee Name"]}</p>
-                        <p><strong>Branch Name:</strong> {selectedEmployee["Branch Name"]}</p>
-                        <p><strong>Position Title:</strong> {selectedEmployee["Position Title"]}</p>
-                        <p><strong>Rate per Hour:</strong> {ratePerHour ? `₱${formatMoney(ratePerHour)}` : 'N/A'}</p>
-                        <p><strong>Schedule:</strong> {selectedEmployee.Schedule}</p>
-                        <p><strong>Member Since:</strong> {selectedEmployee["Member Since"]}</p>
-                        <div>
-                            <strong>Allowances:</strong>
-                            {allowances.length > 0 ? (
-                                <ul>
-                                    {allowances.map((allowance) => (
-                                        <li key={allowance.AllowanceID}>
-                                            {allowance.Description}: ₱{formatMoney(allowance.Amount)} 
-                                        </li>
-                                    ))}
-                                </ul>
-                            ) : (
-                                <p>No allowances assigned.</p>
-                            )}
-                        </div>
-                        <div>
-                            <strong>Deductions:</strong>
-                            {deductions.length > 0 ? (
-                                <ul>
-                                    {deductions.map((deduction) => (
-                                        <li key={deduction.DeductionID}>
-                                            {deduction.DeductionType}: ₱{formatMoney(deduction.Amount)} 
-                                        </li>
-                                    ))}
-                                </ul>
-                            ) : (
-                                <p>No deductions assigned.</p>
-                            )}
-                        </div>
-                        <div style={{ marginTop: '20px' }}>
-                            <strong>Cash Advance Record:</strong>
-                            {cashAdvances.length > 0 ? (
-                                <ul style={{ listStyleType: 'none', padding: 0, marginTop: '10px' }}>
-                                    {cashAdvances.map((cashAdvance) => (
-                                        <li key={cashAdvance.CashAdvanceID} style={{ marginBottom: '8px' }}>
-                                            <strong>Date:</strong> {formatDateToMMDDYYYY(cashAdvance.Date)} | 
-                                            <strong> Amount:</strong> ₱{formatMoney(cashAdvance.Amount)} | 
-                                            <strong> Balance:</strong> ₱{formatMoney(calculateBalance(cashAdvance.Amount, paymentHistory.filter(p => p.cashAdvanceId === cashAdvance.CashAdvanceID)))}
-                                        </li>
-                                    ))}
-                                </ul>
-                            ) : (
-                                <p>No cash advances recorded.</p>
-                            )}
-                        </div>
-                        <div style={{ marginTop: '20px' }}>
-                            <strong>Cash Advance Payment History:</strong>
-                            {paymentHistory.length > 0 ? (
-                                <ul style={{ listStyleType: 'none', padding: 0, marginTop: '10px' }}>
-                                    {paymentHistory.map((payment, index) => (
-                                        <li key={index} style={{ marginBottom: '8px' }}>
-                                            <strong>Date:</strong> {payment.date} | 
-                                            <strong> Amount:</strong> ₱{formatMoney(payment.amount)} | 
-                                            <strong> Paid:</strong> ₱{formatMoney(payment.paid)}
-                                        </li>
-                                    ))}
-                                </ul>
-                            ) : (
-                                <p>No cash advance payments recorded.</p>
-                            )}
-                        </div>
-                    </div>
-                )}
+                <div style={{ textAlign: 'center', marginTop: 16 }}>
+                    <Pagination
+                        current={currentPage}
+                        pageSize={pageSize}
+                        total={paginationTotal}
+                        onChange={handlePaginationChange}
+                        onShowSizeChange={handlePaginationChange}
+                        showSizeChanger
+                        showQuickJumper={{ goButton: false }}
+                        showTotal={(total) => `Total ${total} employee records`}
+                        pageSizeOptions={['10', '20', '50', '100']}
+                        style={{ justifyContent: 'center' }}
+                    />
+                </div>
 
-                {modalType === 'Delete' && selectedEmployee && (
-                    <div style={{ fontFamily: 'Poppins, sans-serif', textAlign: 'center' }}>
-                        <p style={{ fontSize: '18px', fontWeight: 'bold', color: '#ff4d4f' }}>
-                            ⚠️ Are you sure you want to delete this employee?
-                        </p>
-                        <p>This action <strong>cannot be undone</strong>. The employee "<strong>{selectedEmployee["Employee Name"]}</strong>" will be permanently removed including all the records that they have.</p>
-                    </div>
-                )}
-            </Modal>
-        </div>
+                <Modal 
+                    title={
+                        <div style={{ textAlign: 'center' }}>
+                            <span style={{ fontSize: '22px', fontWeight: 'bold' }}>
+                                {modalType === 'Add' ? 'Add New Employee' :
+                                 modalType === 'Edit' ? 'Edit Employee Details' :
+                                 modalType === 'View' ? 'View Employee Information' :
+                                 'Confirm Employee Deletion'}
+                            </span>
+                        </div>
+                    }
+                    open={isModalOpen}
+                    onOk={modalType === 'View' ? handleCancel : handleOk}
+                    onCancel={handleCancel}
+                    okText={modalType === 'Delete' ? 'Delete' : 'OK'}
+                    okButtonProps={{ danger: modalType === 'Delete' }}
+                    width={screenWidth > 480 ? '40%' : '90%'}
+                    centered
+                    styles={{ body: { minHeight: '100px', padding: '20px', margin: 20 } }}
+                >
+                    {(modalType === 'Add' || modalType === 'Edit') && (
+                        <Form form={form} layout="vertical">
+                            <Form.Item 
+                                label={<span>Employee Name<span style={{ color: 'red' }}>*</span></span>} 
+                                name="EmployeeName" 
+                                rules={[{ required: true, message: <span>Please enter Employee Name!</span> }]}
+                            >
+                                <Input placeholder="Enter Employee Name" />
+                            </Form.Item>
+                            <Form.Item 
+                                label={<span>Branch<span style={{ color: 'red' }}>*</span></span>}
+                                name="BranchID" 
+                            >
+                                <Select 
+                                    placeholder="Select Branch" 
+                                    loading={loading}
+                                    showSearch
+                                    optionFilterProp="children"
+                                    allowClear
+                                >
+                                    {branchOptions.map((branch) => (
+                                        <Option key={branch.BranchID} value={String(branch.BranchID)}>
+                                            {branch.BranchName}
+                                        </Option>
+                                    ))}
+                                </Select>
+                            </Form.Item>
+                            <Form.Item 
+                                label={<span>Company Position<span style={{ color: 'red' }}>*</span></span>}
+                                name="PositionID" 
+                            >
+                                <Select 
+                                    placeholder="Select Position" 
+                                    loading={loading}
+                                    showSearch
+                                    optionFilterProp="children"
+                                    allowClear
+                                >
+                                    {positions.map((position) => (
+                                        <Option key={position.PositionID} value={String(position.PositionID)}>
+                                            {position.PositionTitle}
+                                        </Option>
+                                    ))}
+                                </Select>
+                            </Form.Item>
+                            <Form.Item 
+                                label={<span>Schedule<span style={{ color: 'red' }}>*</span></span>} 
+                                name="ScheduleID" 
+                                rules={[{ required: true, message: <span>Please select a company schedule!</span> }]}
+                            >
+                                <Select 
+                                    placeholder="Select Schedule" 
+                                    loading={loading}
+                                    showSearch
+                                    optionFilterProp="children"
+                                >
+                                    {schedules.map((schedule) => (
+                                        <Option key={schedule.ScheduleID} value={String(schedule.ScheduleID)}>
+                                            {`${schedule.ShiftStart} - ${schedule.ShiftEnd}`}
+                                        </Option>
+                                    ))}
+                                </Select>
+                            </Form.Item>
+                            <Form.Item 
+                                label={<span>Member Since<span style={{ color: 'red' }}>*</span></span>} 
+                                name="MemberSince" 
+                                rules={[{ required: true, message: <span>Please select a joined date!</span> }]}
+                            >
+                                <DatePicker 
+                                    format="MM/DD/YYYY"
+                                    placeholder="Select Date (MM/DD/YYYY)"
+                                    style={{ width: '100%' }}
+                                />
+                            </Form.Item>
+                        </Form>
+                    )}
+
+                    {modalType === 'View' && selectedEmployee && (
+                        <div style={{ lineHeight: '1.6', maxHeight: 'calc(80vh - 150px)', overflowY: 'auto', boxSizing: 'border-box' }}>
+                            <p><strong>Employee Name:</strong> {selectedEmployee["Employee Name"]}</p>
+                            <p><strong>Branch Name:</strong> {selectedEmployee["Branch Name"]}</p>
+                            <p><strong>Position Title:</strong> {selectedEmployee["Position Title"]}</p>
+                            <p><strong>Rate per Hour:</strong> {ratePerHour ? `₱${formatMoney(ratePerHour)}` : 'N/A'}</p>
+                            <p><strong>Schedule:</strong> {selectedEmployee["Schedule"]}</p>
+                            <p><strong>Member Since:</strong> {selectedEmployee["Member Since"]}</p>
+                            <div>
+                                <strong>Allowances:</strong>
+                                {allowances.length > 0 ? (
+                                    <ul>
+                                        {allowances.map((allowance) => (
+                                            <li key={allowance.AllowanceID}>
+                                                {allowance.Description}: ₱{formatMoney(allowance.Amount)} 
+                                            </li>
+                                        ))}
+                                    </ul>
+                                ) : (
+                                    <p>No allowances assigned.</p>
+                                )}
+                            </div>
+                            <div className="loans-contributions-section" style={{ display: 'flex', gap: '20px', marginBottom: '20px' }}>
+                                <div className="loans-contributions-section" style={{ flex: 1, minWidth: 0 }}> 
+                                    <strong>Loans:</strong>
+                                    {loans.length > 0 ? (
+                                        <ul>
+                                            {loans.map((loan) => (
+                                                <li key={loan.LoanID}>
+                                                    {loan.LoanKey} {loan.LoanType} Loan: ₱{formatMoney(loan.Amount)}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    ) : (
+                                        <p>No loans recorded.</p>
+                                    )}
+                                </div>
+                                <div className="loans-contributions-section" style={{ flex: 1, minWidth: 0 }}>
+                                    <strong>Contributions:</strong>
+                                    {contributions.length > 0 ? (
+                                        <ul>
+                                            {contributions.map((contribution) => (
+                                                <li key={contribution.ContributionID}>
+                                                    {contribution.ContributionType}: ₱{formatMoney(contribution.Amount)} 
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    ) : (
+                                        <p>No contributions assigned.</p>
+                                    )}
+                                </div>
+                            </div>
+                            <div style={{ marginTop: '20px' }}>
+                                <strong>Cash Advance Record:</strong>
+                                {cashAdvances.length > 0 ? (
+                                    <Table
+                                        dataSource={cashAdvances.map(cashAdvance => ({
+                                            key: cashAdvance.CashAdvanceID,
+                                            Date: formatDateToMMDDYYYY(cashAdvance.Date),
+                                            Amount: `₱${formatMoney(cashAdvance.Amount)}`,
+                                            Balance: `₱${formatMoney(calculateBalance(cashAdvance.Amount, paymentHistory.filter(p => p.cashAdvanceId === cashAdvance.CashAdvanceID)))}`
+                                        }))}
+                                        bordered
+                                        pagination={false}
+                                        style={{ marginTop: '10px' }}
+                                        size="small"
+                                    >
+                                        <Column title="Date" dataIndex="Date" key="Date" />
+                                        <Column title="Amount" dataIndex="Amount" key="Amount" />
+                                        <Column title="Balance" dataIndex="Balance" key="Balance" />
+                                    </Table>
+                                ) : (
+                                    <p>No cash advances recorded.</p>
+                                )}
+                            </div>
+                            <div style={{ marginTop: '20px' }}>
+                                <strong>Cash Advance Payment History:</strong>
+                                {paymentHistory.length > 0 ? (
+                                    <Table
+                                        dataSource={paymentHistory.map((payment, index) => ({
+                                            key: index,
+                                            Date: payment.date,
+                                            Amount: `₱${formatMoney(payment.amount)}`,
+                                            Paid: `₱${formatMoney(payment.paid)}`
+                                        }))}
+                                        bordered
+                                        pagination={false}
+                                        style={{ marginTop: '10px' }}
+                                        size="small"
+                                    >
+                                        <Column title="Date" dataIndex="Date" key="Date" />
+                                        <Column title="Amount" dataIndex="Amount" key="Amount" />
+                                        <Column title="Paid" dataIndex="Paid" key="Paid" />
+                                    </Table>
+                                ) : (
+                                    <p>No cash advance payments recorded.</p>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {modalType === 'Delete' && selectedEmployee && (
+                        <div style={{ textAlign: 'center' }}>
+                            <p style={{ fontSize: '18px', fontWeight: 'bold', color: '#ff4d4f' }}>
+                                ⚠️ Are you sure you want to delete this employee?
+                            </p>
+                            <p>
+                                This action <strong>cannot be undone</strong>. The employee "<strong>{selectedEmployee["Employee Name"]}</strong>" 
+                                will be permanently removed including all the records <strong>(Attendance Records, Overtime Records, 
+                                Leave Records, Allowance Records, Deduction Records, Cash Advance Records, and Payroll Records)</strong> 
+                                that they have.
+                            </p>
+                        </div>
+                    )}
+                </Modal>
+            </div>
+        </ConfigProvider>
     );
 };
 

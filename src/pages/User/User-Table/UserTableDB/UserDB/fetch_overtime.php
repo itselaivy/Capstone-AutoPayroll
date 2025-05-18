@@ -46,6 +46,9 @@ try {
     }
 
     function recordExists($conn, $table, $id) {
+        if ($id === null) {
+            return true; // Allow NULL for BranchID
+        }
         $id = (int)$id;
         $idColumnMap = [
             'branches' => 'BranchID',
@@ -65,18 +68,26 @@ try {
     function checkDuplicateOvertime($conn, $date, $employeeId, $branchId, $excludeOvertimeId = null) {
         $date = htmlspecialchars($date, ENT_QUOTES, 'UTF-8');
         $employeeId = (int)$employeeId;
-        $branchId = (int)$branchId;
-        $sql = "SELECT OvertimeID FROM overtime WHERE Date = ? AND EmployeeID = ? AND BranchID = ?";
+        $sql = "SELECT OvertimeID FROM overtime WHERE Date = ? AND EmployeeID = ?";
+        $params = [$date, $employeeId];
+        $types = "si";
+
+        if ($branchId !== null) {
+            $sql .= " AND BranchID = ?";
+            $types .= "i";
+            $params[] = (int)$branchId;
+        } else {
+            $sql .= " AND BranchID IS NULL";
+        }
+
         if ($excludeOvertimeId !== null) {
             $sql .= " AND OvertimeID != ?";
+            $types .= "i";
+            $params[] = (int)$excludeOvertimeId;
         }
+
         $stmt = $conn->prepare($sql);
-        if ($excludeOvertimeId !== null) {
-            $excludeOvertimeId = (int)$excludeOvertimeId;
-            $stmt->bind_param("siii", $date, $employeeId, $branchId, $excludeOvertimeId);
-        } else {
-            $stmt->bind_param("sii", $date, $employeeId, $branchId);
-        }
+        $stmt->bind_param($types, ...$params);
         $stmt->execute();
         $stmt->store_result();
         $exists = $stmt->num_rows > 0;
@@ -116,6 +127,9 @@ try {
 
     function getBranchIdByName($conn, $branchName) {
         $branchName = htmlspecialchars(trim($branchName), ENT_QUOTES, 'UTF-8');
+        if (empty($branchName)) {
+            return [null, null]; // Allow empty BranchName to set BranchID to NULL
+        }
         $stmt = $conn->prepare("SELECT BranchID FROM branches WHERE BranchName = ?");
         $stmt->bind_param("s", $branchName);
         $stmt->execute();
@@ -140,6 +154,23 @@ try {
         }
         $stmt->close();
         return "Employee ID $employeeId";
+    }
+
+    function getBranchNameById($conn, $branchId) {
+        if ($branchId === null) {
+            return "None";
+        }
+        $branchId = (int)$branchId;
+        $stmt = $conn->prepare("SELECT BranchName FROM branches WHERE BranchID = ?");
+        $stmt->bind_param("i", $branchId);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        if ($row = $result->fetch_assoc()) {
+            $stmt->close();
+            return htmlspecialchars($row['BranchName'], ENT_QUOTES, 'UTF-8');
+        }
+        $stmt->close();
+        return "Branch ID $branchId";
     }
 
     function formatDate($date) {
@@ -214,6 +245,8 @@ try {
             $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 10;
             $offset = $page * $limit;
             $branch_id = isset($_GET['branch_id']) ? (int)$_GET['branch_id'] : null;
+            $start_date = isset($_GET['start_date']) ? sanitizeInput($_GET['start_date']) : null;
+            $end_date = isset($_GET['end_date']) ? sanitizeInput($_GET['end_date']) : null;
 
             $sql = "
                 SELECT 
@@ -223,19 +256,17 @@ try {
                     e.EmployeeName,
                     b.BranchName,
                     o.`No. of Hours` AS No_of_Hours,
-                    o.`No. of Mins` AS No_of_Mins,
-                    o.Rate AS Rate,
                     o.BranchID
                 FROM overtime o
                 JOIN employees e ON o.EmployeeID = e.EmployeeID
-                JOIN branches b ON o.BranchID = b.BranchID
+                LEFT JOIN branches b ON o.BranchID = b.BranchID
             ";
 
             $countSql = "
                 SELECT COUNT(*) as total
                 FROM overtime o
                 JOIN employees e ON o.EmployeeID = e.EmployeeID
-                JOIN branches b ON o.BranchID = b.BranchID
+                LEFT JOIN branches b ON o.BranchID = b.BranchID
             ";
 
             $params = [];
@@ -259,7 +290,7 @@ try {
                 }
 
                 $placeholders = implode(',', array_fill(0, count($allowedBranches), '?'));
-                $whereClauses[] = "o.BranchID IN ($placeholders)";
+                $whereClauses[] = "o.BranchID IN ($placeholders) OR o.BranchID IS NULL";
                 $types .= str_repeat('i', count($allowedBranches));
                 $params = array_merge($params, $allowedBranches);
             }
@@ -268,6 +299,23 @@ try {
                 $whereClauses[] = "o.BranchID = ?";
                 $types .= "i";
                 $params[] = $branch_id;
+            }
+
+            if ($start_date && $end_date) {
+                // Validate date format (YYYY-MM-DD)
+                $dateFormat = 'Y-m-d';
+                $startDateTime = DateTime::createFromFormat($dateFormat, $start_date);
+                $endDateTime = DateTime::createFromFormat($dateFormat, $end_date);
+                
+                if ($startDateTime && $endDateTime && $startDateTime <= $endDateTime) {
+                    $whereClauses[] = "o.Date BETWEEN ? AND ?";
+                    $types .= "ss";
+                    $params[] = $start_date;
+                    $params[] = $end_date;
+                    error_log("Applying date range filter: start_date=$start_date, end_date=$end_date");
+                } else {
+                    error_log("Invalid date range: start_date=$start_date, end_date=$end_date");
+                }
             }
 
             if (!empty($whereClauses)) {
@@ -298,7 +346,7 @@ try {
             $data = [];
             while ($row = $result->fetch_assoc()) {
                 $row['EmployeeName'] = htmlspecialchars($row['EmployeeName'], ENT_QUOTES, 'UTF-8');
-                $row['BranchName'] = htmlspecialchars($row['BranchName'], ENT_QUOTES, 'UTF-8');
+                $row['BranchName'] = $row['BranchName'] ? htmlspecialchars($row['BranchName'], ENT_QUOTES, 'UTF-8') : null;
                 $data[] = $row;
             }
             $stmt->close();
@@ -324,34 +372,22 @@ try {
                 $errors = [];
                 foreach ($data as $index => $row) {
                     if (!isset($row["Date"]) || empty(trim($row["Date"])) ||
-                        !isset($row["No_of_Hours"]) || !is_numeric($row["No_of_Hours"]) ||
-                        !isset($row["No_of_Mins"]) || !is_numeric($row["No_of_Mins"]) ||
-                        !isset($row["Rate"]) || !is_numeric($row["Rate"])) {
-                        $errors[] = "Row " . ($index + 1) . ": Missing or invalid required fields (Date, No. of Hours, No. of Mins, Rate).";
+                        !isset($row["No_of_Hours"]) || !is_numeric($row["No_of_Hours"])) {
+                        $errors[] = "Row " . ($index + 1) . ": Missing or invalid required fields (Date, No. of Hours).";
                         continue;
                     }
 
                     $row["Date"] = sanitizeInput($row["Date"]);
                     $row["No_of_Hours"] = (int)$row["No_of_Hours"];
-                    $row["No_of_Mins"] = (int)$row["No_of_Mins"];
-                    $row["Rate"] = (float)$row["Rate"];
 
                     if ($row["No_of_Hours"] < 0 || $row["No_of_Hours"] > 12) {
                         $errors[] = "Row " . ($index + 1) . ": Hours must be between 0 and 12.";
                         continue;
                     }
-                    if ($row["No_of_Mins"] < 0 || $row["No_of_Mins"] > 59) {
-                        $errors[] = "Row " . ($index + 1) . ": Minutes must be between 0 and 59.";
-                        continue;
-                    }
-                    if ($row["Rate"] < 0) {
-                        $errors[] = "Row " . ($index + 1) . ": Rate must be non-negative.";
-                        continue;
-                    }
 
-                    if (isset($row["EmployeeName"]) && isset($row["BranchName"])) {
+                    if (isset($row["EmployeeName"])) {
                         [$branchId, $branchError] = getBranchIdByName($conn, $row["BranchName"]);
-                        if ($branchId === null) {
+                        if ($branchError) {
                             $errors[] = "Row " . ($index + 1) . ": " . $branchError;
                             continue;
                         }
@@ -362,7 +398,7 @@ try {
                             continue;
                         }
 
-                        if ($role === 'Payroll Staff') {
+                        if ($role === 'Payroll Staff' && $branchId !== null) {
                             $stmt = $conn->prepare("SELECT BranchID FROM UserBranches WHERE UserID = ? AND BranchID = ?");
                             $stmt->bind_param("ii", $user_id, $branchId);
                             $stmt->execute();
@@ -376,32 +412,35 @@ try {
                         }
 
                         if (checkDuplicateOvertime($conn, $row["Date"], $employeeId, $branchId)) {
-                            $errors[] = "Row " . ($index + 1) . "Warning: An employee with this cash advance record already exists.";
+                            $errors[] = "Row " . ($index + 1) . ": Duplicate overtime record for this employee and date.";
                             continue;
                         }
 
                         $stmt = $conn->prepare("
-                            INSERT INTO overtime (Date, EmployeeID, BranchID, `No. of Hours`, `No. of Mins`, Rate) 
-                            VALUES (?, ?, ?, ?, ?, ?)
+                            INSERT INTO overtime (Date, EmployeeID, BranchID, `No. of Hours`) 
+                            VALUES (?, ?, ?, ?)
                         ");
                         $hours = $row["No_of_Hours"];
-                        $mins = $row["No_of_Mins"];
-                        $rate = $row["Rate"];
-                        $stmt->bind_param("siiidd", $row["Date"], $employeeId, $branchId, $hours, $mins, $rate);
+                        if ($branchId === null) {
+                            $stmt->bind_param("siii", $row["Date"], $employeeId, $branchId, $hours);
+                        } else {
+                            $stmt->bind_param("siii", $row["Date"], $employeeId, $branchId, $hours);
+                        }
 
                         if ($stmt->execute()) {
                             $successCount++;
                             $overtimeId = $conn->insert_id;
                             $employeeName = getEmployeeNameById($conn, $employeeId) ?? "Unknown Employee";
+                            $branchName = getBranchNameById($conn, $branchId);
                             $formattedDate = formatDate($row["Date"]) ?? $row["Date"];
-                            $description = "Overtime for $employeeName on $formattedDate added via CSV";
+                            $description = "Overtime for $employeeName on $formattedDate at $branchName added via CSV";
                             logUserActivity($conn, $user_id, "ADD_DATA", "Overtime", $overtimeId, $description);
                         } else {
                             $errors[] = "Row " . ($index + 1) . ": Failed to add overtime: " . $stmt->error;
                         }
                         $stmt->close();
                     } else {
-                        $errors[] = "Row " . ($index + 1) . ": EmployeeName and BranchName are required for CSV import.";
+                        $errors[] = "Row " . ($index + 1) . ": EmployeeName is required for CSV import.";
                         continue;
                     }
                 }
@@ -420,38 +459,27 @@ try {
             } else {
                 if (empty(trim($data["Date"])) || 
                     !isset($data["EmployeeID"]) || !is_numeric($data["EmployeeID"]) || 
-                    !isset($data["BranchID"]) || !is_numeric($data["BranchID"]) || 
-                    !isset($data["No_of_Hours"]) || !is_numeric($data["No_of_Hours"]) || 
-                    !isset($data["No_of_Mins"]) || !is_numeric($data["No_of_Mins"]) || 
-                    !isset($data["Rate"]) || !is_numeric($data["Rate"])) {
-                    throw new Exception("All fields are required and must be valid");
+                    !isset($data["No_of_Hours"]) || !is_numeric($data["No_of_Hours"])) {
+                    throw new Exception("Date, EmployeeID, and No_of_Hours are required and must be valid");
                 }
 
                 $data["Date"] = sanitizeInput($data["Date"]);
                 $data["EmployeeID"] = (int)$data["EmployeeID"];
-                $data["BranchID"] = (int)$data["BranchID"];
+                $data["BranchID"] = isset($data["BranchID"]) && is_numeric($data["BranchID"]) ? (int)$data["BranchID"] : null;
                 $data["No_of_Hours"] = (int)$data["No_of_Hours"];
-                $data["No_of_Mins"] = (int)$data["No_of_Mins"];
-                $data["Rate"] = (float)$data["Rate"];
 
                 if (!recordExists($conn, "employees", $data["EmployeeID"])) {
                     throw new Exception("Invalid EmployeeID");
                 }
-                if (!recordExists($conn, "branches", $data["BranchID"])) {
+                if ($data["BranchID"] !== null && !recordExists($conn, "branches", $data["BranchID"])) {
                     throw new Exception("Invalid BranchID");
                 }
 
                 if ($data["No_of_Hours"] < 0 || $data["No_of_Hours"] > 12) {
                     throw new Exception("Hours must be between 0 and 12");
                 }
-                if ($data["No_of_Mins"] < 0 || $data["No_of_Mins"] > 59) {
-                    throw new Exception("Minutes must be between 0 and 59");
-                }
-                if ($data["Rate"] < 0) {
-                    throw new Exception("Rate must be non-negative");
-                }
 
-                if ($role === 'Payroll Staff') {
+                if ($role === 'Payroll Staff' && $data["BranchID"] !== null) {
                     $stmt = $conn->prepare("SELECT BranchID FROM UserBranches WHERE UserID = ? AND BranchID = ?");
                     $stmt->bind_param("ii", $user_id, $data["BranchID"]);
                     $stmt->execute();
@@ -464,26 +492,29 @@ try {
                 }
 
                 if (checkDuplicateOvertime($conn, $data["Date"], $data["EmployeeID"], $data["BranchID"])) {
-                    echo json_encode(["success" => false, "warning" => "Warning: An employee with this overtime record already exists."]);
+                    echo json_encode(["success" => false, "warning" => "Duplicate overtime record for this employee and date."]);
                     $conn->commit();
                     exit;
                 }
 
                 $hours = $data["No_of_Hours"];
-                $mins = $data["No_of_Mins"];
-                $rate = $data["Rate"];
 
                 $stmt = $conn->prepare("
-                    INSERT INTO overtime (Date, EmployeeID, BranchID, `No. of Hours`, `No. of Mins`, Rate) 
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    INSERT INTO overtime (Date, EmployeeID, BranchID, `No. of Hours`) 
+                    VALUES (?, ?, ?, ?)
                 ");
-                $stmt->bind_param("siiidd", $data["Date"], $data["EmployeeID"], $data["BranchID"], $hours, $mins, $rate);
+                if ($data["BranchID"] === null) {
+                    $stmt->bind_param("siin", $data["Date"], $data["EmployeeID"], $data["BranchID"], $hours);
+                } else {
+                    $stmt->bind_param("siii", $data["Date"], $data["EmployeeID"], $data["BranchID"], $hours);
+                }
 
                 if ($stmt->execute()) {
                     $overtimeId = $conn->insert_id;
                     $employeeName = getEmployeeNameById($conn, $data["EmployeeID"]) ?? "Unknown Employee";
+                    $branchName = getBranchNameById($conn, $data["BranchID"]);
                     $formattedDate = formatDate($data["Date"]) ?? $data["Date"];
-                    $description = "Overtime for $employeeName on $formattedDate added";
+                    $description = "Overtime for $employeeName on $formattedDate at $branchName added";
                     logUserActivity($conn, $user_id, "ADD_DATA", "Overtime", $overtimeId, $description);
                     $conn->commit();
                     echo json_encode(["success" => true, "id" => $overtimeId]);
@@ -506,41 +537,30 @@ try {
         if (empty($data["OvertimeID"]) || 
             empty(trim($data["Date"])) || 
             !isset($data["EmployeeID"]) || !is_numeric($data["EmployeeID"]) || 
-            !isset($data["BranchID"]) || !is_numeric($data["BranchID"]) || 
-            !isset($data["No_of_Hours"]) || !is_numeric($data["No_of_Hours"]) || 
-            !isset($data["No_of_Mins"]) || !is_numeric($data["No_of_Mins"]) || 
-            !isset($data["Rate"]) || !is_numeric($data["Rate"])) {
-            throw new Exception("All fields are required and must be valid");
+            !isset($data["No_of_Hours"]) || !is_numeric($data["No_of_Hours"])) {
+            throw new Exception("OvertimeID, Date, EmployeeID, and No_of_Hours are required and must be valid");
         }
 
         $data["OvertimeID"] = (int)$data["OvertimeID"];
         $data["Date"] = sanitizeInput($data["Date"]);
         $data["EmployeeID"] = (int)$data["EmployeeID"];
-        $data["BranchID"] = (int)$data["BranchID"];
+        $data["BranchID"] = isset($data["BranchID"]) && is_numeric($data["BranchID"]) ? (int)$data["BranchID"] : null;
         $data["No_of_Hours"] = (int)$data["No_of_Hours"];
-        $data["No_of_Mins"] = (int)$data["No_of_Mins"];
-        $data["Rate"] = (float)$data["Rate"];
 
         if (!recordExists($conn, "employees", $data["EmployeeID"])) {
             throw new Exception("Invalid EmployeeID");
         }
-        if (!recordExists($conn, "branches", $data["BranchID"])) {
+        if ($data["BranchID"] !== null && !recordExists($conn, "branches", $data["BranchID"])) {
             throw new Exception("Invalid BranchID");
         }
 
         if ($data["No_of_Hours"] < 0 || $data["No_of_Hours"] > 12) {
             throw new Exception("Hours must be between 0 and 12");
         }
-        if ($data["No_of_Mins"] < 0 || $data["No_of_Mins"] > 59) {
-            throw new Exception("Minutes must be between 0 and 59");
-        }
-        if ($data["Rate"] < 0) {
-            throw new Exception("Rate must be non-negative");
-        }
 
         $conn->begin_transaction();
         try {
-            $stmt = $conn->prepare("SELECT `No. of Hours`, `No. of Mins`, Rate FROM overtime WHERE OvertimeID = ?");
+            $stmt = $conn->prepare("SELECT Date, EmployeeID, BranchID, `No. of Hours` FROM overtime WHERE OvertimeID = ?");
             $stmt->bind_param("i", $data["OvertimeID"]);
             $stmt->execute();
             $result = $stmt->get_result();
@@ -552,42 +572,53 @@ try {
             }
 
             if (checkDuplicateOvertime($conn, $data["Date"], $data["EmployeeID"], $data["BranchID"], $data["OvertimeID"])) {
-                echo json_encode(["success" => false, "warning" => "Warning: An employee with this overtime record already exists."]);
+                echo json_encode(["success" => false, "warning" => "Duplicate overtime record for this employee and date."]);
                 $conn->commit();
                 exit;
             }
 
             $changes = [];
             $hours = (int)$data["No_of_Hours"];
-            $mins = (int)$data["No_of_Mins"];
-            $rate = (float)$data["Rate"];
             $currentHours = isset($currentRecord['No. of Hours']) ? (int)$currentRecord['No. of Hours'] : 0;
-            $currentMins = isset($currentRecord['No. of Mins']) ? (int)$currentRecord['No. of Mins'] : 0;
-            $currentRate = isset($currentRecord['Rate']) ? (float)$currentRecord['Rate'] : 0.0;
+            $currentDate = $currentRecord['Date'];
+            $currentEmployeeId = (int)$currentRecord['EmployeeID'];
+            $currentBranchId = $currentRecord['BranchID'];
 
+            if ($currentDate !== $data["Date"]) {
+                $changes[] = "Date from '$currentDate' to '{$data["Date"]}'";
+            }
+            if ($currentEmployeeId !== $data["EmployeeID"]) {
+                $oldName = getEmployeeNameById($conn, $currentEmployeeId);
+                $newName = getEmployeeNameById($conn, $data["EmployeeID"]);
+                $changes[] = "Employee from '$oldName' to '$newName'";
+            }
+            if ($currentBranchId !== $data["BranchID"]) {
+                $oldBranch = getBranchNameById($conn, $currentBranchId);
+                $newBranch = getBranchNameById($conn, $data["BranchID"]);
+                $changes[] = "Branch from '$oldBranch' to '$newBranch'";
+            }
             if ($currentHours !== $hours) {
                 $changes[] = "Hours from $currentHours to $hours";
-            }
-            if ($currentMins !== $mins) {
-                $changes[] = "Minutes from $currentMins to $mins";
-            }
-            if ($currentRate !== $rate) {
-                $changes[] = "Rate from $currentRate to $rate";
             }
 
             $stmt = $conn->prepare("
                 UPDATE overtime 
-                SET Date = ?, EmployeeID = ?, BranchID = ?, `No. of Hours` = ?, `No. of Mins` = ?, Rate = ? 
+                SET Date = ?, EmployeeID = ?, BranchID = ?, `No. of Hours` = ? 
                 WHERE OvertimeID = ?
             ");
-            $stmt->bind_param("siiiddi", $data["Date"], $data["EmployeeID"], $data["BranchID"], $hours, $mins, $rate, $data["OvertimeID"]);
+            if ($data["BranchID"] === null) {
+                $stmt->bind_param("siini", $data["Date"], $data["EmployeeID"], $data["BranchID"], $hours, $data["OvertimeID"]);
+            } else {
+                $stmt->bind_param("siiii", $data["Date"], $data["EmployeeID"], $data["BranchID"], $hours, $data["OvertimeID"]);
+            }
 
             if ($stmt->execute()) {
                 $employeeName = getEmployeeNameById($conn, $data["EmployeeID"]) ?? "Unknown Employee";
+                $branchName = getBranchNameById($conn, $data["BranchID"]);
                 $formattedDate = formatDate($data["Date"]) ?? $data["Date"];
                 $description = empty($changes) ?
-                    "Overtime for $employeeName on $formattedDate updated: No changes made" :
-                    "Overtime for $employeeName on $formattedDate updated: " . implode('/ ', $changes);
+                    "Overtime for $employeeName on $formattedDate at $branchName updated: No changes made" :
+                    "Overtime for $employeeName on $formattedDate at $branchName updated: " . implode(', ', $changes);
                 logUserActivity($conn, $user_id, "UPDATE_DATA", "Overtime", $data["OvertimeID"], $description);
                 $conn->commit();
                 echo json_encode(["success" => true]);
@@ -614,7 +645,7 @@ try {
 
         $conn->begin_transaction();
         try {
-            $stmt = $conn->prepare("SELECT Date, EmployeeID FROM overtime WHERE OvertimeID = ?");
+            $stmt = $conn->prepare("SELECT Date, EmployeeID, BranchID FROM overtime WHERE OvertimeID = ?");
             $stmt->bind_param("i", $data["OvertimeID"]);
             $stmt->execute();
             $result = $stmt->get_result();
@@ -630,8 +661,9 @@ try {
 
             if ($stmt->execute()) {
                 $employeeName = getEmployeeNameById($conn, $record["EmployeeID"]) ?? "Unknown Employee";
+                $branchName = getBranchNameById($conn, $record["BranchID"]);
                 $formattedDate = formatDate($record["Date"]) ?? $record["Date"];
-                $description = "Overtime for $employeeName on $formattedDate deleted";
+                $description = "Overtime for $employeeName on $formattedDate at $branchName deleted";
                 logUserActivity($conn, $user_id, "DELETE_DATA", "Overtime", $data["OvertimeID"], $description);
                 $conn->commit();
                 echo json_encode(["success" => true]);

@@ -1,12 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Space, Table, Button, Input, Modal, Form, message, DatePicker, Select, Typography, Pagination, Tag } from 'antd';
+import { ConfigProvider, Space, Table, Button, Input, Modal, Form, message, DatePicker, Select, Typography, Pagination, Tag, Tooltip } from 'antd';
 import { EyeOutlined, EditOutlined, DeleteOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import moment from 'moment';
 
 const { Column } = Table;
 const { Option } = Select;
 const { Title } = Typography;
-const { confirm } = Modal;
 
 const LeaveTable = () => {
   const [searchText, setSearchText] = useState('');
@@ -19,6 +18,7 @@ const LeaveTable = () => {
   const [form] = Form.useForm();
   const [employees, setEmployees] = useState([]);
   const [branches, setBranches] = useState([]);
+  const [dateRange, setDateRange] = useState([]);
   const [assignedBranches, setAssignedBranches] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -89,6 +89,11 @@ const LeaveTable = () => {
       if (selectedBranch) {
         url += `&branch_id=${selectedBranch}`;
       }
+      if (dateRange[0] && dateRange[1]) {
+        const startDate = dateRange[0].format('YYYY-MM-DD');
+        const endDate = dateRange[1].format('YYYY-MM-DD');
+        url += `&start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`;
+      }
 
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Leave fetch failed: ${res.statusText}`);
@@ -122,7 +127,7 @@ const LeaveTable = () => {
   useEffect(() => {
     fetchDropdownData();
     fetchData();
-  }, [currentPage, pageSize, selectedBranch]);
+  }, [currentPage, pageSize, selectedBranch, dateRange]);
 
   useEffect(() => {
     const handleResize = () => setScreenWidth(window.innerWidth);
@@ -207,7 +212,9 @@ const LeaveTable = () => {
       });
     } else {
       form.resetFields();
-      form.setFieldsValue({ startDate: moment(), endDate: moment() });
+      if (type === 'Add') {
+        form.setFieldsValue({ startDate: undefined, endDate: undefined });
+      }
     }
   };
 
@@ -315,7 +322,7 @@ const LeaveTable = () => {
           fetchData();
         } else if (data.warning) {
           message.warning(data.warning);
-          return; // Keep the modal open so the user can adjust the dates
+          return;
         } else {
           throw new Error(data.error || "Operation failed");
         }
@@ -354,328 +361,364 @@ const LeaveTable = () => {
   const role = localStorage.getItem('role');
 
   return (
-    <div className="fade-in" style={{ padding: '20px' }}>
-      <Title level={2} style={{ fontFamily: 'Poppins, sans-serif', marginBottom: '20px' }}>
-        Leave Records
-      </Title>
+    <ConfigProvider theme={{ token: { fontFamily: 'Poppins, sans-serif' } }}>
+      <div className="fade-in" style={{ padding: '20px' }}>
+        <style>
+          {`
+            @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
+            
+            /* Ensure custom elements use Poppins */
+            .fade-in, .fade-in * {
+              font-family: 'Poppins', sans-serif !important;
+            }
+          `}
+        </style>
+        <Title level={2} style={{ marginBottom: '20px' }}>
+          Leave Records
+        </Title>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
-        <Select
-          placeholder="Filter by Branch"
-          value={selectedBranch}
-          onChange={handleBranchFilterChange}
-          allowClear
-          style={{ width: screenWidth < 480 ? '100%' : '250px', fontFamily: 'Poppins, sans-serif' }}
-        >
-          <Option value="" style={{ fontFamily: 'Poppins, sans-serif' }}>All Branches</Option>
-          {(role === 'Payroll Staff' ? assignedBranches : branches).map(branch => (
-            <Option key={branch.BranchID} value={branch.BranchID} style={{ fontFamily: 'Poppins, sans-serif' }}>
-              {branch.BranchName}
-            </Option>
-          ))}
-        </Select>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-          <Button 
-            icon={<PlusOutlined />} 
-            size="middle" 
-            style={{ backgroundColor: '#2C3743', borderColor: '#2C3743', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
-            onClick={() => openModal('Add')}
-          >
-            {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Add Leave Record</span>}
-          </Button>
-          <Input
-            placeholder="Search by any field (e.g., name, date, branch)"
-            allowClear
-            value={searchText}
-            onChange={(e) => handleSearch(e.target.value)}
-            prefix={<SearchOutlined />}
-            style={{ width: screenWidth < 480 ? '100%' : '250px', marginTop: screenWidth < 480 ? 10 : 0, fontFamily: 'Poppins, sans-serif' }}
-          />
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+            <DatePicker.RangePicker
+              format={DATE_FORMAT}
+              value={dateRange}
+              onChange={(dates) => {
+                setDateRange(dates || []);
+                setCurrentPage(1);
+              }}
+              style={{ width: screenWidth < 480 ? '100%' : '250px' }}
+            />
+            <Select
+              placeholder="Filter by Branch"
+              value={selectedBranch}
+              onChange={handleBranchFilterChange}
+              allowClear
+              style={{ width: screenWidth < 480 ? '100%' : '250px' }}
+            >
+              <Option value="">All Branches</Option>
+              {(role === 'Payroll Staff' ? assignedBranches : branches).map(branch => (
+                <Option key={branch.BranchID} value={branch.BranchID}>
+                  {branch.BranchName}
+                </Option>
+              ))}
+            </Select>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+            <Button 
+              icon={<PlusOutlined />} 
+              size="middle" 
+              style={{ backgroundColor: '#2C3743', borderColor: '#2C3743', color: 'white' }} 
+              onClick={() => openModal('Add')}
+            >
+              {showLabels && 'Add Leave Record'}
+            </Button>
+            <Input
+              placeholder="Search by any field (e.g., name, date, branch)"
+              allowClear
+              value={searchText}
+              onChange={(e) => handleSearch(e.target.value)}
+              prefix={<SearchOutlined />}
+              style={{ width: screenWidth < 480 ? '100%' : '250px', marginTop: screenWidth < 480 ? 10 : 0 }}
+            />
+          </div>
         </div>
+
+        <Table 
+          dataSource={filteredData} 
+          bordered 
+          scroll={{ x: true }} 
+          pagination={false}
+        >
+          <Column 
+            title="Start Date" 
+            dataIndex="startDate" 
+            key="startDate" 
+            sorter={(a, b) => moment(a.startDate, DATE_FORMAT).diff(moment(b.startDate, DATE_FORMAT))}
+            render={(text) => <span>{text}</span>}
+          />
+          <Column 
+            title="End Date" 
+            dataIndex="endDate" 
+            key="endDate" 
+            sorter={(a, b) => moment(a.endDate, DATE_FORMAT).diff(moment(b.endDate, DATE_FORMAT))}
+            render={(text) => <span>{text}</span>}
+          />
+          <Column 
+            title="Employee ID" 
+            dataIndex="employeeId" 
+            key="employeeId" 
+            sorter={(a, b) => a.employeeId - b.employeeId}
+            render={(text) => <span>{text}</span>}
+          />
+          <Column 
+            title="Employee Name" 
+            dataIndex="employeeName" 
+            key="employeeName" 
+            sorter={(a, b) => a.employeeName.localeCompare(b.employeeName)}
+            render={(text) => <span>{text}</span>}
+          />
+          <Column 
+            title="Branch" 
+            dataIndex="branch" 
+            key="branch" 
+            sorter={(a, b) => a.branch.localeCompare(b.branch)}
+            render={(text) => <span>{text}</span>}
+          />
+          <Column 
+            title="Leave Type" 
+            dataIndex="leaveType" 
+            key="leaveType" 
+            sorter={(a, b) => a.leaveType.localeCompare(b.leaveType)}
+            render={(text) => (
+              <Tag color={text === 'Vacation Leave' ? 'green' : 'volcano'} style={{ fontWeight: 'bold' }}>
+                {text.toUpperCase()}
+              </Tag>
+            )}
+          />
+          <Column 
+            title="Leave Credits" 
+            dataIndex="leaveCredits" 
+            key="leaveCredits" 
+            sorter={(a, b) => (a.leaveCredits === 'N/A' ? 0 : a.leaveCredits) - (b.leaveCredits === 'N/A' ? 0 : b.leaveCredits)}
+            render={(text) => <span>{text}</span>}
+          />
+          <Column 
+            title="Available Credits" 
+            dataIndex="availableLeaveCredits" 
+            key="availableLeaveCredits" 
+            sorter={(a, b) => (a.availableLeaveCredits === 'N/A' ? 0 : a.availableLeaveCredits) - (b.availableLeaveCredits === 'N/A' ? 0 : b.availableLeaveCredits)}
+            render={(text) => <span>{text}</span>}
+          />
+          <Column 
+            title="Used Credits" 
+            dataIndex="usedLeaveCredits" 
+            key="usedLeaveCredits" 
+            sorter={(a, b) => (a.usedLeaveCredits === 'N/A' ? 0 : a.usedLeaveCredits) - (b.usedLeaveCredits === 'N/A' ? 0 : b.usedLeaveCredits)}
+            render={(text) => <span>{text}</span>}
+          />
+          <Column
+            title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Action</span>}
+            key="action"
+            render={(_, record) => (
+              <Space size={7} wrap>
+                <Tooltip title="View">
+                  <Button
+                    icon={<EyeOutlined />}
+                    size="middle"
+                    style={{
+                      width: '33px',
+                      backgroundColor: '#52c41a',
+                      borderColor: '#52c41a',
+                      color: 'white',
+                      fontFamily: 'Poppins, sans-serif'
+                    }}
+                    onClick={() => openModal('View', record)}
+                  />
+                </Tooltip>
+                <Tooltip title="Edit">
+                  <Button
+                    icon={<EditOutlined />}
+                    size="middle"
+                    style={{
+                      width: '33px',
+                      backgroundColor: '#722ed1',
+                      borderColor: '#722ed1',
+                      color: 'white',
+                      fontFamily: 'Poppins, sans-serif'
+                    }}
+                    onClick={() => openModal('Edit', record)}
+                  />
+                </Tooltip>
+                <Tooltip title="Delete">
+                  <Button
+                    icon={<DeleteOutlined />}
+                    size="middle"
+                    style={{
+                      width: '33px',
+                      backgroundColor: '#ff4d4f',
+                      borderColor: '#ff4d4f',
+                      color: 'white',
+                      fontFamily: 'Poppins, sans-serif'
+                    }}
+                    onClick={() => openModal('Delete', record)}
+                  />
+                </Tooltip>
+              </Space>
+            )}
+          />
+        </Table>
+
+        <Pagination
+          current={currentPage}
+          pageSize={pageSize}
+          total={searchText.trim() ? filteredPaginationTotal : paginationTotal}
+          onChange={handlePageChange}
+          onShowSizeChange={handlePageChange}
+          showSizeChanger
+          showQuickJumper
+          showTotal={(total) => `Total ${total} leave records`}
+          pageSizeOptions={['10', '20', '50', '100']}
+          style={{ marginTop: 16, justifyContent: 'center', textAlign: 'center' }}
+        />
+
+        <Modal
+          title={
+            <div style={{ textAlign: 'center' }}>
+              <span style={{ fontSize: '22px', fontWeight: 'bold' }}>
+                {modalType === 'Add' ? 'Add New Leave Record' : 
+                 modalType === 'Edit' ? 'Edit Leave Record Details' : 
+                 modalType === 'View' ? 'View Leave Record Information' : 
+                 'Confirm Leave Record Deletion'}
+              </span>
+            </div>
+          }
+          open={isModalOpen}
+          onOk={handleOk}
+          onCancel={handleCancel}
+          okText={modalType === 'Delete' ? 'Delete' : 'OK'}
+          okButtonProps={{ danger: modalType === 'Delete' }}
+          cancelButtonProps={{}}
+          width={600}
+          centered
+          styles={{ body: { padding: '20px' } }}
+        >
+          {(modalType === 'Add') && (
+            <Form form={form} layout="vertical">
+              <Form.Item 
+                label={<span>Start Date<span style={{ color: 'red' }}>*</span></span>} 
+                name="startDate" 
+                rules={[{ required: true, message: 'Please select a start date!' }]}
+              >
+                <DatePicker 
+                  format={DATE_FORMAT} 
+                  style={{ width: '100%' }} 
+                />
+              </Form.Item>
+              <Form.Item 
+                label={<span>End Date<span style={{ color: 'red' }}>*</span></span>} 
+                name="endDate" 
+                rules={[{ required: true, message: 'Please select an end date!' }]}
+              >
+                <DatePicker 
+                  format={DATE_FORMAT} 
+                  style={{ width: '100%' }} 
+                />
+              </Form.Item>
+              <Form.Item 
+                label={<span>Employee<span style={{ color: 'red' }}>*</span></span>} 
+                name="employeeId" 
+                rules={[{ required: true, message: 'Please select an employee!' }]}
+              >
+                <Select
+                  showSearch
+                  placeholder="Type or select an employee"
+                  optionFilterProp="children"
+                  onChange={handleEmployeeChange}
+                  filterOption={(input, option) => option.children.toLowerCase().includes(input.toLowerCase())}
+                >
+                  {(role === 'Payroll Staff' ? 
+                    employees.filter(emp => assignedBranches.some(ab => ab.BranchID === emp.BranchID)).filter(emp => {
+                      const memberSince = moment(emp.MemberSince, 'YYYY-MM-DD');
+                      const currentDate = moment('2025-05-01');
+                      return currentDate.diff(memberSince, 'years') >= 1;
+                    }) : 
+                    employees).map((employee) => (
+                      <Option key={employee.EmployeeID} value={employee.EmployeeID}>
+                        {employee.EmployeeName}
+                      </Option>
+                    ))}
+                </Select>
+              </Form.Item>
+              <Form.Item 
+                label={<span>Leave Type<span style={{ color: 'red' }}>*</span></span>} 
+                name="leaveType" 
+                rules={[{ required: true, message: 'Please select a leave type!' }]}
+              >
+                <Select>
+                  <Option value="Vacation Leave">Vacation Leave</Option>
+                  <Option value="Sick Leave">Sick Leave</Option>
+                </Select>
+              </Form.Item>
+            </Form>
+          )}
+
+          {(modalType === 'Edit') && (
+            <Form form={form} layout="vertical">
+              <Form.Item 
+                label={<span>Start Date<span style={{ color: 'red' }}>*</span></span>} 
+                name="startDate" 
+                rules={[{ required: true, message: 'Please select a start date!' }]}
+              >
+                <DatePicker 
+                  format={DATE_FORMAT} 
+                  style={{ width: '100%' }} 
+                />
+              </Form.Item>
+              <Form.Item 
+                label={<span>End Date<span style={{ color: 'red' }}>*</span></span>} 
+                name="endDate" 
+                rules={[{ required: true, message: 'Please select an end date!' }]}
+              >
+                <DatePicker 
+                  format={DATE_FORMAT} 
+                  style={{ width: '100%' }} 
+                />
+              </Form.Item>
+              <Form.Item 
+                label={<span>Leave Type<span style={{ color: 'red' }}>*</span></span>} 
+                name="leaveType" 
+                rules={[{ required: true, message: 'Please select a leave type!' }]}
+              >
+                <Select>
+                  <Option value="Vacation Leave">Vacation Leave</Option>
+                  <Option value="Sick Leave">Sick Leave</Option>
+                </Select>
+              </Form.Item>
+            </Form>
+          )}
+
+          {modalType === 'View' && selectedLeave && (
+            <div>
+              <p>
+                <strong>Start Date:</strong> {selectedLeave.startDate}
+              </p>
+              <p>
+                <strong>End Date:</strong> {selectedLeave.endDate}
+              </p>
+              <p>
+                <strong>Employee Name:</strong> {selectedLeave.employeeName}
+              </p>
+              <p>
+                <strong>Branch:</strong> {selectedLeave.branch}
+              </p>
+              <p>
+                <strong>Leave Type:</strong> {selectedLeave.leaveType}
+              </p>
+              <p>
+                <strong>Leave Credits:</strong> {selectedLeave.leaveCredits}
+              </p>
+              <p>
+                <strong>Available Leave Credits:</strong> {selectedLeave.availableLeaveCredits}
+              </p>
+              <p>
+                <strong>Used Leave Credits:</strong> {selectedLeave.usedLeaveCredits}
+              </p>
+            </div>
+          )}
+
+          {modalType === 'Delete' && selectedLeave && (
+            <div style={{ textAlign: 'center' }}>
+              <p style={{ fontSize: '18px', fontWeight: 'bold', color: '#ff4d4f' }}>
+                ⚠️ Are you sure you want to delete this leave record?
+              </p>
+              <p>
+                This action <strong>cannot be undone</strong>. The leave record for "<strong>{selectedLeave.employeeName}</strong>" will be permanently removed.
+              </p>
+            </div>
+          )}
+        </Modal>
       </div>
-
-      <Table 
-        dataSource={filteredData} 
-        bordered 
-        scroll={{ x: true }} 
-        pagination={false}
-        style={{ fontFamily: 'Poppins, sans-serif' }}
-      >
-        <Column 
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Start Date</span>} 
-          dataIndex="startDate" 
-          key="startDate" 
-          sorter={(a, b) => moment(a.startDate, DATE_FORMAT).diff(moment(b.startDate, DATE_FORMAT))}
-          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
-        />
-        <Column 
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>End Date</span>} 
-          dataIndex="endDate" 
-          key="endDate" 
-          sorter={(a, b) => moment(a.endDate, DATE_FORMAT).diff(moment(b.endDate, DATE_FORMAT))}
-          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
-        />
-        <Column 
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Employee ID</span>} 
-          dataIndex="employeeId" 
-          key="employeeId" 
-          sorter={(a, b) => a.employeeId - b.employeeId}
-          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
-        />
-        <Column 
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Employee Name</span>} 
-          dataIndex="employeeName" 
-          key="employeeName" 
-          sorter={(a, b) => a.employeeName.localeCompare(b.employeeName)}
-          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
-        />
-        <Column 
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Branch</span>} 
-          dataIndex="branch" 
-          key="branch" 
-          sorter={(a, b) => a.branch.localeCompare(b.branch)}
-          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
-        />
-        <Column 
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Leave Type</span>} 
-          dataIndex="leaveType" 
-          key="leaveType" 
-          sorter={(a, b) => a.leaveType.localeCompare(b.leaveType)}
-          render={(text) => (
-            <Tag color={text === 'Vacation Leave' ? 'green' : 'volcano'} style={{ fontFamily: 'Poppins, sans-serif', fontWeight: 'bold' }}>
-              {text.toUpperCase()}
-            </Tag>
-          )}
-        />
-        <Column 
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Leave Credits</span>} 
-          dataIndex="leaveCredits" 
-          key="leaveCredits" 
-          sorter={(a, b) => (a.leaveCredits === 'N/A' ? 0 : a.leaveCredits) - (b.leaveCredits === 'N/A' ? 0 : b.leaveCredits)}
-          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
-        />
-        <Column 
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Available Credits</span>} 
-          dataIndex="availableLeaveCredits" 
-          key="availableLeaveCredits" 
-          sorter={(a, b) => (a.availableLeaveCredits === 'N/A' ? 0 : a.availableLeaveCredits) - (b.availableLeaveCredits === 'N/A' ? 0 : b.availableLeaveCredits)}
-          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
-        />
-        <Column 
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Used Credits</span>} 
-          dataIndex="usedLeaveCredits" 
-          key="usedLeaveCredits" 
-          sorter={(a, b) => (a.usedLeaveCredits === 'N/A' ? 0 : a.usedLeaveCredits) - (b.usedLeaveCredits === 'N/A' ? 0 : b.usedLeaveCredits)}
-          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
-        />
-        <Column
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Action</span>}
-          key="action"
-          render={(_, record) => (
-            <Space size="middle" wrap>
-              <Button 
-                icon={<EyeOutlined />} 
-                size="middle" 
-                style={{ backgroundColor: '#52c41a', borderColor: '#52c41a', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
-                onClick={() => openModal('View', record)}
-              >
-                {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>View</span>}
-              </Button>
-              <Button 
-                icon={<EditOutlined />} 
-                size="middle" 
-                style={{ backgroundColor: '#722ed1', borderColor: '#722ed1', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
-                onClick={() => openModal('Edit', record)}
-              >
-                {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Edit</span>}
-              </Button>
-              <Button 
-                icon={<DeleteOutlined />} 
-                size="middle" 
-                style={{ backgroundColor: '#ff4d4f', borderColor: '#ff4d4f', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
-                onClick={() => openModal('Delete', record)}
-              >
-                {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Delete</span>}
-              </Button>
-            </Space>
-          )}
-        />
-      </Table>
-
-      <Pagination
-        current={currentPage}
-        pageSize={pageSize}
-        total={searchText.trim() ? filteredPaginationTotal : paginationTotal}
-        onChange={handlePageChange}
-        onShowSizeChange={handlePageChange}
-        showSizeChanger
-        showQuickJumper
-        showTotal={(total) => `Total ${total} leave records`}
-        pageSizeOptions={['10', '20', '50', '100']}
-        style={{ marginTop: 16, justifyContent: 'center', textAlign: 'center', fontFamily: 'Poppins, sans-serif' }}
-      />
-
-      <Modal
-        title={
-          <div style={{ textAlign: 'center' }}>
-            <span style={{ fontSize: '22px', fontWeight: 'bold', fontFamily: 'Poppins, sans-serif' }}>
-              {modalType === 'Add' ? 'Add New Leave Record' : 
-               modalType === 'Edit' ? 'Edit Leave Record Details' : 
-               modalType === 'View' ? 'View Leave Record Information' : 
-               'Confirm Leave Record Deletion'}
-            </span>
-          </div>
-        }
-        open={isModalOpen}
-        onOk={handleOk}
-        onCancel={handleCancel}
-        okText={modalType === 'Delete' ? 'Delete' : 'OK'}
-        okButtonProps={{ 
-          danger: modalType === 'Delete', 
-          style: { fontFamily: 'Poppins, sans-serif' }
-        }}
-        cancelButtonProps={{ style: { fontFamily: 'Poppins, sans-serif' } }}
-        width={600}
-        centered
-        styles={{ body: { padding: '20px', fontFamily: 'Poppins, sans-serif' } }}
-      >
-        {(modalType === 'Add') && (
-          <Form form={form} layout="vertical" style={{ fontFamily: 'Poppins, sans-serif' }}>
-            <Form.Item 
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Start Date<span style={{ color: 'red' }}>*</span></span>} 
-              name="startDate" 
-              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select a start date!</span> }]}
-            >
-              <DatePicker 
-                format={DATE_FORMAT} 
-                style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }} 
-              />
-            </Form.Item>
-            <Form.Item 
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>End Date<span style={{ color: 'red' }}>*</span></span>} 
-              name="endDate" 
-              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select an end date!</span> }]}
-            >
-              <DatePicker 
-                format={DATE_FORMAT} 
-                style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }} 
-              />
-            </Form.Item>
-            <Form.Item 
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Employee<span style={{ color: 'red' }}>*</span></span>} 
-              name="employeeId" 
-              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select an employee!</span> }]}
-            >
-              <Select
-                showSearch
-                placeholder="Type or select an employee"
-                optionFilterProp="children"
-                onChange={handleEmployeeChange}
-                filterOption={(input, option) => option.children.toLowerCase().includes(input.toLowerCase())}
-                style={{ fontFamily: 'Poppins, sans-serif' }}
-              >
-                {(role === 'Payroll Staff' ? 
-                  employees.filter(emp => assignedBranches.some(ab => ab.BranchID === emp.BranchID)).filter(emp => {
-                    const memberSince = moment(emp.MemberSince, 'YYYY-MM-DD');
-                    const currentDate = moment('2025-05-01');
-                    return currentDate.diff(memberSince, 'years') >= 1;
-                  }) : 
-                  employees).map((employee) => (
-                    <Option key={employee.EmployeeID} value={employee.EmployeeID} style={{ fontFamily: 'Poppins, sans-serif' }}>
-                      {employee.EmployeeName}
-                    </Option>
-                  ))}
-              </Select>
-            </Form.Item>
-            <Form.Item 
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Leave Type<span style={{ color: 'red' }}>*</span></span>} 
-              name="leaveType" 
-              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select a leave type!</span> }]}
-            >
-              <Select style={{ fontFamily: 'Poppins, sans-serif' }}>
-                <Option value="Vacation Leave" style={{ fontFamily: 'Poppins, sans-serif' }}>Vacation Leave</Option>
-                <Option value="Sick Leave" style={{ fontFamily: 'Poppins, sans-serif' }}>Sick Leave</Option>
-              </Select>
-            </Form.Item>
-          </Form>
-        )}
-
-        {(modalType === 'Edit') && (
-          <Form form={form} layout="vertical" style={{ fontFamily: 'Poppins, sans-serif' }}>
-            <Form.Item 
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Start Date<span style={{ color: 'red' }}>*</span></span>} 
-              name="startDate" 
-              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select a start date!</span> }]}
-            >
-              <DatePicker 
-                format={DATE_FORMAT} 
-                style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }} 
-              />
-            </Form.Item>
-            <Form.Item 
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>End Date<span style={{ color: 'red' }}>*</span></span>} 
-              name="endDate" 
-              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select an end date!</span> }]}
-            >
-              <DatePicker 
-                format={DATE_FORMAT} 
-                style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }} 
-              />
-            </Form.Item>
-            <Form.Item 
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Leave Type<span style={{ color: 'red' }}>*</span></span>} 
-              name="leaveType" 
-              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select a leave type!</span> }]}
-            >
-              <Select style={{ fontFamily: 'Poppins, sans-serif' }}>
-                <Option value="Vacation Leave" style={{ fontFamily: 'Poppins, sans-serif' }}>Vacation Leave</Option>
-                <Option value="Sick Leave" style={{ fontFamily: 'Poppins, sans-serif' }}>Sick Leave</Option>
-              </Select>
-            </Form.Item>
-          </Form>
-        )}
-
-        {modalType === 'View' && selectedLeave && (
-          <div style={{ fontFamily: 'Poppins, sans-serif' }}>
-            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Start Date:</strong> {selectedLeave.startDate}
-            </p>
-            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>End Date:</strong> {selectedLeave.endDate}
-            </p>
-            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Employee Name:</strong> {selectedLeave.employeeName}
-            </p>
-            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Branch:</strong> {selectedLeave.branch}
-            </p>
-            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Leave Type:</strong> {selectedLeave.leaveType}
-            </p>
-            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Leave Credits:</strong> {selectedLeave.leaveCredits}
-            </p>
-            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Available Leave Credits:</strong> {selectedLeave.availableLeaveCredits}
-            </p>
-            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Used Leave Credits:</strong> {selectedLeave.usedLeaveCredits}
-            </p>
-          </div>
-        )}
-
-        {modalType === 'Delete' && selectedLeave && (
-          <div style={{ fontFamily: 'Poppins, sans-serif', textAlign: 'center' }}>
-            <p style={{ fontSize: '18px', fontWeight: 'bold', color: '#ff4d4f', fontFamily: 'Poppins, sans-serif' }}>
-              ⚠️ Are you sure you want to delete this leave record?
-            </p>
-            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
-              This action <strong style={{ fontFamily: 'Poppins, sans-serif' }}>cannot be undone</strong>. The leave record for "<strong style={{ fontFamily: 'Poppins, sans-serif' }}>{selectedLeave.employeeName}</strong>" will be permanently removed.
-            </p>
-          </div>
-        )}
-      </Modal>
-    </div>
+    </ConfigProvider>
   );
 };
 

@@ -1,9 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Modal, Space, Table, Button, Input, Form, message, TimePicker, Typography } from 'antd';
-import { 
-  EyeOutlined, EditOutlined, DeleteOutlined, PlusOutlined, 
-  SearchOutlined 
-} from '@ant-design/icons';
+import { ConfigProvider, Modal, Space, Table, Button, Input, Form, message, TimePicker, Typography, Tooltip } from 'antd';
+import { EyeOutlined, EditOutlined, DeleteOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import './UserTable.css';
 import moment from 'moment';
 
@@ -173,190 +170,195 @@ const SchedulesTable = () => {
   };
 
   return (
-    <div className="fade-in" style={{ padding: '20px' }}>
-      <Title level={2} style={{ fontFamily: 'Poppins, sans-serif', marginBottom: '20px' }}>
-        Company Schedules
-      </Title>
+    <ConfigProvider theme={{ token: { fontFamily: 'Poppins, sans-serif' } }}>
+      <div className="fade-in" style={{ padding: '20px' }}>
+        <style>
+          {`
+            @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
+            
+            /* Ensure custom elements use Poppins */
+            .fade-in, .fade-in * {
+              font-family: 'Poppins', sans-serif !important;
+            }
+          `}
+        </style>
+        <Title level={2} style={{ marginBottom: '20px' }}>
+          Company Schedules
+        </Title>
 
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'right', 
-        alignItems: 'center', 
-        gap: 16, 
-        marginBottom: 20,
-        flexWrap: 'wrap' 
-      }}>
-        <Button
-          icon={<PlusOutlined />}
-          size="middle"
-          style={{ 
-            backgroundColor: '#2C374e', 
-            borderColor: '#2C3743', 
-            color: 'white',
-            fontFamily: 'Poppins, sans-serif'
-          }}
-          onClick={() => openModal('Add')}
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'right', 
+          alignItems: 'center', 
+          gap: 16, 
+          marginBottom: 20,
+          flexWrap: 'wrap' 
+        }}>
+          <Button
+            icon={<PlusOutlined />}
+            size="middle"
+            style={{ backgroundColor: '#2C374e', borderColor: '#2C3743', color: 'white' }}
+            onClick={() => openModal('Add')}
+          >
+            {showLabels && 'Add Schedule'}
+          </Button>
+          <Input
+            placeholder="Search..."
+            allowClear
+            value={searchText}
+            onChange={(e) => handleSearch(e.target.value)}
+            prefix={<SearchOutlined />}
+            style={{ width: screenWidth < 480 ? '100%' : '250px', marginTop: screenWidth < 480 ? 10 : 0 }}
+          />
+        </div>
+
+        <Table 
+          dataSource={filteredData} 
+          bordered
+          scroll={{ x: true }}
+          pagination={{ responsive: true, position: ['bottomCenter'] }}
         >
-          {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Add Schedule</span>}
-        </Button>
-        <Input
-          placeholder="Search..."
-          allowClear
-          value={searchText}
-          onChange={(e) => handleSearch(e.target.value)}
-          prefix={<SearchOutlined />}
-          style={{ 
-            width: screenWidth < 480 ? '100%' : '250px', 
-            marginTop: screenWidth < 480 ? 10 : 0,
-            fontFamily: 'Poppins, sans-serif'
-          }}
-        />
-      </div>
+          <Column 
+            title="Shift Start ⬍" 
+            dataIndex="ShiftStart" 
+            key="ShiftStart" 
+            sorter={(a, b) => a.ShiftStart.localeCompare(b.ShiftStart)}
+            render={(text) => <span>{text}</span>}
+          />
+          <Column 
+            title="Shift End ⬍"
+            dataIndex="ShiftEnd" 
+            key="ShiftEnd" 
+            sorter={(a, b) => a.ShiftEnd.localeCompare(b.ShiftEnd)}
+            render={(text) => <span>{text}</span>}
+          />
+          <Column
+            title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Action</span>}
+            key="action"
+            render={(_, record) => (
+              <Space size={7} wrap>
+                <Tooltip title="View">
+                  <Button
+                    icon={<EyeOutlined />}
+                    size="middle"
+                    style={{
+                      width: '40px',
+                      backgroundColor: '#52c41a',
+                      borderColor: '#52c41a',
+                      color: 'white',
+                      fontFamily: 'Poppins, sans-serif'
+                    }}
+                    onClick={() => openModal('View', record)}
+                  />
+                </Tooltip>
+                <Tooltip title="Edit">
+                  <Button
+                    icon={<EditOutlined />}
+                    size="middle"
+                    style={{
+                      width: '40px',
+                      backgroundColor: '#722ed1',
+                      borderColor: '#722ed1',
+                      color: 'white',
+                      fontFamily: 'Poppins, sans-serif'
+                    }}
+                    onClick={() => openModal('Edit', record)}
+                  />
+                </Tooltip>
+                <Tooltip title="Delete">
+                  <Button
+                    icon={<DeleteOutlined />}
+                    size="middle"
+                    style={{
+                      width: '40px',
+                      backgroundColor: '#ff4d4f',
+                      borderColor: '#ff4d4f',
+                      color: 'white',
+                      fontFamily: 'Poppins, sans-serif'
+                    }}
+                    onClick={() => openModal('Delete', record)}
+                  />
+                </Tooltip>
+              </Space>
+            )}
+          />
+        </Table>
 
-      <Table 
-        dataSource={filteredData} 
-        bordered
-        scroll={{ x: true }}
-        pagination={{ responsive: true, position: ['bottomCenter'] }}
-        style={{ fontFamily: 'Poppins, sans-serif' }}
-      >
-        <Column 
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Shift Start ⬍</span>} 
-          dataIndex="ShiftStart" 
-          key="ShiftStart" 
-          sorter={(a, b) => a.ShiftStart.localeCompare(b.ShiftStart)}
-          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
-        />
-        <Column 
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Shift End ⬍</span>}
-          dataIndex="ShiftEnd" 
-          key="ShiftEnd" 
-          sorter={(a, b) => a.ShiftEnd.localeCompare(b.ShiftEnd)}
-          render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
-        />
-        <Column
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Action</span>}
-          key="action"
-          render={(_, record) => (
-            <Space size="middle" wrap>
-              <Button
-                icon={<EyeOutlined />}
-                size="middle"
-                style={{ 
-                  backgroundColor: '#52c41a', 
-                  borderColor: '#52c41a', 
-                  color: 'white',
-                  fontFamily: 'Poppins, sans-serif'
-                }}
-                onClick={() => openModal('View', record)}
+        <Modal 
+          title={
+            <div style={{ textAlign: 'center' }}>
+              <span style={{ fontSize: '22px', fontWeight: 'bold' }}>
+                {modalType === 'Add' ? 'Add a New Schedule' :
+                 modalType === 'Edit' ? 'Edit Schedule Details' :
+                 modalType === 'View' ? 'View Schedule Information' :
+                 'Confirm Schedule Deletion'}
+              </span>
+            </div>
+          }
+          open={isModalOpen}
+          onOk={modalType === 'View' ? handleCancel : handleOk}
+          onCancel={handleCancel}
+          okText={modalType === 'Delete' ? 'Delete' : 'OK'}
+          okButtonProps={{ danger: modalType === 'Delete' }}
+          cancelButtonProps={{}}
+          width={600}
+          centered
+          styles={{ body: { minHeight: '100px', padding: '20px', margin: 20 } }}
+        >
+          {(modalType === 'Add' || modalType === 'Edit') && (
+            <Form form={form} layout="vertical">
+              <Form.Item
+                label={<span>Shift Start<span style={{ color: 'red' }}>*</span></span>}
+                name="shiftStart"
+                rules={[{ required: true, message: 'Please enter start of the shift!' }]}
               >
-                {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>View</span>}
-              </Button>
-              <Button
-                icon={<EditOutlined />}
-                size="middle"
-                style={{ 
-                  backgroundColor: '#722ed1', 
-                  borderColor: '#722ed1', 
-                  color: 'white',
-                  fontFamily: 'Poppins, sans-serif'
-                }}
-                onClick={() => openModal('Edit', record)}
+                <TimePicker
+                  format="HH:mm"
+                  placeholder="Select Shift Start"
+                  style={{ width: '100%' }}
+                />
+              </Form.Item>
+              <Form.Item
+                label={<span>Shift End<span style={{ color: 'red' }}>*</span></span>}
+                name="shiftEnd"
+                rules={[{ required: true, message: 'Please enter end of the shift!' }]}
               >
-                {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Edit</span>}
-              </Button>
-              <Button
-                icon={<DeleteOutlined />}
-                size="middle"
-                style={{ 
-                  backgroundColor: '#ff4d4f', 
-                  borderColor: '#ff4d4f', 
-                  color: 'white',
-                  fontFamily: 'Poppins, sans-serif'
-                }}
-                onClick={() => openModal('Delete', record)}
-              >
-                {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Delete</span>}
-              </Button>
-            </Space>
+                <TimePicker
+                  format="HH:mm"
+                  placeholder="Select Shift End"
+                  style={{ width: '100%' }}
+                />
+              </Form.Item>
+            </Form>
           )}
-        />
-      </Table>
 
-      <Modal 
-        title={
-          <div style={{ textAlign: 'center' }}>
-            <span style={{ fontSize: '22px', fontWeight: 'bold', fontFamily: 'Poppins, sans-serif' }}>
-              {modalType === 'Add' ? 'Add a New Schedule' :
-              modalType === 'Edit' ? 'Edit Schedule Details' :
-              modalType === 'View' ? 'View Schedule Information' :
-              'Confirm Schedule Deletion'}
-            </span>
-          </div>
-        }
-        open={isModalOpen}
-        onOk={modalType === 'View' ? handleCancel : handleOk}
-        onCancel={handleCancel}
-        okText={modalType === 'Delete' ? 'Delete' : 'OK'}
-        okButtonProps={{ 
-          danger: modalType === 'Delete', 
-          style: { fontFamily: 'Poppins, sans-serif' } 
-        }}
-        cancelButtonProps={{ style: { fontFamily: 'Poppins, sans-serif' } }}
-        width={600}
-        centered
-        styles={{ minHeight: '100px', padding: '20px', margin: 20, fontFamily: 'Poppins, sans-serif' }}
-      >
-        {(modalType === 'Add' || modalType === 'Edit') && (
-          <Form form={form} layout="vertical" style={{ fontFamily: 'Poppins, sans-serif' }}>
-            <Form.Item
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Shift Start<span style={{ color: 'red' }}>*</span></span>}
-              name="shiftStart"
-              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please enter start of the shift!</span> }]}
-            >
-              <TimePicker
-                format="HH:mm"
-                placeholder="Select Shift Start"
-                style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }}
-              />
-            </Form.Item>
-            <Form.Item
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Shift End<span style={{ color: 'red' }}>*</span></span>}
-              name="shiftEnd"
-              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please enter end of the shift!</span> }]}
-            >
-              <TimePicker
-                format="HH:mm"
-                placeholder="Select Shift End"
-                style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }}
-              />
-            </Form.Item>
-          </Form>
-        )}
+          {modalType === 'View' && (
+            <div>
+              <p>
+                <strong>Shift Start:</strong> {selectedSchedule?.ShiftStart}
+              </p>
+              <p>
+                <strong>Shift End:</strong> {selectedSchedule?.ShiftEnd}
+              </p>
+            </div>
+          )}
 
-        {modalType === 'View' && (
-          <div style={{ fontFamily: 'Poppins, sans-serif' }}>
-            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Shift Start:</strong> {selectedSchedule?.ShiftStart}
-            </p>
-            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
-              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Shift End:</strong> {selectedSchedule?.ShiftEnd}
-            </p>
-          </div>
-        )}
-
-        {modalType === 'Delete' && (
-          <div style={{ fontFamily: 'Poppins, sans-serif', textAlign: 'center' }}>
-            <p style={{ fontSize: '18px', fontWeight: 'bold', color: '#ff4d4f', fontFamily: 'Poppins, sans-serif' }}>
-              ⚠️ Are you sure you want to delete this schedule?
-            </p>
-            <p style={{ fontFamily: 'Poppins, sans-serif' }}>
-              This action <strong style={{ fontFamily: 'Poppins, sans-serif' }}>cannot be undone</strong>. The schedule "<strong style={{ fontFamily: 'Poppins, sans-serif' }}>{selectedSchedule?.ShiftStart} - {selectedSchedule?.ShiftEnd}</strong>" will be permanently removed.
-            </p>
-          </div>
-        )}
-      </Modal>
-    </div>
+          {modalType === 'Delete' && (
+            <div style={{ textAlign: 'center' }}>
+              <p style={{ fontSize: '18px', fontWeight: 'bold', color: '#ff4d4f' }}>
+                ⚠️ Are you sure you want to delete this schedule?
+              </p>
+              <p>
+                This action <strong>cannot be undone</strong>. 
+                The schedule "<strong>{selectedSchedule?.ShiftStart} - {selectedSchedule?.ShiftEnd}</strong>" 
+                will be permanently removed including all the records that has been assigned by this Schedule 
+                <strong> (Employee Records and all of its assigned records).</strong>
+              </p>
+            </div>
+          )}
+        </Modal>
+      </div>
+    </ConfigProvider>
   );
 };
 

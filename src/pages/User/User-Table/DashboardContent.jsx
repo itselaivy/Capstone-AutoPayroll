@@ -1,71 +1,71 @@
-// Import React hooks for state and lifecycle management
 import React, { useState, useEffect } from 'react';
-// Import Ant Design components for UI
 import { Card, Row, Col, Statistic, Typography, Select, Space, Button, message, Spin, Modal } from 'antd';
-// Import Recharts components for charts
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   PieChart, Pie, Cell, LineChart, Line,
 } from 'recharts';
-// Import Ant Design icons
 import { ShopOutlined, TeamOutlined, ClockCircleOutlined, WarningOutlined, RightOutlined, DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
-// Import React Router hook for navigation
 import { useNavigate } from 'react-router-dom';
-// Import CountUp for animated number counting
 import CountUp from 'react-countup';
-// Import jsPDF and autoTable for PDF generation
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-// Import custom CSS for styling
 import './DashboardDesign.css';
 
-// Destructure Typography components from Ant Design
 const { Title, Text } = Typography;
-// Destructure Option from Select component
 const { Option } = Select;
 
-// Define the Dashboard component
 const Dashboard = () => {
-  // State for dashboard statistics (branches, employees, on-time, late)
   const [dashboardStats, setDashboardStats] = useState({
     branches: 0,
     employees: 0,
     onTimeToday: 0,
     lateToday: 0,
   });
-  // State for monthly attendance data
   const [monthlyAttendance, setMonthlyAttendance] = useState([]);
-  // State for yearly trend data
   const [trendData, setTrendData] = useState([]);
-  // State for branch data
   const [branches, setBranches] = useState([]);
-  // State for selected year filter
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
-  // State for selected month filter
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
-  // State for selected branch filter
   const [selectedBranch, setSelectedBranch] = useState('all');
-  // State for sort order of attendance data
   const [sortOrder, setSortOrder] = useState('asc');
-  // State for modal data (attendance details)
   const [modalData, setModalData] = useState(null);
-  // State for loading indicator
   const [loading, setLoading] = useState(false);
-  // State for error messages
   const [error, setError] = useState(null);
-  // State for last refresh time
   const [lastRefresh, setLastRefresh] = useState(null);
 
-  // Base URL for API requests
   const API_BASE_URL = "http://localhost/UserTableDB/UserDB";
-  // Get user role from localStorage
   const role = localStorage.getItem('role');
-  // Get user ID from localStorage
   const userId = localStorage.getItem('userId');
-  // Hook for navigation
   const navigate = useNavigate();
 
-  // Function to handle refreshing all dashboard data
+  const logActivity = async (activityData) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/log_activity.php`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(activityData),
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP error: ${response.status} ${response.statusText}`);
+      }
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.error || 'Activity logging failed');
+      }
+    } catch (err) {
+      console.error('Log Activity Error:', {
+        message: err.message,
+        name: err.name,
+        stack: err.stack,
+      });
+      if (err.message.includes('Failed to fetch')) {
+        message.warning('Failed to log activity due to network or CORS issue');
+      } else {
+        message.warning('Failed to log activity');
+      }
+    }
+  };
+
   const handleRefresh = () => {
     setLoading(true);
     Promise.all([
@@ -85,7 +85,6 @@ const Dashboard = () => {
       .finally(() => setLoading(false));
   };
 
-  // Function to fetch dashboard statistics
   const fetchDashboardStats = async () => {
     setLoading(true);
     try {
@@ -109,7 +108,6 @@ const Dashboard = () => {
     }
   };
 
-  // Function to fetch branch data
   const fetchBranches = async () => {
     setLoading(true);
     try {
@@ -137,7 +135,6 @@ const Dashboard = () => {
     }
   };
 
-  // Function to fetch monthly attendance
   const fetchMonthlyAttendance = async () => {
     setLoading(true);
     try {
@@ -191,7 +188,6 @@ const Dashboard = () => {
     }
   };
 
-  // Function to fetch yearly attendance trends
   const fetchTrends = async () => {
     setLoading(true);
     try {
@@ -213,7 +209,6 @@ const Dashboard = () => {
     }
   };
 
-  // Function to fetch detailed attendance for a specific date
   const fetchDetails = async (date) => {
     setLoading(true);
     try {
@@ -230,12 +225,10 @@ const Dashboard = () => {
     }
   };
 
-  // Effect hook to fetch data on mount and when filters change
   useEffect(() => {
     handleRefresh();
   }, [selectedYear, selectedMonth, selectedBranch, sortOrder]);
 
-  // Styles for card icons
   const iconStyles = {
     position: 'absolute',
     top: 10,
@@ -245,16 +238,13 @@ const Dashboard = () => {
     color: '#fff',
   };
 
-  // Data for the PieChart (today's attendance summary)
   const pieData = [
     { name: 'On-Time', value: dashboardStats.onTimeToday },
     { name: 'Late', value: dashboardStats.lateToday },
   ];
 
-  // Colors for PieChart segments
   const COLORS = ['#52c41a', '#ff4d4f'];
 
-  // Function to generate and download attendance report PDF
   const downloadAttendancePDF = () => {
     if (monthlyAttendance.length === 0) {
       message.warning("No attendance data available to download");
@@ -285,6 +275,21 @@ const Dashboard = () => {
       doc.text(`Total On-Time: ${totalOnTime} | Total Late: ${totalLate}`, 14, doc.lastAutoTable.finalY + 10);
 
       doc.save(`Attendance_${selectedMonth === 'all' ? 'Yearly' : selectedMonth}_${selectedYear}.pdf`);
+
+      if (!userId) {
+        console.error('User ID is missing; cannot log activity');
+        message.warning('Activity logging skipped due to missing user ID');
+      } else {
+        const branchName = selectedBranch === 'all' ? 'All Branches' : branches.find(b => b.BranchID === parseInt(selectedBranch))?.BranchName || 'Unknown';
+        logActivity({
+          user_id: parseInt(userId), // Ensure user_id is an integer
+          activity_type: 'GENERATE_DATA',
+          affected_table: 'Attendance',
+          affected_record_id: null,
+          activity_description: `Generated Attendance Report for ${selectedMonth === 'all' ? 'All Months' : new Date(0, selectedMonth - 1).toLocaleString('default', { month: 'long' })} ${selectedYear} for ${branchName}`,
+        });
+      }
+
       message.success("PDF generated successfully");
     } catch (err) {
       console.error("PDF Generation Error:", err);
@@ -292,7 +297,6 @@ const Dashboard = () => {
     }
   };
 
-  // Function to handle BarChart click (fetch details)
   const handleBarClick = (data) => {
     if (data && data.activePayload && data.activePayload[0]) {
       const date = data.activePayload[0].payload.date;
@@ -300,7 +304,6 @@ const Dashboard = () => {
     }
   };
 
-  // Render the component
   return (
     <div className="dashboard-container fade-in" style={{ fontFamily: 'Poppins, sans-serif' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -331,7 +334,6 @@ const Dashboard = () => {
       {loading && <Spin tip="Loading data..." style={{ display: 'block', textAlign: 'center', margin: '20px 0', fontFamily: 'Poppins, sans-serif' }} />}
       {error && <Text type="danger" style={{ display: 'block', textAlign: 'center', margin: '20px 0', fontFamily: 'Poppins, sans-serif' }}>{error}</Text>}
 
-      {/* Dashboard Cards */}
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={12} md={6}>
           <Card className="modern-card" style={{ background: 'linear-gradient(135deg, #055DAF 0%, #054a8f 100%)' }}>
@@ -403,7 +405,6 @@ const Dashboard = () => {
         </Col>
       </Row>
 
-      {/* Yearly Attendance Trends */}
       <Row gutter={[16, 16]} style={{ marginTop: 24 }}>
         <Col xs={24}>
           <Card className="attendance-widget full-width">
@@ -427,7 +428,6 @@ const Dashboard = () => {
         </Col>
       </Row>
 
-      {/* Monthly Attendance Overview and Today's Summary */}
       <Row gutter={[16, 16]} style={{ marginTop: 24 }}>
         <Col xs={24} lg={16}>
           <Card className="monthly-attendance-widget">
@@ -451,7 +451,6 @@ const Dashboard = () => {
                   onChange={setSelectedMonth}
                   style={{ width: 120, fontFamily: 'Poppins, sans-serif' }}
                 >
-                  <Option value="all">All Months</Option>
                   {Array.from({ length: 12 }, (_, i) => (
                     <Option key={i + 1} value={i + 1}>
                       {new Date(0, i).toLocaleString('default', { month: 'long' })}
@@ -533,9 +532,8 @@ const Dashboard = () => {
         </Col>
       </Row>
 
-      {/* Modal for Attendance Details */}
       <Modal
-        title={<span style={{ fontSize: '22px', fontWeight: 'bold', fontFamily: 'Poppins, sans-serif' }}>{`Attendance Details - ${modalData?.date || ''}`}</span>}
+        title={<span style={{ fontSize: '22px', fontWeight: 'bold', fontFamily: 'Poppins, sans-serif' }}>{`Attendance Details: ${modalData?.date || ''}`}</span>}
         open={!!modalData}
         onCancel={() => setModalData(null)}
         footer={null}
@@ -558,5 +556,4 @@ const Dashboard = () => {
   );
 };
 
-// Export the component
 export default Dashboard;

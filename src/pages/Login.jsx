@@ -218,20 +218,6 @@ const Login = () => {
             </Form.Item>
 
             <Form.Item>
-              <div style={{ width: '100%', textAlign: 'right' }}>
-                <a
-                  href="#"
-                  style={{
-                    fontFamily: 'Poppins, sans-serif',
-                    color: '#000000',
-                  }}
-                >
-                  Forgot password?
-                </a>
-              </div>
-            </Form.Item>
-
-            <Form.Item>
               <Button
                 block
                 type="primary"

@@ -10,7 +10,8 @@ import Overtime from '../pages/User/Overtime'
 import CashAdvance from '../pages/User/CashAdvance'
 import Schedules from '../pages/User/Schedules'
 import Allowances from '../pages/User/Allowances'
-import Deductions from '../pages/User/Deductions'
+import Contributions from '../pages/User/Contributions'
+import Loan from '../pages/User/Loan'
 import Position from '../pages/User/Position'
 import HolidayType from '../pages/User/HolidayType'
 import LeaveType from '../pages/User/LeaveType'
@@ -24,17 +25,18 @@ const ContentArea = ({ selectedKey, colorBgContainer, borderRadiusLG }) => {
     switch (selectedKey) {
       case '1': return <Dashboard />
       case '2': return <Branches />
-      case '3': return <Attendance />
+      case '15': return <Attendance />
       case '4': return <Employees />
       case '5': return <Overtime />
       case '6': return <CashAdvance />
       case '7': return <Schedules />
       case '8': return <Allowances />
-      case '9': return <Deductions />
-      case '10': return <Position />
-      case '11': return <HolidayType />
-      case '12': return <LeaveType />
-      case '13': return <Payroll />
+      case '9': return <Contributions />
+      case '10': return <Loan />
+      case '11': return <Position />
+      case '12': return <HolidayType />
+      case '13': return <LeaveType />
+      case '14': return <Payroll />
       default: return <h2>Select a menu item</h2>
     }
   }
@@ -54,4 +56,4 @@ const ContentArea = ({ selectedKey, colorBgContainer, borderRadiusLG }) => {
   )
 }
 
-export default ContentArea
+export default ContentArea;

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Space, Table, Button, Input, Modal, Form, message, Select, Tag, Radio, Typography, Pagination } from 'antd';
+import { Space, Table, Button, Input, Modal, Form, message, Select, Tag, Radio, Typography, Pagination, Tooltip } from 'antd';
 import { EyeOutlined, EditOutlined, DeleteOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons';
 
 const { Column } = Table;
@@ -114,6 +114,7 @@ const AllowancesTable = () => {
       setOriginalData(groupedData);
       setFilteredData(groupedData);
       setPaginationTotal(response.total);
+      setFilteredPaginationTotal(groupedData.length);
     } catch (err) {
       console.error("Fetch Allowances Error:", err.message);
       message.error(`Failed to load allowances data: ${err.message}`);
@@ -199,7 +200,7 @@ const AllowancesTable = () => {
         const { employeeId, description } = values;
 
         if (checkDuplicateAllowance(employeeId, description)) {
-          message.warning("Warning: An employee with this cash advance record already exists.");
+          message.warning("Warning: An employee with this allowance record already exists.");
           return;
         }
 
@@ -437,34 +438,52 @@ const AllowancesTable = () => {
           render={(totalAmount) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>₱{formatNumberWithCommas(totalAmount)}</span>}
         />
         <Column
-          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Action</span>}
-          key="action"
-          render={(_, record) => (
-            <Space size="middle" wrap>
-              <Button 
-                icon={<EyeOutlined />} 
-                size="middle" 
-                style={{ backgroundColor: '#52c41a', borderColor: '#52c41a', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
-                onClick={() => openModal('View', record)}
-              >
-                {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>View</span>}
-              </Button>
-              <Button 
-                icon={<EditOutlined />} 
-                size="middle" 
-                style={{ backgroundColor: '#722ed1', borderColor: '#722ed1', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
-                onClick={() => openModal('Edit', record)}
-              >
-                {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Edit</span>}
-              </Button>
-              <Button 
-                icon={<DeleteOutlined />} 
-                size="middle" 
-                style={{ backgroundColor: '#ff4d4f', borderColor: '#ff4d4f', color: 'white', fontFamily: 'Poppins, sans-serif' }} 
-                onClick={() => openModal('Delete', record)}
-              >
-                {showLabels && <span style={{ fontFamily: 'Poppins, sans-serif' }}>Delete</span>}
-              </Button>
+            title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Action</span>}
+            key="action"
+            render={(_, record) => (
+              <Space size={7} wrap>
+                <Tooltip title="View">
+                  <Button
+                    icon={<EyeOutlined />}
+                    size="middle"
+                    style={{
+                      width: '40px',
+                      backgroundColor: '#52c41a',
+                      borderColor: '#52c41a',
+                      color: 'white',
+                      fontFamily: 'Poppins, sans-serif'
+                    }}
+                    onClick={() => openModal('View', record)}
+                  />
+                </Tooltip>
+                <Tooltip title="Edit">
+                  <Button
+                    icon={<EditOutlined />}
+                    size="middle"
+                    style={{
+                      width: '40px',
+                      backgroundColor: '#722ed1',
+                      borderColor: '#722ed1',
+                      color: 'white',
+                      fontFamily: 'Poppins, sans-serif'
+                    }}
+                    onClick={() => openModal('Edit', record)}
+                  />
+                </Tooltip>
+                <Tooltip title="Delete">
+                  <Button
+                    icon={<DeleteOutlined />}
+                    size="middle"
+                    style={{
+                      width: '40px',
+                      backgroundColor: '#ff4d4f',
+                      borderColor: '#ff4d4f',
+                      color: 'white',
+                      fontFamily: 'Poppins, sans-serif'
+                    }}
+                    onClick={() => openModal('Delete', record)}
+                  />
+                </Tooltip>
             </Space>
           )}
         />
@@ -478,7 +497,7 @@ const AllowancesTable = () => {
         onShowSizeChange={handlePageChange}
         showSizeChanger
         showQuickJumper
-        showTotal={(total) => `Total ${total} allowance records`}
+        showTotal={(total) => `Total ${total} employee records`}
         pageSizeOptions={['10', '20', '50', '100']}
         style={{ marginTop: 16, textAlign: 'right', justifyContent: 'center', fontFamily: 'Poppins, sans-serif' }}
       />
@@ -489,7 +508,7 @@ const AllowancesTable = () => {
             <span style={{ fontSize: '22px', fontWeight: 'bold', fontFamily: 'Poppins, sans-serif' }}>
               {modalType === 'Add' ? 'Add New Allowance' : 
                modalType === 'Edit' ? 'Edit Allowance Details' : 
-               modalType === 'View' ? 'View Allowances' : 
+               modalType === 'View' ? 'View Allowance Details' : 
                'Confirm Allowances Deletion'}
             </span>
           </div>
@@ -595,8 +614,11 @@ const AllowancesTable = () => {
 
         {modalType === 'View' && selectedEmployee && (
           <div style={{ fontFamily: 'Poppins, sans-serif' }}>
-            <p style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: 30, fontFamily: 'Poppins, sans-serif' }}>
-              Allowances for {selectedEmployee.employeeName} ({selectedEmployee.branchName})
+            <p style={{ fontSize: '14.5px', fontFamily: 'Poppins, sans-serif' }}>
+              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Employee Name:</strong> {selectedEmployee.employeeName}
+            </p>
+            <p style={{ fontSize: '14.5px', fontFamily: 'Poppins, sans-serif' }}>
+              <strong style={{ fontFamily: 'Poppins, sans-serif' }}>Branch:</strong> {selectedEmployee.branchName}
             </p>
             {selectedEmployee.allowances.map((allowance) => (
               <div key={allowance.allowanceId} style={{ marginBottom: 8, fontFamily: 'Poppins, sans-serif' }}>
