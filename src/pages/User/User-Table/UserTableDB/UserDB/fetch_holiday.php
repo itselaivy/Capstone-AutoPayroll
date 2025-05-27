@@ -268,6 +268,8 @@ try {
             !empty($data["MonthDay"]) && 
             !empty($data["HolidayType"]) && 
             isset($data["BranchID"]) && 
+            is_array($data["BranchID"]) && 
+            !empty($data["BranchID"]) && 
             isset($data["Recurring"])) {
             
             $conn->begin_transaction();
@@ -290,14 +292,15 @@ try {
                 if ($stmt->execute()) {
                     $holidayId = $conn->insert_id;
 
-                    $branchIds = [];
-                    if ($data["BranchID"] === "All") {
+                    $branchIds = $data["BranchID"];
+                    if (in_array("All", $branchIds)) {
                         $branchIds = getAllBranchIds($conn);
                     } else {
-                        if (!recordExists($conn, "branches", $data["BranchID"])) {
-                            throw new Exception("Invalid BranchID: Branch does not exist");
+                        foreach ($branchIds as $branchId) {
+                            if (!recordExists($conn, "branches", $branchId)) {
+                                throw new Exception("Invalid BranchID: Branch $branchId does not exist");
+                            }
                         }
-                        $branchIds[] = $data["BranchID"];
                     }
 
                     $stmtBranch = $conn->prepare("INSERT INTO HolidayBranch (HolidayID, BranchID) VALUES (?, ?)");
@@ -309,7 +312,9 @@ try {
                     }
                     $stmtBranch->close();
 
-                    $branchNames = $data["BranchID"] === "All" ? "All Branches" : getBranchNameById($conn, $data["BranchID"]);
+                    $branchNames = in_array("All", $data["BranchID"]) ? "All Branches" : implode(", ", array_map(function($id) use ($conn) {
+                        return getBranchNameById($conn, $id);
+                    }, $branchIds));
                     $year = $fixedYear ?? (new DateTime())->format('Y');
                     $formattedDate = formatDate($data["MonthDay"], $year);
                     $description = "Holiday '$data[Description]' on '$formattedDate' added for branch '$branchNames'";
@@ -325,11 +330,11 @@ try {
                 throw $e;
             }
         } else {
-            throw new Exception("Missing required fields: " . 
+            throw new Exception("Missing or invalid required fields: " . 
                 (!empty($data["Description"]) ? "" : "Description, ") . 
                 (!empty($data["MonthDay"]) ? "" : "MonthDay, ") . 
                 (!empty($data["HolidayType"]) ? "" : "HolidayType, ") . 
-                (isset($data["BranchID"]) ? "" : "BranchID, ") . 
+                (isset($data["BranchID"]) && is_array($data["BranchID"]) && !empty($data["BranchID"]) ? "" : "BranchID, ") . 
                 (isset($data["Recurring"]) ? "" : "Recurring"));
         }
     } elseif ($method == "PUT") {
@@ -343,7 +348,7 @@ try {
             throw new Exception("User ID is required");
         }
 
-        if (!empty($data["HolidayID"])) {
+        if (!empty($data["HolidayID"]) && isset($data["BranchID"]) && is_array($data["BranchID"]) && !empty($data["BranchID"])) {
             $conn->begin_transaction();
             try {
                 // Validate MonthDay format
@@ -391,17 +396,23 @@ try {
                 }
 
                 // Check for branch changes
-                $newBranchIds = [];
-                if ($data["BranchID"] === "All") {
+                $newBranchIds = $data["BranchID"];
+                if (in_array("All", $newBranchIds)) {
                     $newBranchIds = getAllBranchIds($conn);
                 } else {
-                    $newBranchIds[] = $data["BranchID"];
+                    foreach ($newBranchIds as $branchId) {
+                        if (!recordExists($conn, "branches", $branchId)) {
+                            throw new Exception("Invalid BranchID: Branch $branchId does not exist");
+                        }
+                    }
                 }
                 sort($currentBranchIds);
                 sort($newBranchIds);
                 if ($currentBranchIds !== $newBranchIds) {
                     $oldBranchDisplay = count($currentBranchIds) > 1 ? "All Branches" : getBranchNameById($conn, $currentBranchIds[0] ?? null);
-                    $newBranchDisplay = $data["BranchID"] === "All" ? "All Branches" : getBranchNameById($conn, $data["BranchID"]);
+                    $newBranchDisplay = in_array("All", $data["BranchID"]) ? "All Branches" : implode(", ", array_map(function($id) use ($conn) {
+                        return getBranchNameById($conn, $id);
+                    }, $newBranchIds));
                     $changes[] = "Branch from '$oldBranchDisplay' to '$newBranchDisplay'";
                 }
 
@@ -413,16 +424,6 @@ try {
                     : "Holiday '$data[Description]' on '$formattedDate' updated for branch '$branchName': " . implode('/ ', $changes);
 
                 if ($stmt->execute()) {
-                    $branchIds = [];
-                    if ($data["BranchID"] === "All") {
-                        $branchIds = getAllBranchIds($conn);
-                    } else {
-                        if (!recordExists($conn, "branches", $data["BranchID"])) {
-                            throw new Exception("Invalid BranchID: Branch does not exist");
-                        }
-                        $branchIds[] = $data["BranchID"];
-                    }
-
                     $stmtDelete = $conn->prepare("DELETE FROM HolidayBranch WHERE HolidayID = ?");
                     $stmtDelete->bind_param("i", $data["HolidayID"]);
                     if (!$stmtDelete->execute()) {
@@ -431,7 +432,7 @@ try {
                     $stmtDelete->close();
 
                     $stmtInsert = $conn->prepare("INSERT INTO HolidayBranch (HolidayID, BranchID) VALUES (?, ?)");
-                    foreach ($branchIds as $branchId) {
+                    foreach ($newBranchIds as $branchId) {
                         $stmtInsert->bind_param("ii", $data["HolidayID"], $branchId);
                         if (!$stmtInsert->execute()) {
                             throw new Exception("Failed to insert new branches: " . $stmtInsert->error);
@@ -451,7 +452,7 @@ try {
                 throw $e;
             }
         } else {
-            throw new Exception("Holiday ID is required");
+            throw new Exception("Holiday ID and valid BranchID array are required");
         }
     } elseif ($method == "DELETE") {
         $data = json_decode(file_get_contents("php://input"), true);

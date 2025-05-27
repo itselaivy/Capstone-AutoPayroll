@@ -912,7 +912,7 @@ const AttendanceTable = () => {
               Download Template
             </Button>,
             <Upload key="upload" {...uploadProps}>
-              <Button type="primary" onClick={handleCsvInstructionOk} style={{ fontFamily: 'Poppins, sans-serif' }}>
+              <Button type="primary" onClick={handleCsvInstructionOk} style={{ backgroundColor: '#9532AD', borderColor: '#9532AD', fontFamily: 'Poppins, sans-serif' }}>
                 Proceed with Upload
               </Button>
             </Upload>,
