@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ConfigProvider, Space, Table, Button, Input, Modal, Form, message, DatePicker, Select, Upload, Typography, Pagination, Tooltip } from 'antd';
+import { ConfigProvider, Space, Table, Button, Input, Modal, Form, message, DatePicker, Select, Upload, Typography, Pagination, Tooltip, TimePicker } from 'antd';
 import { EyeOutlined, EditOutlined, DeleteOutlined, PlusOutlined, SearchOutlined, UploadOutlined } from '@ant-design/icons';
 import moment from 'moment';
 import Papa from 'papaparse';
@@ -82,6 +82,10 @@ const OvertimeTable = () => {
 
       if (!response.success) throw new Error(response.error || 'Failed to fetch overtime');
 
+      if (response.data.length === 0) {
+
+      }
+
       const mappedData = response.data.map(overtime => ({
         key: overtime.OvertimeID,
         date: moment(overtime.Date, 'YYYY-MM-DD').format(DATE_FORMAT),
@@ -90,6 +94,10 @@ const OvertimeTable = () => {
         branchId: overtime.BranchID,
         branch: overtime.BranchName || 'N/A',
         hours: parseInt(overtime["No_of_Hours"], 10),
+        startOvertime1: overtime.StartOvertime1 || 'N/A',
+        endOvertime1: overtime.EndOvertime1 || 'N/A',
+        startOvertime2: overtime.StartOvertime2 || 'N/A',
+        endOvertime2: overtime.EndOvertime2 || 'N/A',
       }));
 
       setOriginalData(mappedData);
@@ -97,7 +105,7 @@ const OvertimeTable = () => {
       setPaginationTotal(response.total);
     } catch (err) {
       console.error("Fetch Overtime Error:", err.message);
-      message.error(`Failed to load overtime data: ${err.message}`, 5);
+      message.error(`Failed to load overtime data: ${err.message}. Check filters or contact support.`, 5);
     }
   };
 
@@ -157,6 +165,10 @@ const OvertimeTable = () => {
         employeeId: record.employeeId,
         branch: employee ? employee.BranchID : record.branchId,
         hours: record.hours,
+        startOvertime1: record.startOvertime1 !== 'N/A' && record.startOvertime1 ? moment(record.startOvertime1, 'HH:mm') : null,
+        endOvertime1: record.endOvertime1 !== 'N/A' && record.endOvertime1 ? moment(record.endOvertime1, 'HH:mm') : null,
+        startOvertime2: record.startOvertime2 !== 'N/A' && record.startOvertime2 ? moment(record.startOvertime2, 'HH:mm') : null,
+        endOvertime2: record.endOvertime2 !== 'N/A' && record.endOvertime2 ? moment(record.endOvertime2, 'HH:mm') : null,
       });
     } else {
       form.resetFields();
@@ -169,6 +181,13 @@ const OvertimeTable = () => {
       return;
     }
 
+    const userId = localStorage.getItem('userId');
+    const role = localStorage.getItem('role') || '';
+    if (!userId || !role) {
+      message.error('Please log in to perform this action', 5);
+      return;
+    }
+
     if (modalType === "Add") {
       try {
         const values = await form.validateFields();
@@ -177,9 +196,13 @@ const OvertimeTable = () => {
           EmployeeID: parseInt(values.employeeId, 10),
           BranchID: values.branch ? parseInt(values.branch, 10) : null,
           No_of_Hours: parseInt(values.hours, 10),
+          StartOvertime1: values.startOvertime1 ? values.startOvertime1.format('HH:mm') : null,
+          EndOvertime1: values.endOvertime1 ? values.endOvertime1.format('HH:mm') : null,
+          StartOvertime2: values.startOvertime2 ? values.startOvertime2.format('HH:mm') : null,
+          EndOvertime2: values.endOvertime2 ? values.endOvertime2.format('HH:mm') : null,
         };
 
-        const res = await fetch(`${API_BASE_URL}/fetch_overtime.php`, {
+        const res = await fetch(`${API_BASE_URL}/fetch_overtime.php?user_id=${encodeURIComponent(userId)}&role=${encodeURIComponent(role)}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -210,10 +233,14 @@ const OvertimeTable = () => {
           EmployeeID: parseInt(selectedOvertime.employeeId, 10),
           BranchID: selectedOvertime.branchId ? parseInt(selectedOvertime.branchId, 10) : null,
           No_of_Hours: parseInt(values.hours, 10),
+          StartOvertime1: values.startOvertime1 ? values.startOvertime1.format('HH:mm') : null,
+          EndOvertime1: values.endOvertime1 ? values.endOvertime1.format('HH:mm') : null,
+          StartOvertime2: values.startOvertime2 ? values.startOvertime2.format('HH:mm') : null,
+          EndOvertime2: values.endOvertime2 ? values.endOvertime2.format('HH:mm') : null,
           OvertimeID: selectedOvertime.key,
         };
 
-        const res = await fetch(`${API_BASE_URL}/fetch_overtime.php`, {
+        const res = await fetch(`${API_BASE_URL}/fetch_overtime.php?user_id=${encodeURIComponent(userId)}&role=${encodeURIComponent(role)}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -238,7 +265,7 @@ const OvertimeTable = () => {
       }
     } else if (modalType === "Delete" && selectedOvertime) {
       try {
-        const res = await fetch(`${API_BASE_URL}/fetch_overtime.php`, {
+        const res = await fetch(`${API_BASE_URL}/fetch_overtime.php?user_id=${encodeURIComponent(userId)}&role=${encodeURIComponent(role)}`, {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ OvertimeID: selectedOvertime.key }),
@@ -277,6 +304,13 @@ const OvertimeTable = () => {
   };
 
   const handleCSVUpload = ({ file }) => {
+    const userId = localStorage.getItem('userId');
+    const role = localStorage.getItem('role') || '';
+    if (!userId || !role) {
+      message.error('Please log in to import CSV', 5);
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = (e) => {
       Papa.parse(e.target.result, {
@@ -323,11 +357,33 @@ const OvertimeTable = () => {
                 return null;
               }
 
+              const timeFormat = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+              if (row.StartOvertime1 && !timeFormat.test(row.StartOvertime1)) {
+                message.error(`Row ${index + 1}: Invalid 'StartOvertime1'. Must be in HH:MM 24-hour format (e.g., 18:00).`, 5);
+                return null;
+              }
+              if (row.EndOvertime1 && !timeFormat.test(row.EndOvertime1)) {
+                message.error(`Row ${index + 1}: Invalid 'EndOvertime1'. Must be in HH:MM 24-hour format (e.g., 20:00).`, 5);
+                return null;
+              }
+              if (row.StartOvertime2 && !timeFormat.test(row.StartOvertime2)) {
+                message.error(`Row ${index + 1}: Invalid 'StartOvertime2'. Must be in HH:MM 24-hour format (e.g., 21:00).`, 5);
+                return null;
+              }
+              if (row.EndOvertime2 && !timeFormat.test(row.EndOvertime2)) {
+                message.error(`Row ${index + 1}: Invalid 'EndOvertime2'. Must be in HH:MM 24-hour format (e.g., 23:00).`, 5);
+                return null;
+              }
+
               return {
                 Date: date.format('YYYY-MM-DD'),
                 EmployeeName: row.EmployeeName.trim(),
                 BranchName: row.BranchName ? row.BranchName.trim() : '',
                 No_of_Hours: hours,
+                StartOvertime1: row.StartOvertime1 || null,
+                EndOvertime1: row.EndOvertime1 || null,
+                StartOvertime2: row.StartOvertime2 || null,
+                EndOvertime2: row.EndOvertime2 || null,
               };
             })
             .filter(row => row !== null);
@@ -337,7 +393,7 @@ const OvertimeTable = () => {
             return;
           }
 
-          fetch(`${API_BASE_URL}/fetch_overtime.php`, {
+          fetch(`${API_BASE_URL}/fetch_overtime.php?user_id=${encodeURIComponent(userId)}&role=${encodeURIComponent(role)}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data),
@@ -398,6 +454,10 @@ const OvertimeTable = () => {
         EmployeeName: 'John Doe',
         BranchName: 'Main Branch',
         'No. of Hours': '2',
+        'StartOvertime1': '18:00',
+        'EndOvertime1': '20:00',
+        'StartOvertime2': '',
+        'EndOvertime2': '',
       },
     ];
     const csv = Papa.unparse(templateData);
@@ -482,6 +542,7 @@ const OvertimeTable = () => {
           </div>
         </div>
 
+        {/* Rest of the JSX remains unchanged */}
         <Table 
           dataSource={filteredData} 
           bordered 
@@ -521,6 +582,34 @@ const OvertimeTable = () => {
             dataIndex="hours" 
             key="hours" 
             sorter={(a, b) => a.hours - b.hours}
+            render={(text) => <span>{text}</span>}
+          />
+          <Column 
+            title="Start Overtime 1" 
+            dataIndex="startOvertime1" 
+            key="startOvertime1" 
+            sorter={(a, b) => a.startOvertime1.localeCompare(b.startOvertime1)}
+            render={(text) => <span>{text}</span>}
+          />
+          <Column 
+            title="End Overtime 1" 
+            dataIndex="endOvertime1" 
+            key="endOvertime1" 
+            sorter={(a, b) => a.endOvertime1.localeCompare(b.endOvertime1)}
+            render={(text) => <span>{text}</span>}
+          />
+          <Column 
+            title="Start Overtime 2" 
+            dataIndex="startOvertime2" 
+            key="startOvertime2" 
+            sorter={(a, b) => a.startOvertime2.localeCompare(b.startOvertime2)}
+            render={(text) => <span>{text}</span>}
+          />
+          <Column 
+            title="End Overtime 2" 
+            dataIndex="endOvertime2" 
+            key="endOvertime2" 
+            sorter={(a, b) => a.endOvertime2.localeCompare(b.endOvertime2)}
             render={(text) => <span>{text}</span>}
           />
           <Column
@@ -595,9 +684,9 @@ const OvertimeTable = () => {
             <div style={{ textAlign: 'center' }}>
               <span style={{ fontSize: '22px', fontWeight: 'bold' }}>
                 {modalType === 'Add' ? 'Add New Overtime' : 
-                 modalType === 'Edit' ? 'Edit Overtime Details' : 
-                 modalType === 'View' ? 'View Overtime Information' : 
-                 'Confirm Overtime Deletion'}
+                modalType === 'Edit' ? 'Edit Overtime Details' : 
+                modalType === 'View' ? 'View Overtime Information' : 
+                'Confirm Overtime Deletion'}
               </span>
             </div>
           }
@@ -667,6 +756,50 @@ const OvertimeTable = () => {
                   style={{ width: '100%' }} 
                 />
               </Form.Item>
+              <Form.Item 
+                label={<span>Start Overtime 1<span style={{ color: 'red' }}>*</span></span>} 
+                name="startOvertime1"
+                rules={[{ required: true, type: 'object', message: 'Please select a valid start time!' }]}
+              >
+                <TimePicker 
+                  format="HH:mm" 
+                  style={{ width: '100%' }} 
+                  placeholder="e.g., 18:00"
+                />
+              </Form.Item>
+              <Form.Item 
+                label={<span>End Overtime 1<span style={{ color: 'red' }}>*</span></span>} 
+                name="endOvertime1"
+                rules={[{ required: true, type: 'object', message: 'Please select a valid end time!' }]}
+              >
+                <TimePicker 
+                  format="HH:mm" 
+                  style={{ width: '100%' }} 
+                  placeholder="e.g., 20:00"
+                />
+              </Form.Item>
+              <Form.Item 
+                label="Start Overtime 2" 
+                name="startOvertime2"
+                rules={[{ type: 'object', message: 'Please select a valid time!' }]}
+              >
+                <TimePicker 
+                  format="HH:mm" 
+                  style={{ width: '100%' }} 
+                  placeholder="e.g., 21:00"
+                />
+              </Form.Item>
+              <Form.Item 
+                label="End Overtime 2" 
+                name="endOvertime2"
+                rules={[{ type: 'object', message: 'Please select a valid time!' }]}
+              >
+                <TimePicker 
+                  format="HH:mm" 
+                  style={{ width: '100%' }} 
+                  placeholder="e.g., 23:00"
+                />
+              </Form.Item>
             </Form>
           )}
 
@@ -713,15 +846,63 @@ const OvertimeTable = () => {
                   style={{ width: '100%' }} 
                 />
               </Form.Item>
+              <Form.Item 
+                label={<span>Start Overtime 1<span style={{ color: 'red' }}>*</span></span>} 
+                name="startOvertime1"
+                rules={[{ required: true, type: 'object', message: 'Please select a valid time!' }]}
+              >
+                <TimePicker 
+                  format="HH:mm" 
+                  style={{ width: '100%' }} 
+                  placeholder="e.g., 18:00"
+                />
+              </Form.Item>
+              <Form.Item 
+                label={<span>End Overtime 1<span style={{ color: 'red' }}>*</span></span>} 
+                name="endOvertime1"
+                rules={[{ required: true, type: 'object', message: 'Please select a valid time!' }]}
+              >
+                <TimePicker 
+                  format="HH:mm" 
+                  style={{ width: '100%' }} 
+                  placeholder="e.g., 20:00"
+                />
+              </Form.Item>
+              <Form.Item 
+                label="Start Overtime 2" 
+                name="startOvertime2"
+                rules={[{ type: 'object', message: 'Please select a valid time!' }]}
+              >
+                <TimePicker 
+                  format="HH:mm" 
+                  style={{ width: '100%' }} 
+                  placeholder="e.g., 21:00"
+                />
+              </Form.Item>
+              <Form.Item 
+                label="End Overtime 2" 
+                name="endOvertime2"
+                rules={[{ type: 'object', message: 'Please select a valid time!' }]}
+              >
+                <TimePicker 
+                  format="HH:mm" 
+                  style={{ width: '100%' }} 
+                  placeholder="e.g., 23:00"
+                />
+              </Form.Item>
             </Form>
           )}
 
-          {modalType === 'View' && selectedOvertime && (
+          {(modalType === 'View') && selectedOvertime && (
             <div>
               <p><strong>Date:</strong> {selectedOvertime.date}</p>
               <p><strong>Employee Name:</strong> {selectedOvertime.employeeName}</p>
               <p><strong>Branch:</strong> {selectedOvertime.branch}</p>
               <p><strong>No. of Hours:</strong> {selectedOvertime.hours}</p>
+              <p><strong>Start Overtime 1:</strong> {selectedOvertime.startOvertime1}</p>
+              <p><strong>End Overtime 1:</strong> {selectedOvertime.endOvertime1}</p>
+              <p><strong>Start Overtime 2:</strong> {selectedOvertime.startOvertime2}</p>
+              <p><strong>End Overtime 2:</strong> {selectedOvertime.endOvertime2}</p>
             </div>
           )}
 
@@ -758,7 +939,10 @@ const OvertimeTable = () => {
               Download Template
             </Button>,
             <Upload key="upload" {...uploadProps}>
-              <Button type="primary" onClick={handleCsvInstructionOk}>
+              <Button 
+                type="primary" 
+                onClick={handleCsvInstructionOk}
+                style={{ backgroundColor: '#9532AD', borderColor: '#9532AD', color: 'white', fontFamily: 'Poppins, sans-serif'}}>
                 Proceed with Upload
               </Button>
             </Upload>,
@@ -770,21 +954,26 @@ const OvertimeTable = () => {
               <li>Download the template CSV file using the "Download Template" button below.</li>
               <li>Fill the spreadsheet with the following columns:</li>
               <ul>
-                <li><strong>Date</strong>: The date of attendance (e.g., "04/06/2025"). Format: MM/DD/YYYY.</li>
+                <li><strong>Date</strong>: The date of overtime (e.g., "04/13/2025"). Format: MM/DD/YYYY.</li>
                 <li><strong>EmployeeName</strong>: Full name of the employee as it appears in the system (e.g., "John Doe").</li>
                 <li><strong>BranchName</strong>: Exact branch name from the system (e.g., "Main Branch").</li>
-                <li><strong>TimeIn</strong>: Check-in time in 24-hour format (e.g., "08:00").</li>
-                <li><strong>TimeOut</strong>: Check-out time in 24-hour format (e.g., "17:00").</li>
+                <li><strong>No. of Hours</strong>: Total overtime hours (e.g., "2"). Must be 0-12.</li>
+                <li><strong>StartOvertime1</strong>: Start time of first overtime period in 24-hour format (e.g., "18:00").</li>
+                <li><strong>EndOvertime1</strong>: End time of first overtime period in 24-hour format (e.g., "20:00").</li>
+                <li><strong>StartOvertime2</strong>: Start time of second overtime period in 24-hour format (e.g., "21:00"). Optional.</li>
+                <li><strong>EndOvertime2</strong>: End time of second overtime period in 24-hour format (e.g., "23:00"). Optional.</li>
               </ul>
-              <li>Double check if the file format is a CSV (e.g., "attendance.csv").</li>
+              <li>Double check if the file format is a CSV (e.g., "overtime.csv").</li>
               <li>After clicking "Proceed with Upload," select your CSV file to import.</li>
             </ol>
 
             <Text strong style={{ fontSize: '16px' }}>Reminders:</Text>
             <ul>
               <li>Ensure <strong>EmployeeName</strong> and <strong>BranchName</strong> match exactly with system records (case-insensitive).</li>
-              <li>The <strong>No. of Hours</strong> Column should be more than 0 but less than 12.</li>
-              <li>All fields are required—missing data will skip the row.</li>
+              <li>The <strong>No. of Hours</strong> column should be more than 0 but less than 12.</li>
+              <li><strong>StartOvertime1</strong> and <strong>EndOvertime1</strong> are required and must be in HH:MM format if provided.</li>
+              <li><strong>StartOvertime2</strong> and <strong>EndOvertime2</strong> are optional and can be left blank.</li>
+              <li>All required fields must be filled—missing data will skip the row.</li>
               <li>Duplicate records (same EmployeeName and Date) will update existing entries.</li>
               <li>Check for errors after upload—invalid names or formats will be flagged.</li>
               <li>For Payroll Staff, only employees and branches assigned to you can be imported.</li>

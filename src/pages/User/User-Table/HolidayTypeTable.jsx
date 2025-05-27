@@ -101,18 +101,26 @@ const HolidayTypeTable = () => {
       });
 
       const mappedData = Object.values(groupedData).map(holiday => {
-        const allBranchesSelected = branches.length > 0 && holiday.branchIds.length === branches.length && holiday.branchIds.every(id => branches.some(b => b.BranchID === id));
         let branchDisplay;
+        let branchTags = [];
+        const allBranchesSelected = holiday.branchIds.includes("All");
         if (allBranchesSelected) {
           branchDisplay = 'All Branches';
+          branchTags = [{ key: 'all', name: 'All Branches' }];
         } else if (holiday.branchIds.length === 1) {
           branchDisplay = holiday.branchNames[0];
+          branchTags = [{ key: holiday.branchIds[0], name: holiday.branchNames[0] }];
         } else {
-          branchDisplay = 'Custom';
+          branchDisplay = holiday.branchNames.join(', ');
+          branchTags = holiday.branchIds.map((id, index) => ({
+            key: id,
+            name: holiday.branchNames[index]
+          }));
         }
         return {
           ...holiday,
           branchDisplay,
+          branchTags
         };
       });
 
@@ -386,21 +394,16 @@ const HolidayTypeTable = () => {
           />
           <Column 
             title="Branch" 
-            dataIndex="branchDisplay" 
+            dataIndex="branchTags" 
             key="branchDisplay" 
             sorter={(a, b) => a.branchDisplay.localeCompare(b.branchDisplay)}
-            render={(branchDisplay, record) => {
-              if (branchDisplay === 'All Branches') {
-                return <Tag color="blue">All Branches</Tag>;
-              }
-              if (branchDisplay === 'Custom') {
-                return <Tag color="blue">All Branches</Tag>;
-              }
-              if (!branchDisplay || branchDisplay === 'N/A') {
-                return <Tag color="blue">N/A</Tag>;
-              }
-              return <Tag color="blue">{branchDisplay}</Tag>;
-            }}
+            render={(branchTags) => (
+              <Space wrap>
+                {branchTags.map(tag => (
+                  <Tag key={tag.key} color="blue">{tag.name}</Tag>
+                ))}
+              </Space>
+            )}
           />
           <Column 
             title="Recurring" 

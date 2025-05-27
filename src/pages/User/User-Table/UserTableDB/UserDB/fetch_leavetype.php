@@ -202,7 +202,9 @@ try {
                     throw new Exception("user_id and role are required for fetching employees.");
                 }
 
+                $data = [];
                 if ($role === 'Payroll Staff') {
+                    // Fetch branches assigned to the user
                     $branchStmt = $conn->prepare("SELECT BranchID FROM UserBranches WHERE UserID = ?");
                     if (!$branchStmt) throw new Exception("Prepare failed for branch query: " . $conn->error);
                     $branchStmt->bind_param("i", $user_id);
@@ -219,45 +221,51 @@ try {
                         exit;
                     }
 
+                    // Fetch employees in assigned branches who are eligible (MemberSince >= 1 year)
                     $placeholders = implode(',', array_fill(0, count($allowedBranches), '?'));
-                    $sql = "SELECT EmployeeID, EmployeeName, BranchID, MemberSince FROM employees WHERE BranchID IN ($placeholders)";
+                    $sql = "
+                        SELECT e.EmployeeID, e.EmployeeName, e.BranchID, e.MemberSince 
+                        FROM employees e 
+                        WHERE e.BranchID IN ($placeholders) 
+                        AND e.MemberSince IS NOT NULL 
+                        AND DATE_SUB(CURDATE(), INTERVAL 1 YEAR) >= e.MemberSince
+                    ";
                     $stmt = $conn->prepare($sql);
                     if (!$stmt) throw new Exception("Prepare failed for employees query: " . $conn->error);
                     $types = str_repeat('i', count($allowedBranches));
                     $stmt->bind_param($types, ...$allowedBranches);
                     $stmt->execute();
                     $result = $stmt->get_result();
-                    $data = [];
                     while ($row = $result->fetch_assoc()) {
-                        $isEligible = isEmployeeEligible($conn, $row['EmployeeID'], $currentDate);
-                        if ($isEligible) {
-                            $data[] = [
-                                'EmployeeID' => $row['EmployeeID'],
-                                'EmployeeName' => $row['EmployeeName'],
-                                'BranchID' => $row['BranchID']
-                            ];
-                        }
+                        $data[] = [
+                            'EmployeeID' => (int)$row['EmployeeID'],
+                            'EmployeeName' => $row['EmployeeName'],
+                            'BranchID' => (int)$row['BranchID'],
+                            'MemberSince' => $row['MemberSince']
+                        ];
                     }
                     $stmt->close();
-                    echo json_encode($data);
                 } else {
-                    $sql = "SELECT EmployeeID, EmployeeName, BranchID, MemberSince FROM employees";
+                    // For other roles, fetch all employees with MemberSince >= 1 year
+                    $sql = "
+                        SELECT EmployeeID, EmployeeName, BranchID, MemberSince 
+                        FROM employees 
+                        WHERE MemberSince IS NOT NULL 
+                        AND DATE_SUB(CURDATE(), INTERVAL 1 YEAR) >= MemberSince
+                    ";
                     $result = $conn->query($sql);
-                    $data = [];
+                    if (!$result) throw new Exception("Query failed for employees: " . $conn->error);
                     while ($row = $result->fetch_assoc()) {
-                        $memberSince = new DateTime($row['MemberSince']);
-                        $current = new DateTime($currentDate);
-                        $interval = $memberSince->diff($current);
-                        if ($interval->y >= 1) {
-                            $data[] = [
-                                'EmployeeID' => $row['EmployeeID'],
-                                'EmployeeName' => $row['EmployeeName'],
-                                'BranchID' => $row['BranchID']
-                            ];
-                        }
+                        $data[] = [
+                            'EmployeeID' => (int)$row['EmployeeID'],
+                            'EmployeeName' => $row['EmployeeName'],
+                            'BranchID' => (int)$row['BranchID'],
+                            'MemberSince' => $row['MemberSince']
+                        ];
                     }
-                    echo json_encode($data);
                 }
+                echo json_encode($data);
+                
             } elseif ($type == 'check_duplicate') {
                 $start_date = isset($_GET['start_date']) ? $_GET['start_date'] : null;
                 $end_date = isset($_GET['end_date']) ? $_GET['end_date'] : null;
