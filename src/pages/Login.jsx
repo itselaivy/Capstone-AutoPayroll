@@ -2,9 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LockOutlined, UserOutlined, EyeInvisibleOutlined, EyeTwoTone } from '@ant-design/icons';
 import { Button, Form, Input, Card, Typography, Alert } from 'antd';
-import '/Users/Yvanne/Auto/src/index.css';
-import loginBG from '/Users/Yvanne/Auto/src/assets/loginBG.jpg';
-import logo from '/Users/Yvanne/Auto/src/assets/logo.png';
+import '/Users/lorre/Auto/src/index.css';
+import loginBG from '/Users/lorre/Auto/src/assets/loginBG.jpg';
+import logo from '/Users/lorre/Auto/src/assets/logo.png';
 
 const { Title } = Typography;
 

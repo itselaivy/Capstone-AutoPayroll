@@ -654,7 +654,8 @@ const EmployeesTable = () => {
                                 onClick={() => openModal('Edit', record)}
                             />
                             </Tooltip>
-                            <Tooltip title="Delete">
+                            {role !== 'Payroll Admin' && (
+                            <Tooltip title="Delete">   
                             <Button
                                 icon={<DeleteOutlined />}
                                 size="middle"
@@ -666,7 +667,7 @@ const EmployeesTable = () => {
                                 }}
                                 onClick={() => openModal('Delete', record)}
                             />
-                            </Tooltip>
+                            </Tooltip>)}
                         </Space>
                         )}
                     />

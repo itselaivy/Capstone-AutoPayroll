@@ -95,6 +95,7 @@ const AttendanceTable = () => {
         timeIn: attendance.TimeIn,
         timeOut: attendance.TimeOut,
         status: attendance.TimeInStatus,
+        totalHrs: attendance.TotalHours
       }));
 
       console.log('Mapped Data:', mappedData);
@@ -209,8 +210,8 @@ const AttendanceTable = () => {
         const lateThreshold = moment('08:11', 'HH:mm');
         const startDuty = moment('08:00', 'HH:mm');
         const timeInStatus = timeInMoment.isBefore(startDuty) ||
-                             (timeInMoment.isSameOrAfter(startDuty) && timeInMoment.isBefore(lateThreshold))
-                             ? 'On-Time' : 'Late';
+          (timeInMoment.isSameOrAfter(startDuty) && timeInMoment.isBefore(lateThreshold))
+          ? 'On-Time' : 'Late';
 
         const employee = employees.find(emp => emp.EmployeeID === values.employeeId);
         if (!employee || !employee.BranchID) {
@@ -268,8 +269,8 @@ const AttendanceTable = () => {
         const lateThreshold = moment('08:11', 'HH:mm');
         const startDuty = moment('08:00', 'HH:mm');
         const timeInStatus = timeInMoment.isBefore(startDuty) ||
-                             (timeInMoment.isSameOrAfter(startDuty) && timeInMoment.isBefore(lateThreshold))
-                             ? 'On-Time' : 'Late';
+          (timeInMoment.isSameOrAfter(startDuty) && timeInMoment.isBefore(lateThreshold))
+          ? 'On-Time' : 'Late';
 
         const payload = {
           Date: values.date.format('YYYY-MM-DD'),
@@ -311,7 +312,7 @@ const AttendanceTable = () => {
             : `Failed to update the attendance record: ${err.message}`
         );
       }
-    } else if (modalType === "Delete" && selectedAttendance) {
+    } /* else if (modalType === "Delete" && selectedAttendance) {
       try {
         const res = await fetch(`${API_BASE_URL}/fetch_attendance.php`, {
           method: "DELETE",
@@ -338,7 +339,7 @@ const AttendanceTable = () => {
         console.error("Delete Error:", err.message);
         message.error(`Failed to delete attendance record. Please try again or contact the System Administrator.`);
       }
-    }
+    } */
   };
 
   const handleCancel = () => {
@@ -683,6 +684,17 @@ const AttendanceTable = () => {
             render={(text) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>{text}</span>}
           />
           <Column
+            title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Total Hours</span>}
+            dataIndex="totalHrs"
+            key="totalHrs"
+            render={hours => {
+              const num = Number(hours);
+              return (hours !== null && hours !== undefined && hours !== '' && !isNaN(num))
+                ? num.toFixed(2)
+                : '';
+            }}
+          />
+          <Column
             title="Action"
             key="action"
             render={(_, record) => (
@@ -713,7 +725,7 @@ const AttendanceTable = () => {
                     onClick={() => openModal('Edit', record)}
                   />
                 </Tooltip>
-                <Tooltip title="Delete">
+                {/*  <Tooltip title="Delete">
                   <Button
                     icon={<DeleteOutlined />}
                     size="middle"
@@ -725,7 +737,7 @@ const AttendanceTable = () => {
                     }}
                     onClick={() => openModal('Delete', record)}
                   />
-                </Tooltip>
+                </Tooltip> */}
               </Space>
             )}
           />
@@ -748,9 +760,9 @@ const AttendanceTable = () => {
             <div style={{ textAlign: 'center' }}>
               <span style={{ fontSize: '22px', fontWeight: 'bold', fontFamily: 'Poppins, sans-serif' }}>
                 {modalType === 'Add' ? 'Add New Attendance' :
-                 modalType === 'Edit' ? 'Edit Attendance Details' :
-                 modalType === 'View' ? 'View Attendance Information' :
-                 'Confirm Attendance Deletion'}
+                  modalType === 'Edit' ? 'Edit Attendance Details' :
+                    modalType === 'View' ? 'View Attendance Information' :
+                      'Confirm Attendance Deletion'}
               </span>
             </div>
           }

@@ -5,6 +5,7 @@ import dayjs from 'dayjs';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
+const { RangePicker } = DatePicker
 const parseAmount = (value, employeeId = 'Unknown') => {
   if (value == null || value === '' || value === undefined) {
     console.warn(`parseAmount: Invalid value for EmployeeID ${employeeId}: ${value}`);
@@ -61,7 +62,7 @@ const generatePayrollPeriods = (lastPayrollDate) => {
   let endDate;
 
   while (standardDays < 12) {
-    if (currentDate.day() !== 0) { 
+    if (currentDate.day() !== 0) {
       standardDays++;
     }
     currentDate = currentDate.add(1, 'day');
@@ -76,6 +77,14 @@ const generatePayrollPeriods = (lastPayrollDate) => {
   });
 
   return periods;
+};
+
+const wrapName = (fullName) => {
+  if (!fullName) return '';
+  const parts = fullName.split(' ');
+  if (parts.length === 1) return fullName;
+  // First word on first line, rest on second line
+  return parts[0] + '\n' + parts.slice(1).join(' ');
 };
 
 const PayrollTable = () => {
@@ -103,6 +112,7 @@ const PayrollTable = () => {
   const [payrollHistoryData, setPayrollHistoryData] = useState([]);
   const [isPayrollViewModalVisible, setIsPayrollViewModalVisible] = useState(false);
   const [selectedPayroll, setSelectedPayroll] = useState(null);
+  const [historyDateRange, setHistoryDateRange] = useState([null, null]);
 
   const API_BASE_URL = "http://localhost/UserTableDB/UserDB";
   const userId = localStorage.getItem('userId');
@@ -219,7 +229,7 @@ const PayrollTable = () => {
     }
   };
 
-    const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async () => {
     try {
       if (!userId || !role) {
         message.error('Please log in to view payroll records');
@@ -346,26 +356,26 @@ const PayrollTable = () => {
       const absentDays = parseInt(data.data.AbsentDays) || 0;
       const leaveDays = data.data.LeaveData && Array.isArray(data.data.LeaveData)
         ? data.data.LeaveData.reduce((sum, leave) => {
-            const leaveStart = dayjs(leave.StartDate);
-            const leaveEnd = dayjs(leave.EndDate);
-            const payrollStart = dayjs(startDate);
-            const payrollEnd = dayjs(endDate);
-            if (
-              (leaveStart.isSame(payrollStart, 'day') || leaveStart.isAfter(payrollStart)) &&
-              (leaveEnd.isSame(payrollEnd, 'day') || leaveEnd.isBefore(payrollEnd))
-            ) {
-              return sum + (parseInt(leave.UsedLeaveCredits) || 0);
-            }
-            return sum;
-          }, 0)
+          const leaveStart = dayjs(leave.StartDate);
+          const leaveEnd = dayjs(leave.EndDate);
+          const payrollStart = dayjs(startDate);
+          const payrollEnd = dayjs(endDate);
+          if (
+            (leaveStart.isSame(payrollStart, 'day') || leaveStart.isAfter(payrollStart)) &&
+            (leaveEnd.isSame(payrollEnd, 'day') || leaveEnd.isBefore(payrollEnd))
+          ) {
+            return sum + (parseInt(leave.UsedLeaveCredits) || 0);
+          }
+          return sum;
+        }, 0)
         : 0;
       const holidayDays = data.data.HolidayData && Array.isArray(data.data.HolidayData)
         ? data.data.HolidayData.filter(h => {
-            const holidayDate = dayjs(h.Date);
-            const payrollStart = dayjs(startDate);
-            const payrollEnd = dayjs(endDate);
-            return holidayDate.isSame(payrollStart, 'day') || (holidayDate.isAfter(payrollStart) && (holidayDate.isSame(payrollEnd, 'day') || holidayDate.isBefore(payrollEnd)));
-          }).length
+          const holidayDate = dayjs(h.Date);
+          const payrollStart = dayjs(startDate);
+          const payrollEnd = dayjs(endDate);
+          return holidayDate.isSame(payrollStart, 'day') || (holidayDate.isAfter(payrollStart) && (holidayDate.isSame(payrollEnd, 'day') || holidayDate.isBefore(payrollEnd)));
+        }).length
         : 0;
       const daysPresent = expectedDays - absentDays - leaveDays - holidayDays;
 
@@ -374,64 +384,64 @@ const PayrollTable = () => {
       const dailyRateAmount = (dailyRate * daysPresent).toFixed(2);
       const transportAllowance = data.data.AllowancesData?.find(a => a.Description === 'Transportation')?.Amount || '0.00';
       const transportAllowanceAmount = ((leaveDays + daysPresent + holidayDays) * parseFloat(transportAllowance)).toFixed(2);
-      const basicPayAmount = (parseFloat(dailyRateAmount) + parseFloat(transportAllowanceAmount)).toFixed(2); // Include transport allowance in Basic Pay
+      const basicPayAmount = (parseFloat(dailyRateAmount) + parseFloat(transportAllowanceAmount)).toFixed(2);
       const leavePayAmount = (dailyRate * leaveDays).toFixed(2);
       const holidayPayAmount = data.data.HolidayPay?.Total || '0.00';
       const sundayPayAmount = data.data.SundayPay?.Total || '0.00';
       const overtimePayAmount = data.data.OvertimePay?.Total || '0.00';
 
       const premiumPayData = [
-      {
-        key: `sunday-hours-${employeeId}`,
-        Description: `Sunday Hours (130%): ${data.data.SundayHours || '0'} hrs`,
-        Amount: formatNumberWithCommas(data.data.PremiumPayData?.[0]?.Amount || '0.00'),
-      },
-      {
-        key: `sunday-ot-${employeeId}`,
-        Description: `Sunday Overtime (130%): ${data.data.PremiumPayData?.[1]?.Description.match(/(\d*\.?\d*)\s*hrs/)?.[1] || '0'} hrs`,
-        Amount: formatNumberWithCommas(data.data.PremiumPayData?.[1]?.Amount || '0.00'),
-      },
-      {
-        key: `sunday-pay-${employeeId}`,
-        Description: 'Sunday Pay',
-        Amount: formatNumberWithCommas(sundayPayAmount),
-      },
-      {
-        key: `holiday-special-${employeeId}`,
-        Description: `Holiday Hours (Special Non-Working) 130%: ${data.data.HolidayHours?.Special || '0'} hrs`,
-        Amount: formatNumberWithCommas(data.data.PremiumPayData?.[3]?.Amount || '0.00'),
-      },
-      {
-        key: `holiday-special-ot-${employeeId}`,
-        Description: `Holiday Overtime (Special Non-Working) 130%: ${data.data.PremiumPayData?.[4]?.Description.match(/(\d*\.?\d*)\s*hrs/)?.[1] || '0'} hrs`,
-        Amount: formatNumberWithCommas(data.data.PremiumPayData?.[4]?.Amount || '0.00'),
-      },
-      {
-        key: `holiday-regular-${employeeId}`,
-        Description: `Holiday Hours (Legal) 200%: ${data.data.HolidayHours?.Regular || '0'} hrs`,
-        Amount: formatNumberWithCommas(data.data.PremiumPayData?.[5]?.Amount || '0.00'),
-      },
-      {
-        key: `holiday-regular-ot-${employeeId}`,
-        Description: `Holiday Overtime (Legal) 200%: ${data.data.PremiumPayData?.[6]?.Description.match(/(\d*\.?\d*)\s*hrs/)?.[1] || '0'} hrs`,
-        Amount: formatNumberWithCommas(data.data.PremiumPayData?.[6]?.Amount || '0.00'),
-      },
-      {
-        key: `holiday-regular-non-worked-${employeeId}`,
-        Description: `No-Worked Legal Holiday 100%`,
-        Amount: formatNumberWithCommas(
-          data.data.HolidayData?.some(h => 
-            h.HolidayType === 'Legal Holiday' && 
-            !data.data.AttendanceData?.some(a => a.Date === h.Date)
-          ) ? data.data.DailyRate || '0.00' : '0.00'
-        ),
-      },
-      {
-        key: `holiday-pay-${employeeId}`,
-        Description: 'Holiday Pay',
-        Amount: formatNumberWithCommas(holidayPayAmount),
-      },
-    ].filter(item => parseAmount(item.Amount, employeeId) > 0);
+        {
+          key: `sunday-hours-${employeeId}`,
+          Description: `Sunday Hours (130%): ${data.data.SundayHours || '0'} hrs`,
+          Amount: formatNumberWithCommas(data.data.PremiumPayData?.[0]?.Amount || '0.00'),
+        },
+        {
+          key: `sunday-ot-${employeeId}`,
+          Description: `Sunday Overtime (130%): ${data.data.PremiumPayData?.[1]?.Description.match(/(\d*\.?\d*)\s*hrs/)?.[1] || '0'} hrs`,
+          Amount: formatNumberWithCommas(data.data.PremiumPayData?.[1]?.Amount || '0.00'),
+        },
+        {
+          key: `sunday-pay-${employeeId}`,
+          Description: 'Sunday Pay',
+          Amount: formatNumberWithCommas(sundayPayAmount),
+        },
+        {
+          key: `holiday-special-${employeeId}`,
+          Description: `Holiday Hours (Special Non-Working) 130%: ${data.data.HolidayHours?.Special || '0'} hrs`,
+          Amount: formatNumberWithCommas(data.data.PremiumPayData?.[3]?.Amount || '0.00'),
+        },
+        {
+          key: `holiday-special-ot-${employeeId}`,
+          Description: `Holiday Overtime (Special Non-Working) 130%: ${data.data.PremiumPayData?.[4]?.Description.match(/(\d*\.?\d*)\s*hrs/)?.[1] || '0'} hrs`,
+          Amount: formatNumberWithCommas(data.data.PremiumPayData?.[4]?.Amount || '0.00'),
+        },
+        {
+          key: `holiday-regular-${employeeId}`,
+          Description: `Holiday Hours (Legal) 200%: ${data.data.HolidayHours?.Regular || '0'} hrs`,
+          Amount: formatNumberWithCommas(data.data.PremiumPayData?.[5]?.Amount || '0.00'),
+        },
+        {
+          key: `holiday-regular-ot-${employeeId}`,
+          Description: `Holiday Overtime (Legal) 200%: ${data.data.PremiumPayData?.[6]?.Description.match(/(\d*\.?\d*)\s*hrs/)?.[1] || '0'} hrs`,
+          Amount: formatNumberWithCommas(data.data.PremiumPayData?.[6]?.Amount || '0.00'),
+        },
+        {
+          key: `holiday-regular-non-worked-${employeeId}`,
+          Description: `No-Worked Legal Holiday 100%`,
+          Amount: formatNumberWithCommas(
+            data.data.HolidayData?.some(h =>
+              h.HolidayType === 'Legal Holiday' &&
+              !data.data.AttendanceData?.some(a => a.Date === h.Date)
+            ) ? data.data.DailyRate || '0.00' : '0.00'
+          ),
+        },
+        {
+          key: `holiday-pay-${employeeId}`,
+          Description: 'Holiday Pay',
+          Amount: formatNumberWithCommas(holidayPayAmount),
+        },
+      ].filter(item => parseAmount(item.Amount, employeeId) > 0);
 
       const earningsData = [
         { key: `daily-rate-${employeeId}`, Description: `Daily Rate: ${daysPresent} Days Present`, Amount: formatNumberWithCommas(dailyRateAmount) },
@@ -760,26 +770,26 @@ const PayrollTable = () => {
           const absentDays = parseInt(data.data.AbsentDays) || 0;
           const leaveDays = data.data.LeaveData && Array.isArray(data.data.LeaveData)
             ? data.data.LeaveData.reduce((sum, leave) => {
-                const leaveStart = dayjs(leave.StartDate);
-                const leaveEnd = dayjs(leave.EndDate);
-                const payrollStart = dayjs(startDateBackend);
-                const payrollEnd = dayjs(endDateBackend);
-                if (
-                  (leaveStart.isSame(payrollStart, 'day') || leaveStart.isAfter(payrollStart)) &&
-                  (leaveEnd.isSame(payrollEnd, 'day') || leaveEnd.isBefore(payrollEnd))
-                ) {
-                  return sum + (parseInt(leave.UsedLeaveCredits) || 0);
-                }
-                return sum;
-              }, 0)
+              const leaveStart = dayjs(leave.StartDate);
+              const leaveEnd = dayjs(leave.EndDate);
+              const payrollStart = dayjs(startDateBackend);
+              const payrollEnd = dayjs(endDateBackend);
+              if (
+                (leaveStart.isSame(payrollStart, 'day') || leaveStart.isAfter(payrollStart)) &&
+                (leaveEnd.isSame(payrollEnd, 'day') || leaveEnd.isBefore(payrollEnd))
+              ) {
+                return sum + (parseInt(leave.UsedLeaveCredits) || 0);
+              }
+              return sum;
+            }, 0)
             : 0;
           const holidayDays = data.data.HolidayData && Array.isArray(data.data.HolidayData)
             ? data.data.HolidayData.filter(h => {
-                const holidayDate = dayjs(h.Date);
-                const payrollStart = dayjs(startDateBackend);
-                const payrollEnd = dayjs(endDateBackend);
-                return holidayDate.isSame(payrollStart, 'day') || (holidayDate.isAfter(payrollStart) && holidayDate.isSame(payrollEnd, 'day') || holidayDate.isBefore(payrollEnd));
-              }).length
+              const holidayDate = dayjs(h.Date);
+              const payrollStart = dayjs(startDateBackend);
+              const payrollEnd = dayjs(endDateBackend);
+              return holidayDate.isSame(payrollStart, 'day') || (holidayDate.isAfter(payrollStart) && holidayDate.isSame(payrollEnd, 'day') || holidayDate.isBefore(payrollEnd));
+            }).length
             : 0;
           const daysPresent = expectedDays - absentDays - leaveDays - holidayDays;
 
@@ -795,57 +805,57 @@ const PayrollTable = () => {
           const overtimePayAmount = data.data.OvertimePay?.Total || '0.00';
 
           const premiumPayData = [
-          {
-            key: `sunday-hours-${employee.employeeId}`,
-            Description: `Sunday Hours (130%): ${data.data.SundayHours || '0'} hrs`,
-            Amount: formatNumberWithCommas(data.data.PremiumPayData?.[0]?.Amount || '0.00'),
-          },
-          {
-            key: `sunday-ot-${employee.employeeId}`,
-            Description: `Sunday Overtime (130%): ${data.data.PremiumPayData?.[1]?.Description.match(/(\d*\.?\d*)\s*hrs/)?.[1] || '0'} hrs`,
-            Amount: formatNumberWithCommas(data.data.PremiumPayData?.[1]?.Amount || '0.00'),
-          },
-          {
-            key: `sunday-pay-${employee.employeeId}`,
-            Description: 'Sunday Pay',
-            Amount: formatNumberWithCommas(sundayPayAmount),
-          },
-          {
-            key: `holiday-special-${employee.employeeId}`,
-            Description: `Holiday Hours (Special Non-Working) 130%: ${data.data.HolidayHours?.Special || '0'} hrs`,
-            Amount: formatNumberWithCommas(data.data.PremiumPayData?.[3]?.Amount || '0.00'),
-          },
-          {
-            key: `holiday-special-ot-${employee.employeeId}`,
-            Description: `Holiday Overtime (Special Non-Working) 130%: ${data.data.PremiumPayData?.[4]?.Description.match(/(\d*\.?\d*)\s*hrs/)?.[1] || '0'} hrs`,
-            Amount: formatNumberWithCommas(data.data.PremiumPayData?.[4]?.Amount || '0.00'),
-          },
-          {
-            key: `holiday-regular-${employee.employeeId}`,
-            Description: `Holiday Hours (Legal) 200%: ${data.data.HolidayHours?.Regular || '0'} hrs`,
-            Amount: formatNumberWithCommas(data.data.PremiumPayData?.[5]?.Amount || '0.00'),
-          },
-          {
-            key: `holiday-regular-ot-${employee.employeeId}`,
-            Description: `Holiday Overtime (Legal) 200%: ${data.data.PremiumPayData?.[6]?.Description.match(/(\d*\.?\d*)\s*hrs/)?.[1] || '0'} hrs`,
-            Amount: formatNumberWithCommas(data.data.PremiumPayData?.[6]?.Amount || '0.00'),
-          },
-          {
-            key: `holiday-regular-non-worked-${employee.employeeId}`,
-            Description: `Non-Worked Legal Holiday 100%`,
-            Amount: formatNumberWithCommas(
-              data.data.HolidayData?.some(h => 
-                h.HolidayType === 'Legal Holiday' && 
-                !data.data.AttendanceData?.some(a => a.Date === h.Date)
-              ) ? data.data.DailyRate || '0.00' : '0.00'
-            ),
-          },
-          {
-            key: `holiday-pay-${employee.employeeId}`,
-            Description: 'Holiday Pay',
-            Amount: formatNumberWithCommas(holidayPayAmount),
-          },
-        ].filter(item => parseAmount(item.Amount, employee.employeeId) > 0);
+            {
+              key: `sunday-hours-${employee.employeeId}`,
+              Description: `Sunday Hours (130%): ${data.data.SundayHours || '0'} hrs`,
+              Amount: formatNumberWithCommas(data.data.PremiumPayData?.[0]?.Amount || '0.00'),
+            },
+            {
+              key: `sunday-ot-${employee.employeeId}`,
+              Description: `Sunday Overtime (130%): ${data.data.PremiumPayData?.[1]?.Description.match(/(\d*\.?\d*)\s*hrs/)?.[1] || '0'} hrs`,
+              Amount: formatNumberWithCommas(data.data.PremiumPayData?.[1]?.Amount || '0.00'),
+            },
+            {
+              key: `sunday-pay-${employee.employeeId}`,
+              Description: 'Sunday Pay',
+              Amount: formatNumberWithCommas(sundayPayAmount),
+            },
+            {
+              key: `holiday-special-${employee.employeeId}`,
+              Description: `Holiday Hours (Special Non-Working) 130%: ${data.data.HolidayHours?.Special || '0'} hrs`,
+              Amount: formatNumberWithCommas(data.data.PremiumPayData?.[3]?.Amount || '0.00'),
+            },
+            {
+              key: `holiday-special-ot-${employee.employeeId}`,
+              Description: `Holiday Overtime (Special Non-Working) 130%: ${data.data.PremiumPayData?.[4]?.Description.match(/(\d*\.?\d*)\s*hrs/)?.[1] || '0'} hrs`,
+              Amount: formatNumberWithCommas(data.data.PremiumPayData?.[4]?.Amount || '0.00'),
+            },
+            {
+              key: `holiday-regular-${employee.employeeId}`,
+              Description: `Holiday Hours (Legal) 200%: ${data.data.HolidayHours?.Regular || '0'} hrs`,
+              Amount: formatNumberWithCommas(data.data.PremiumPayData?.[5]?.Amount || '0.00'),
+            },
+            {
+              key: `holiday-regular-ot-${employee.employeeId}`,
+              Description: `Holiday Overtime (Legal) 200%: ${data.data.PremiumPayData?.[6]?.Description.match(/(\d*\.?\d*)\s*hrs/)?.[1] || '0'} hrs`,
+              Amount: formatNumberWithCommas(data.data.PremiumPayData?.[6]?.Amount || '0.00'),
+            },
+            {
+              key: `holiday-regular-non-worked-${employee.employeeId}`,
+              Description: `Non-Worked Legal Holiday 100%`,
+              Amount: formatNumberWithCommas(
+                data.data.HolidayData?.some(h =>
+                  h.HolidayType === 'Legal Holiday' &&
+                  !data.data.AttendanceData?.some(a => a.Date === h.Date)
+                ) ? data.data.DailyRate || '0.00' : '0.00'
+              ),
+            },
+            {
+              key: `holiday-pay-${employee.employeeId}`,
+              Description: 'Holiday Pay',
+              Amount: formatNumberWithCommas(holidayPayAmount),
+            },
+          ].filter(item => parseAmount(item.Amount, employee.employeeId) > 0);
 
           const earningsData = [
             { key: `daily-rate-${employee.employeeId}`, Description: `Daily Rate: ${daysPresent} Days Present`, Amount: formatNumberWithCommas(dailyRateAmount) },
@@ -932,7 +942,6 @@ const PayrollTable = () => {
         const parsed = parseActivityDescription(log.activity_description, log.affected_id);
         const row = {
           key: log.log_id,
-          logId: log.log_id,
           employeeId: parsed.employeeId,
           employeeName: parsed.employeeName,
           payrollPeriod: parsed.payrollPeriod,
@@ -998,7 +1007,7 @@ const PayrollTable = () => {
     const branchValue = value || 'all';
     setSelectedBranch(branchValue);
     setCurrentPage(1);
-    fetchData(); 
+    fetchData();
   };
 
   const handlePageChange = (page, size) => {
@@ -1029,7 +1038,7 @@ const PayrollTable = () => {
   };
 
   useEffect(() => {
-}, [currentPage, pageSize, paginationTotal, filteredPaginationTotal]);
+  }, [currentPage, pageSize, paginationTotal, filteredPaginationTotal]);
 
   const formatNumberWithCommas = (number) => {
     return parseFloat(number).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -1037,19 +1046,19 @@ const PayrollTable = () => {
 
   const getContributionLabel = (type) => {
     switch (type) {
-        case 'Pag-Ibig': return 'Pag-Ibig Contribution';
-        case 'SSS': return 'SSS Contribution';
-        case 'PhilHealth': return 'PhilHealth Contribution';
-        case 'Late': return 'Late';
-        case 'Pag-Ibig Calamity': return 'Pag-Ibig Calamity Loan';
-        case 'Pag-Ibig Salary': return 'Pag-Ibig Salary Loan';
-        case 'SSS Calamity': return 'SSS Calamity Loan';
-        case 'SSS Salary': return 'SSS Salary Loan';
-        case 'PhilHealth Calamity': return 'PhilHealth Calamity Loan';
-        case 'PhilHealth Salary': return 'PhilHealth Salary Loan';
-        default: return type;
+      case 'Pag-Ibig': return 'Pag-Ibig Contribution';
+      case 'SSS': return 'SSS Contribution';
+      case 'PhilHealth': return 'PhilHealth Contribution';
+      case 'Late': return 'Late';
+      case 'Pag-Ibig Calamity': return 'Pag-Ibig Calamity Loan';
+      case 'Pag-Ibig Salary': return 'Pag-Ibig Salary Loan';
+      case 'SSS Calamity': return 'SSS Calamity Loan';
+      case 'SSS Salary': return 'SSS Salary Loan';
+      case 'PhilHealth Calamity': return 'PhilHealth Calamity Loan';
+      case 'PhilHealth Salary': return 'PhilHealth Salary Loan';
+      default: return type;
     }
-};
+  };
 
   const handlePayrollReport = async () => {
     if (!payrollDates.startDate || !payrollDates.endDate || !payrollCut) {
@@ -1081,34 +1090,34 @@ const PayrollTable = () => {
       }
 
       const reportData = await Promise.all(
-      response.data.map(async (employee) => {
-        const payload = {
-          action: 'generate_payslip',
-          user_id: parseInt(userId),
-          employeeId: employee.EmployeeID,
-          start_date: startDateBackend,
-          end_date: endDateBackend,
-          payroll_cut: payrollCut,
-        };
+        response.data.map(async (employee) => {
+          const payload = {
+            action: 'generate_payslip',
+            user_id: parseInt(userId),
+            employeeId: employee.EmployeeID,
+            start_date: startDateBackend,
+            end_date: endDateBackend,
+            payroll_cut: payrollCut,
+          };
 
-        const payslipRes = await fetch(`${API_BASE_URL}/fetch_payroll.php`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
+          const payslipRes = await fetch(`${API_BASE_URL}/fetch_payroll.php`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
 
-        if (!payslipRes.ok) {
-          return null;
-        }
+          if (!payslipRes.ok) {
+            return null;
+          }
 
-        const payslipData = await payslipRes.json();
-        if (!payslipData.success) {
-          return null;
-        }
+          const payslipData = await payslipRes.json();
+          if (!payslipData.success) {
+            return null;
+          }
 
-        // Calculate Leave Days (Used Credits)
-        const leaveDays = payslipData.data.LeaveData && Array.isArray(payslipData.data.LeaveData)
-          ? payslipData.data.LeaveData.reduce((sum, leave) => {
+          // Calculate Leave Days (Used Credits)
+          const leaveDays = payslipData.data.LeaveData && Array.isArray(payslipData.data.LeaveData)
+            ? payslipData.data.LeaveData.reduce((sum, leave) => {
               const leaveStart = dayjs(leave.StartDate);
               const leaveEnd = dayjs(leave.EndDate);
               const payrollStart = dayjs(startDateBackend);
@@ -1121,23 +1130,23 @@ const PayrollTable = () => {
               }
               return sum;
             }, 0)
-          : 0;
+            : 0;
 
-        // Calculate Holiday Days
-        const holidayDays = payslipData.data.HolidayData && Array.isArray(payslipData.data.HolidayData)
-          ? payslipData.data.HolidayData.filter(h => {
+          // Calculate Holiday Days
+          const holidayDays = payslipData.data.HolidayData && Array.isArray(payslipData.data.HolidayData)
+            ? payslipData.data.HolidayData.filter(h => {
               const holidayDate = dayjs(h.Date);
               const payrollStart = dayjs(startDateBackend);
               const payrollEnd = dayjs(endDateBackend);
               return holidayDate.isSame(payrollStart, 'day') || (holidayDate.isAfter(payrollStart) && (holidayDate.isSame(payrollEnd, 'day') || holidayDate.isBefore(payrollEnd)));
             }).length
-          : 0;
+            : 0;
 
-        // Calculate Days Present: Expected Days - Absent Days - Leave Days - Holiday Days
-        const expectedDays = countWorkingDays(payrollDates.startDate, payrollDates.endDate);
-        const absentDays = parseInt(payslipData.data.AbsentDays) || 0;
-        const leaveDays1 = payslipData.data.LeaveData && Array.isArray(payslipData.data.LeaveData)
-          ? payslipData.data.LeaveData.reduce((sum, leave) => {
+          // Calculate Days Present: Expected Days - Absent Days - Leave Days - Holiday Days
+          const expectedDays = countWorkingDays(payrollDates.startDate, payrollDates.endDate);
+          const absentDays = parseInt(payslipData.data.AbsentDays) || 0;
+          const leaveDays1 = payslipData.data.LeaveData && Array.isArray(payslipData.data.LeaveData)
+            ? payslipData.data.LeaveData.reduce((sum, leave) => {
               const leaveStart = dayjs(leave.StartDate);
               const leaveEnd = dayjs(leave.EndDate);
               const payrollStart = dayjs(startDateBackend);
@@ -1150,99 +1159,100 @@ const PayrollTable = () => {
               }
               return sum;
             }, 0)
-          : 0;
-        const holidayDays1 = payslipData.data.HolidayData && Array.isArray(payslipData.data.HolidayData)
-          ? payslipData.data.HolidayData.filter(h => {
+            : 0;
+          const holidayDays1 = payslipData.data.HolidayData && Array.isArray(payslipData.data.HolidayData)
+            ? payslipData.data.HolidayData.filter(h => {
               const holidayDate = dayjs(h.Date);
               const payrollStart = dayjs(startDateBackend);
               const payrollEnd = dayjs(endDateBackend);
-              return holidayDate.isSame(payrollStart, 'day') || (holidayDate.isAfter(payrollStart) && (holidayDate.isSame(payrollEnd, 'day') || holidayDate.isBefore(payrollEnd)));
+              return holidayDate.isSame(payrollStart, 'day') || (holidayDate.isAfter(payrollStart) && holidayDate.isSame(payrollEnd, 'day') || holidayDate.isBefore(payrollEnd));
             }).length
-          : 0;
-        const daysPresent = expectedDays - absentDays - leaveDays1 - holidayDays1;
+            : 0;
+          const daysPresent = expectedDays - absentDays - leaveDays1 - holidayDays1;
 
-        // Calculate Total: Rate * Days Present
-        const dailyRate = parseFloat(payslipData.data.DailyRate || '0.00');
-        const totalBasic = (dailyRate * daysPresent).toFixed(2);
+          // Calculate Total: Rate * Days Present
+          const dailyRate = parseFloat(payslipData.data.DailyRate || '0.00');
+          const totalBasic = (dailyRate * daysPresent).toFixed(2);
 
-        // Calculate Allowance: (Leave Days + Days Present + Holiday Days) * Allowance Per Day
-        const allowancePerDay = payslipData.data.AllowancesData?.reduce((sum, a) => sum + parseFloat(a.Amount || 0), 0) || 0.00;
-        const allowance = ((leaveDays + daysPresent + holidayDays) * allowancePerDay).toFixed(2);
+          // Calculate Allowance: (Leave Days + Days Present + Holiday Days) * Allowance Per Day
+          const allowancePerDay = payslipData.data.AllowancesData?.reduce((sum, a) => sum + parseFloat(a.Amount || 0), 0) || 0.00;
+          const allowance = ((leaveDays + daysPresent + holidayDays) * allowancePerDay).toFixed(2);
 
-        // Existing calculations for other columns (unchanged)
-        const holidayRegular = parseFloat(payslipData.data.PremiumPayData?.find(p => p.Description.includes('Holiday Hours (Legal 200%)'))?.Amount || '0.00').toFixed(2);
-        const holidaySpecial = parseFloat(payslipData.data.PremiumPayData?.find(p => p.Description.includes('Holiday Hours (Special 130%)'))?.Amount || '0.00').toFixed(2);
-        const overtime = (
-          parseFloat(payslipData.data.OvertimePay?.Regular || '0.00') +
-          parseFloat(payslipData.data.OvertimePay?.Night || '0.00') +
-          parseFloat(payslipData.data.PremiumPayData?.find(p => p.Description.includes('Holiday Overtime (Special 130%)'))?.Amount || '0.00') +
-          parseFloat(payslipData.data.PremiumPayData?.find(p => p.Description.includes('Holiday Overtime (Legal 200%)'))?.Amount || '0.00')
-        ).toFixed(2);
-        const sundayPay = parseFloat(payslipData.data.PremiumPayData?.find(p => p.Description.includes('Sunday Hours (130%)'))?.Amount || '0.00').toFixed(2);
-        const sundayOvertime = parseFloat(payslipData.data.PremiumPayData?.find(p => p.Description.includes('Sunday Overtime (130%)'))?.Amount || '0.00').toFixed(2);
-        const leavePay = (dailyRate * leaveDays).toFixed(2);
-        const grossPay = (
-          parseFloat(totalBasic) +
-          parseFloat(allowance) +
-          parseFloat(overtime) +
-          parseFloat(holidayRegular) +
-          parseFloat(holidaySpecial) +
-          parseFloat(sundayPay) +
-          parseFloat(sundayOvertime) +
-          parseFloat(leavePay)
-        ).toFixed(2);
+          // Existing calculations for other columns (unchanged)
+          const holidayRegular = parseFloat(payslipData.data.PremiumPayData?.find(p => p.Description.includes('Holiday Hours (Legal 200%)'))?.Amount || '0.00').toFixed(2);
+          const holidaySpecial = parseFloat(payslipData.data.PremiumPayData?.find(p => p.Description.includes('Holiday Hours (Special 130%)'))?.Amount || '0.00').toFixed(2);
+          const overtime = (
+            parseFloat(payslipData.data.OvertimePay?.Regular || '0.00') +
+            parseFloat(payslipData.data.OvertimePay?.Night || '0.00') +
+            parseFloat(payslipData.data.PremiumPayData?.find(p => p.Description.includes('Holiday Overtime (Special 130%)'))?.Amount || '0.00') +
+            parseFloat(payslipData.data.PremiumPayData?.find(p => p.Description.includes('Holiday Overtime (Legal 200%)'))?.Amount || '0.00')
+          ).toFixed(2);
+          const sundayPay = parseFloat(payslipData.data.PremiumPayData?.find(p => p.Description.includes('Sunday Hours (130%)'))?.Amount || '0.00').toFixed(2);
+          const sundayOvertime = parseFloat(payslipData.data.PremiumPayData?.find(p => p.Description.includes('Sunday Overtime (130%)'))?.Amount || '0.00').toFixed(2);
+          const leavePay = (dailyRate * leaveDays).toFixed(2);
+          const grossPay = (
+            parseFloat(totalBasic) +
+            parseFloat(allowance) +
+            parseFloat(overtime) +
+            parseFloat(holidayRegular) +
+            parseFloat(holidaySpecial) +
+            parseFloat(sundayPay) +
+            parseFloat(sundayOvertime) +
+            parseFloat(leavePay)
+          ).toFixed(2);
 
-        const sssContribution = payslipData.data.ContributionsData?.find(c => c.ContributionType === 'SSS')?.Amount || '0.00';
-        const sssCalamityLoan = payslipData.data.ContributionsData?.find(c => c.ContributionType === 'SSS Calamity')?.Amount || '0.00';
-        const sssSalaryLoan = payslipData.data.ContributionsData?.find(c => c.ContributionType === 'SSS Salary')?.Amount || '0.00';
-        const pagIbigContribution = payslipData.data.ContributionsData?.find(c => c.ContributionType === 'Pag-Ibig')?.Amount || '0.00';
-        const pagIbigCalamityLoan = payslipData.data.ContributionsData?.find(c => c.ContributionType === 'Pag-Ibig Calamity')?.Amount || '0.00';
-        const pagIbigSalaryLoan = payslipData.data.ContributionsData?.find(c => c.ContributionType === 'Pag-Ibig Salary')?.Amount || '0.00';
-        const philhealth = payslipData.data.ContributionsData?.find(c => c.ContributionType === 'PhilHealth')?.Amount || '0.00';
-        const undertimeLate = payslipData.data.LateDeduction || '0.00';
-        const totalDeduction = (
-          parseFloat(sssContribution) +
-          parseFloat(sssCalamityLoan) +
-          parseFloat(sssSalaryLoan) +
-          parseFloat(pagIbigContribution) +
-          parseFloat(pagIbigCalamityLoan) +
-          parseFloat(pagIbigSalaryLoan) +
-          parseFloat(philhealth) +
-          parseFloat(undertimeLate)
-        ).toFixed(2);
-        const netPay = (
-          parseFloat(grossPay) -
-          parseFloat(totalDeduction)
-        ).toFixed(2);
+          const sssContribution = payslipData.data.ContributionsData?.find(c => c.ContributionType === 'SSS')?.Amount || '0.00';
+          const sssCalamityLoan = payslipData.data.ContributionsData?.find(c => c.ContributionType === 'SSS Calamity')?.Amount || '0.00';
+          const sssSalaryLoan = payslipData.data.ContributionsData?.find(c => c.ContributionType === 'SSS Salary')?.Amount || '0.00';
+          const pagIbigContribution = payslipData.data.ContributionsData?.find(c => c.ContributionType === 'Pag-Ibig')?.Amount || '0.00';
+          const pagIbigCalamityLoan = payslipData.data.ContributionsData?.find(c => c.ContributionType === 'Pag-Ibig Calamity')?.Amount || '0.00';
+          const pagIbigSalaryLoan = payslipData.data.ContributionsData?.find(c => c.ContributionType === 'Pag-Ibig Salary')?.Amount || '0.00';
+          const philhealth = payslipData.data.ContributionsData?.find(c => c.ContributionType === 'PhilHealth')?.Amount || '0.00';
+          const undertimeLate = payslipData.data.LateDeduction || '0.00';
+          const totalDeduction = (
+            parseFloat(sssContribution) +
+            parseFloat(sssCalamityLoan) +
+            parseFloat(sssSalaryLoan) +
+            parseFloat(pagIbigContribution) +
+            parseFloat(pagIbigCalamityLoan) +
+            parseFloat(pagIbigSalaryLoan) +
+            parseFloat(philhealth) +
+            parseFloat(undertimeLate)
+          ).toFixed(2);
+          const netPay = (
+            parseFloat(grossPay) -
+            parseFloat(totalDeduction)
+          ).toFixed(2);
 
-        return {
-          EmployeeName: employee.EmployeeName,
-          DailyRate: dailyRate.toFixed(2),
-          DaysPresent: daysPresent.toString(),
-          TotalBasic: totalBasic,
-          Allowance: allowance,
-          Overtime: overtime,
-          HolidayRegular: holidayRegular,
-          HolidaySpecial: holidaySpecial,
-          HolidayOvertime: '0.00',
-          SundayPay: sundayPay,
-          SundayOvertime: sundayOvertime,
-          LeavePay: leavePay,
-          GrossPay: grossPay,
-          SSSContribution: sssContribution,
-          SSSCalamityLoan: sssCalamityLoan,
-          SSSSalaryLoan: sssSalaryLoan,
-          PagIbigContribution: pagIbigContribution,
-          PagIbigCalamityLoan: pagIbigCalamityLoan,
-          PagIbigSalaryLoan: pagIbigSalaryLoan,
-          Philhealth: philhealth,
-          UndertimeLate: undertimeLate,
-          TotalDeduction: totalDeduction,
-          NetPay: netPay,
-          Signature: '',
-        };
-      })
-    );
+          return {
+            EmployeeName: employee.EmployeeName,
+            DailyRate: dailyRate.toFixed(2),
+            DaysPresent: daysPresent.toString(),
+            TotalBasic: totalBasic,
+            Allowance: allowance,
+            Overtime: overtime,
+            HolidayRegular: holidayRegular,
+            HolidaySpecial: holidaySpecial,
+            HolidayOvertime: '0.00',
+            SundayPay: sundayPay,
+            SundayOvertime: sundayOvertime,
+            LeavePay: leavePay,
+            GrossPay: grossPay,
+            Tax: '0.00',
+            SSSContribution: sssContribution,
+            SSSCalamityLoan: sssCalamityLoan,
+            SSSSalaryLoan: sssSalaryLoan,
+            PagIbigContribution: pagIbigContribution,
+            PagIbigCalamityLoan: pagIbigCalamityLoan,
+            PagIbigSalaryLoan: pagIbigSalaryLoan,
+            Philhealth: philhealth,
+            UndertimeLate: undertimeLate,
+            TotalDeduction: totalDeduction,
+            NetPay: netPay,
+            Signature: '',
+          };
+        })
+      );
 
       const validReportData = reportData.filter(data => data !== null);
 
@@ -1291,7 +1301,7 @@ const PayrollTable = () => {
       // Table Configuration
       const head = [
         [
-          { content: 'Name', rowSpan: 2 },
+          { content: 'Name', rowSpan: 2, },
           { content: 'Rate', rowSpan: 2 },
           { content: 'Days', rowSpan: 2 },
           { content: 'Total', rowSpan: 2 },
@@ -1302,21 +1312,26 @@ const PayrollTable = () => {
           { content: 'Sunday Overtime Pay', rowSpan: 2 },
           { content: 'Leave w/ Pay', rowSpan: 2 },
           { content: 'Gross Pay', rowSpan: 2 },
-          { content: 'DEDUCTIONS', colSpan: 8 },
+          { content: 'DEDUCTIONS', colSpan: 9 },
           { content: 'Total Deduction', rowSpan: 2 },
           { content: 'Net Pay', rowSpan: 2 },
           { content: 'Signature', rowSpan: 2 },
         ],
         [
           'Regular', 'Special',
-          'SSS Contri', 'SSS Calamity Loan', 'SSS Salary Loan',
-          'Pag-Ibig Contri', 'Pag-Ibig Calamity Loan', 'Pag-Ibig Salary Loan',
-          'Philhealth', 'Undertime/Late',
+          'WH Tax', 'SSS\nContri',
+          'SSS\nCalamity\nLoan',
+          'SSS\nSalary\nLoan',
+          'Pag-Ibig\nContri',
+          'Pag-Ibig\nCalamity\nLoan',
+          'Pag-Ibig\nSalary\nLoan',
+          'Philhealth',
+          'Undertime/\nLate',
         ],
       ];
 
       const body = reportData.map(data => [
-        data.EmployeeName,
+        wrapName(data.EmployeeName), // <-- wrap the name
         formatNumberWithCommas(data.DailyRate),
         data.DaysPresent,
         formatNumberWithCommas(data.TotalBasic),
@@ -1328,6 +1343,7 @@ const PayrollTable = () => {
         formatNumberWithCommas(data.SundayOvertime),
         formatNumberWithCommas(data.LeavePay),
         formatNumberWithCommas(data.GrossPay),
+        formatNumberWithCommas(data.Tax),
         formatNumberWithCommas(data.SSSContribution),
         formatNumberWithCommas(data.SSSCalamityLoan),
         formatNumberWithCommas(data.SSSSalaryLoan),
@@ -1366,7 +1382,7 @@ const PayrollTable = () => {
           overflow: 'linebreak',
         },
         columnStyles: {
-          0: { halign: 'left', minCellWidth: 60, minCellHeight: 30, fontWeight: 'bold' }, // Name of Employee
+          0: { halign: 'left', minCellWidth: 40, minCellHeight: 30, fontWeight: 'bold' }, // Name of Employee
           1: { minCellWidth: 30, minCellHeight: 30 }, // Rate
           2: { minCellWidth: 15, minCellHeight: 30 }, // Days
           3: { minCellWidth: 30, minCellHeight: 30 }, // Total
@@ -1378,17 +1394,18 @@ const PayrollTable = () => {
           9: { minCellWidth: 30, minCellHeight: 30 }, // Sunday Overtime Pay
           10: { minCellWidth: 30, minCellHeight: 30 }, // Leave w/ Pay
           11: { minCellWidth: 30, minCellHeight: 30 }, // Gross Pay
-          12: { minCellWidth: 30, minCellHeight: 30 }, // SSS Contribution
-          13: { minCellWidth: 30, minCellHeight: 30 }, // SSS Calamity Loan
-          14: { minCellWidth: 20, minCellHeight: 30 }, // SSS Salary Loan
-          15: { minCellWidth: 30, minCellHeight: 30 }, // Pag-Ibig Contribution
-          16: { minCellWidth: 30, minCellHeight: 30 }, // Pag-Ibig Calamity Loan
-          17: { minCellWidth: 30, minCellHeight: 30 }, // Pag-Ibig Salary Loan
-          18: { minCellWidth: 20, minCellHeight: 30 }, // Philhealth
+          12: { minCellWidth: 25, minCellHeight: 30 }, // Withholding Tax
+          13: { minCellWidth: 30, minCellHeight: 30 }, // SSS Contribution
+          14: { minCellWidth: 30, minCellHeight: 30 }, // SSS Calamity Loan
+          15: { minCellWidth: 20, minCellHeight: 30 }, // SSS Salary Loan
+          16: { minCellWidth: 30, minCellHeight: 30 }, // Pag-Ibig Contribution
+          17: { minCellWidth: 30, minCellHeight: 30 }, // Pag-Ibig Calamity Loan
+          18: { minCellWidth: 30, minCellHeight: 30 }, // Pag-Ibig Salary Loan
+          19: { minCellWidth: 20, minCellHeight: 30 }, // Philhealth
           20: { minCellWidth: 20, minCellHeight: 30 }, // Undertime/Late
           21: { minCellWidth: 30, minCellHeight: 30 }, // Total Deduction
           22: { minCellWidth: 30, minCellHeight: 30 }, // Net Pay
-          23: { minCellWidth: 75, minCellHeight: 30 }, // Signature
+          23: { minCellWidth: 60, minCellHeight: 30 }, // Signature
         },
         margin: { top: 60, left: 10, right: 10 },
         didDrawPage: (data) => {
@@ -1409,9 +1426,9 @@ const PayrollTable = () => {
       const totalDeductionColumnIndex = 21; // 0-based index for Total Deduction
       const netPayColumnIndex = 22; // 0-based index for Net Pay
       const columnXPositions = doc.lastAutoTable.columns.map(col => col.x);
-      const grossPayX = columnXPositions[grossPayColumnIndex] || 421 // Fallback position
-      const totalDeductionX = columnXPositions[totalDeductionColumnIndex] || 833; // Fallback position
-      const netPayX = columnXPositions[netPayColumnIndex] || 870; // Fallback position
+      const grossPayX = columnXPositions[grossPayColumnIndex] || 418 // Fallback position
+      const totalDeductionX = columnXPositions[totalDeductionColumnIndex] || 805; // Fallback position
+      const netPayX = columnXPositions[netPayColumnIndex] || 845; // Fallback position
       const textY = tableBottomY + 15 < 602 ? tableBottomY + 15 : 592; // Ensure within page bounds
 
       doc.setFontSize(6);
@@ -1491,7 +1508,7 @@ const PayrollTable = () => {
       if (totalDays !== 13 || workingDays !== 12) {
         message.warning(
           `The selected payroll period has ${totalDays} days and ${workingDays} working days. ` +
-          `It must span exactly 13 days (Monday–Saturday, exceptional Sunday, Monday–Saturday) with 12 working days (Monday–Saturday).`
+          `It must span exactly 13 days (Monday–Saturday, exceptional Sunday) with 12 working days (Monday–Saturday).`
         );
         return;
       }
@@ -1549,6 +1566,17 @@ const PayrollTable = () => {
           >
             {showLabels && <span>Set Payroll Date</span>}
           </Button>
+          <RangePicker
+            format="MM/DD/YYYY"
+            value={historyDateRange}
+            onChange={(dates) => {
+              setHistoryDateRange(dates);
+              // Optionally, trigger filtering here or in a useEffect
+            }}
+            style={{ width: 260 }}
+            allowClear
+            placeholder={['Start date', 'End date']}
+          />
           {payrollDates.startDate && payrollDates.endDate ? (
             <>
               <Button
@@ -1576,20 +1604,22 @@ const PayrollTable = () => {
             </>
           ) : null}
         </div>
+
+
         {payrollDates.startDate && payrollDates.endDate ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-            <Button 
-              icon={<FileTextOutlined />} 
-              size="middle" 
-              style={{ backgroundColor: '#2C3743', borderColor: '#2C3743', color: 'white' }} 
+            <Button
+              icon={<FileTextOutlined />}
+              size="middle"
+              style={{ backgroundColor: '#2C3743', borderColor: '#2C3743', color: 'white' }}
               onClick={handlePayrollReport}
             >
               {showLabels && <span>Generate Payroll Report</span>}
             </Button>
-            <Button 
-              icon={<FileTextOutlined />} 
-              size="middle" 
-              style={{ backgroundColor: '#2C3743', borderColor: '#2C3743', color: 'white' }} 
+            <Button
+              icon={<FileTextOutlined />}
+              size="middle"
+              style={{ backgroundColor: '#2C3743', borderColor: '#2C3743', color: 'white' }}
               onClick={handleBulkPayslip}
             >
               {showLabels && <span>Generate Payslip</span>}
@@ -1756,30 +1786,30 @@ const PayrollTable = () => {
       )}
 
       {payrollDates.startDate && payrollDates.endDate && (
-        <Table 
-          dataSource={filteredData} 
-          bordered 
-          scroll={{ x: true }} 
+        <Table
+          dataSource={filteredData}
+          bordered
+          scroll={{ x: true }}
           pagination={false}
         >
-          <Column 
-            title="Employee ID" 
-            dataIndex="employeeId" 
-            key="employeeId" 
+          <Column
+            title="Employee ID"
+            dataIndex="employeeId"
+            key="employeeId"
             sorter={(a, b) => a.employeeId.localeCompare(b.employeeId)}
             render={(text) => <span>{text}</span>}
           />
-          <Column 
-            title="Employee Name" 
-            dataIndex="employeeName" 
-            key="employeeName" 
+          <Column
+            title="Employee Name"
+            dataIndex="employeeName"
+            key="employeeName"
             sorter={(a, b) => a.employeeName.localeCompare(b.employeeName)}
             render={(text) => <span>{text}</span>}
           />
-          <Column 
-            title="Branch" 
-            dataIndex="branchName" 
-            key="branchName" 
+          <Column
+            title="Branch"
+            dataIndex="branchName"
+            key="branchName"
             sorter={(a, b) => a.branchName.localeCompare(b.branchName)}
             render={(text) => <span>{text}</span>}
           />
@@ -1834,10 +1864,10 @@ const PayrollTable = () => {
             key="action"
             render={(_, record) => (
               <Space size="middle" wrap>
-                <Button 
-                  icon={<FileTextOutlined />} 
-                  size="middle" 
-                  style={{ backgroundColor: '#2C3743', borderColor: '#2C3743', color: 'white' }} 
+                <Button
+                  icon={<FileTextOutlined />}
+                  size="middle"
+                  style={{ backgroundColor: '#2C3743', borderColor: '#2C3743', color: 'white' }}
                   onClick={() => handleGeneratePayslip(record.employeeId)}
                   disabled={!payrollCut || !['first', 'second'].includes(payrollCut)}
                 >
@@ -1864,6 +1894,7 @@ const PayrollTable = () => {
         />
       )}
 
+      
       <Modal
         title="Set Payroll Date"
         open={isModalVisible}
@@ -1934,32 +1965,32 @@ const PayrollTable = () => {
               showIcon
               style={{ marginBottom: 20 }}
             />
-          <Form.Item
-            name="lastPayrollDate"
-            label={
-              <span>
-                Last Payroll Date<span style={{ color: 'red' }}>*</span>
-              </span>
-            }
-            rules={[{ required: true, message: 'Please select the last payroll date' }]}
-          >
-            <DatePicker format="MM/DD/YYYY" style={{ width: '50%' }} />
-          </Form.Item>
-          <Form.Item
-            name="cutOff"
-            label={
-              <span>
-                Cut Off<span style={{ color: 'red' }}>*</span>
-              </span>
-            }
-            rules={[{ required: true, message: 'Please select the cut off' }]}
-          >
-            <Select placeholder="Select Cut Off" style={{ width: '50%' }}>
-              <Option value="First Cut">First Cut</Option>
-              <Option value="Second Cut">Second Cut</Option>
-            </Select>
-          </Form.Item>
-        </Form>
+            <Form.Item
+              name="lastPayrollDate"
+              label={
+                <span>
+                  Last Payroll Date<span style={{ color: 'red' }}>*</span>
+                </span>
+              }
+              rules={[{ required: true, message: 'Please select the last payroll date' }]}
+            >
+              <DatePicker format="MM/DD/YYYY" style={{ width: '50%' }} />
+            </Form.Item>
+            <Form.Item
+              name="cutOff"
+              label={
+                <span>
+                  Cut Off<span style={{ color: 'red' }}>*</span>
+                </span>
+              }
+              rules={[{ required: true, message: 'Please select the cut off' }]}
+            >
+              <Select placeholder="Select Cut Off" style={{ width: '50%' }}>
+                <Option value="First Cut">First Cut</Option>
+                <Option value="Second Cut">Second Cut</Option>
+              </Select>
+            </Form.Item>
+          </Form>
         </div>
       </Modal>
 
@@ -2034,10 +2065,10 @@ const PayrollTable = () => {
                       { title: 'Amount', dataIndex: 'amount', key: 'amount', render: (text) => `₱${text}` },
                     ]}
                     dataSource={[
-                      { 
-                        key: `late-${payslipData.EmployeeID}`, 
-                        desc: `Late/Undertime Mins: ${(parseInt(payslipData.LateMinutes) + parseInt(payslipData.UndertimeMinutes))} mins`, 
-                        amount: formatNumberWithCommas(payslipData.LateDeduction || '0.00') 
+                      {
+                        key: `late-${payslipData.EmployeeID}`,
+                        desc: `Late/Undertime Mins: ${(parseInt(payslipData.LateMinutes) + parseInt(payslipData.UndertimeMinutes))} mins`,
+                        amount: formatNumberWithCommas(payslipData.LateDeduction || '0.00')
                       },
                       ...(payslipData.ContributionsData?.map((item, index) => ({
                         key: item.ID ? `contribution-${payslipData.EmployeeID}-${item.ID}` : `contribution-${payslipData.EmployeeID}-${index}`,
@@ -2135,11 +2166,11 @@ const PayrollTable = () => {
                           { title: 'Amount', dataIndex: 'amount', key: 'amount', render: (text) => `₱${text}` },
                         ]}
                         dataSource={[
-                          { 
-                            key: `late-${payslip.EmployeeID}`, 
-                            desc: `Late/Undertime Mins: ${(parseInt(payslip.LateMinutes) + parseInt(payslip.UndertimeMinutes))} mins`, 
-                            amount: formatNumberWithCommas(payslip.LateDeduction || '0.00') 
-                          }, 
+                          {
+                            key: `late-${payslip.EmployeeID}`,
+                            desc: `Late/Undertime Mins: ${(parseInt(payslip.LateMinutes) + parseInt(payslip.UndertimeMinutes))} mins`,
+                            amount: formatNumberWithCommas(payslip.LateDeduction || '0.00')
+                          },
                           ...(payslip.ContributionsData?.map((item, index) => ({
                             key: item.ID ? `contribution-${payslip.EmployeeID}-${item.ID}` : `contribution-${payslip.EmployeeID}-${index}`,
                             desc: item.ContributionType || 'Unknown',

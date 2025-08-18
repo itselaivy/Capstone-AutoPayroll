@@ -69,7 +69,7 @@ try {
     }
 
     function getAttendanceRecord($conn, $employeeId, $date) {
-        $stmt = $conn->prepare("SELECT AttendanceID, Date, EmployeeID, BranchID, TimeIn, TimeOut, TimeInStatus FROM attendance WHERE EmployeeID = ? AND Date = ?");
+        $stmt = $conn->prepare("SELECT AttendanceID, Date, EmployeeID, BranchID, TimeIn, TimeOut, TimeInStatus, TotalHours FROM attendance WHERE EmployeeID = ? AND Date = ?");
         $stmt->bind_param("is", $employeeId, $date);
         $stmt->execute();
         $result = $stmt->get_result();
@@ -143,6 +143,19 @@ try {
 
     function validateTime($time) {
         return preg_match("/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/", $time);
+    }
+
+    function computeHours($conn, $employeeId, $date) {
+        $stmt = $conn->prepare("SELECT ROUND(TIME_TO_SEC(TIMEDIFF(TimeOut, TimeIn)) / 3600, 2) AS TotalHours FROM attendance WHERE EmployeeID = ? AND Date = ?");
+        $stmt->bind_param("is", $employeeId, $date);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        if ($row = $result->fetch_assoc()) {
+            $stmt->close();
+            return $row['TotalHours'];
+        }
+        $stmt->close();
+        return 0;
     }
 
     $method = $_SERVER['REQUEST_METHOD'];
@@ -360,6 +373,7 @@ try {
                             b.BranchName,
                             a.TimeIn,
                             a.TimeOut,
+                            a.TotalHours,
                             a.TimeInStatus,
                             a.BranchID
                         FROM attendance a
@@ -380,6 +394,7 @@ try {
                             b.BranchName,
                             a.TimeIn,
                             a.TimeOut,
+                            a.TotalHours,
                             a.TimeInStatus,
                             a.BranchID
                         FROM attendance a
@@ -551,14 +566,17 @@ try {
                         if ($existingRecord["TimeInStatus"] != $record["TimeInStatus"]) {
                             $changes[] = "TimeInStatus from '{$existingRecord["TimeInStatus"]}' to '{$record["TimeInStatus"]}'";
                         }
+                        if ($existingRecord["TotalHours"] != computeHours($conn, $employeeId, $record["Date"])) {
+                            $changes[] = "TotalHours from '{$existingRecord["TotalHours"]}' to '{$record["TotalHours"]}'";
+                        }
 
                         if (empty($changes)) {
                             $duplicateCount++;
                             continue;
                         }
 
-                        $stmt = $conn->prepare("UPDATE attendance SET BranchID = ?, TimeIn = ?, TimeOut = ?, TimeInStatus = ? WHERE AttendanceID = ?");
-                        $stmt->bind_param("isssi", $branchId, $record["TimeIn"], $record["TimeOut"], $record["TimeInStatus"], $existingRecord["AttendanceID"]);
+                        $stmt = $conn->prepare("UPDATE attendance SET BranchID = ?, TimeIn = ?, TimeOut = ?, TotalHours = ?, TimeInStatus = ? WHERE AttendanceID = ?");
+                        $stmt->bind_param("isssdi", $branchId, $record["TimeIn"], $record["TimeOut"], $record["TotalHours"], $record["TimeInStatus"], $existingRecord["AttendanceID"]);
 
                         if ($stmt->execute()) {
                             $updatedCount++;
@@ -620,6 +638,7 @@ try {
                 !isset($data["BranchID"]) || empty($data["BranchID"]) ||
                 !isset($data["TimeIn"]) || empty($data["TimeIn"]) ||
                 !isset($data["TimeOut"]) || empty($data["TimeOut"]) ||
+                !isset($data["TotalHours"]) || empty($data["TotalHours"]) ||
                 !isset($data["TimeInStatus"]) || empty($data["TimeInStatus"])) {
                 throw new Exception("All fields are required to add an attendance record.");
             }
@@ -643,8 +662,8 @@ try {
 
             $conn->begin_transaction();
             try {
-                $stmt = $conn->prepare("INSERT INTO attendance (Date, EmployeeID, BranchID, TimeIn, TimeOut, TimeInStatus) VALUES (?, ?, ?, ?, ?, ?)");
-                $stmt->bind_param("siisss", $data["Date"], $data["EmployeeID"], $data["BranchID"], $data["TimeIn"], $data["TimeOut"], $data["TimeInStatus"]);
+                $stmt = $conn->prepare("INSERT INTO attendance (Date, EmployeeID, BranchID, TimeIn, TimeOut, TotalHours, TimeInStatus) VALUES (?, ?, ?, ?, ?, ?, ?)");
+                $stmt->bind_param("siissss", $data["Date"], $data["EmployeeID"], $data["BranchID"], $data["TimeIn"], $data["TimeOut"], $data["TotalHours"], $data["TimeInStatus"]);
 
                 if ($stmt->execute()) {
                     $attendanceId = $conn->insert_id;
@@ -736,12 +755,15 @@ try {
                 if ($currentRecord["TimeOut"] != $data["TimeOut"]) {
                     $changes[] = "TimeOut from '{$currentRecord["TimeOut"]}' to '{$data["TimeOut"]}'";
                 }
+                if ($currentRecord["TotalHours"] != $data["TotalHours"]) {
+                    $changes[] = "TotalHours from '{$currentRecord["TotalHours"]}' to '{$data["TotalHours"]}'";
+                }
                 if ($currentRecord["TimeInStatus"] != $data["TimeInStatus"]) {
                     $changes[] = "TimeInStatus from '{$currentRecord["TimeInStatus"]}' to '{$data["TimeInStatus"]}'";
                 }
 
-                $stmt = $conn->prepare("UPDATE attendance SET Date = ?, EmployeeID = ?, BranchID = ?, TimeIn = ?, TimeOut = ?, TimeInStatus = ? WHERE AttendanceID = ?");
-                $stmt->bind_param("siisssi", $data["Date"], $data["EmployeeID"], $data["BranchID"], $data["TimeIn"], $data["TimeOut"], $data["TimeInStatus"], $data["AttendanceID"]);
+                $stmt = $conn->prepare("UPDATE attendance SET Date = ?, EmployeeID = ?, BranchID = ?, TimeIn = ?, TimeOut = ?, TotalHours = ?, TimeInStatus = ? WHERE AttendanceID = ?");
+                $stmt->bind_param("siissssi", $data["Date"], $data["EmployeeID"], $data["BranchID"], $data["TimeIn"], $data["TimeOut"], $data["TotalHours"], $data["TimeInStatus"], $data["AttendanceID"]);
 
                 if ($stmt->execute()) {
                     $employeeName = getEmployeeNameById($conn, $data["EmployeeID"]);
