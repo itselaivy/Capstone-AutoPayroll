@@ -27,7 +27,30 @@ const AttendanceTable = () => {
   const [paginationTotal, setPaginationTotal] = useState(0);
   const [serverTotal, setServerTotal] = useState(0);
   const [isCsvInstructionModalOpen, setIsCsvInstructionModalOpen] = useState(false);
-
+  const getTotalOnTime = (employeeId) => {
+    return originalData.filter(
+      (item) => item.employeeId === employeeId && item.status === 'On-Time'
+    ).length;
+  };
+  
+  const getTotalLate = (employeeId) => {
+    return originalData.filter(
+      (item) => item.employeeId === employeeId && item.status === 'Late'
+    ).length;
+  };
+  
+  const getTotalAbsent = (employeeId) => {
+    return originalData.filter(
+      (item) => item.employeeId === employeeId && item.status === 'Absent'
+    ).length;
+  };
+  
+  const getTotalLeave = (employeeId) => {
+    return originalData.filter(
+      (item) => item.employeeId === employeeId && item.status === 'Leave'
+    ).length;
+  };
+  
   const API_BASE_URL = "http://localhost/UserTableDB/UserDB";
   const DATE_FORMAT = 'MM/DD/YYYY';
 
@@ -95,7 +118,10 @@ const AttendanceTable = () => {
         timeIn: attendance.TimeIn,
         timeOut: attendance.TimeOut,
         status: attendance.TimeInStatus,
-        totalHrs: attendance.TotalHours
+        totalHrs: attendance.TotalHours,
+        totalOnTime: attendance.TotalOnTime,
+        totalLate: attendance.TotalLate,
+        totalAbsent: attendance.TotalAbsent
       }));
 
       console.log('Mapped Data:', mappedData);
@@ -882,7 +908,7 @@ const AttendanceTable = () => {
             </Form>
           )}
 
-          {modalType === 'View' && selectedAttendance && (
+            {modalType === 'View' && selectedAttendance && (
             <div style={{ fontFamily: 'Poppins, sans-serif' }}>
               <p><strong>Date:</strong> {selectedAttendance.date}</p>
               <p><strong>Employee Name:</strong> {selectedAttendance.employeeName}</p>
@@ -890,6 +916,13 @@ const AttendanceTable = () => {
               <p><strong>Check In:</strong> {selectedAttendance.timeIn}</p>
               <p><strong>Check Out:</strong> {selectedAttendance.timeOut}</p>
               <p><strong>Status:</strong> {selectedAttendance.status}</p>
+              <br />
+              <h4><strong>Attendance Summary:</strong></h4>
+              <p><strong>Total Attendance:</strong> {originalData.filter(item => item.employeeId === selectedAttendance.employeeId).length}</p>
+              <p><strong>Total On-time:</strong> {getTotalOnTime(selectedAttendance.employeeId)}</p>
+              <p><strong>Total Late:</strong> {getTotalLate(selectedAttendance.employeeId)}</p>
+              <p><strong>Total Absent:</strong> {getTotalAbsent(selectedAttendance.employeeId)}</p>
+              <p><strong>Total Leave:</strong> {getTotalLeave(selectedAttendance.employeeId)}</p>
             </div>
           )}
 
