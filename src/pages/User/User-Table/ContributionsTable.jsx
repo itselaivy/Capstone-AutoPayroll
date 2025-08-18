@@ -546,7 +546,7 @@ const ContributionsTable = () => {
                 <Option value="PhilHealth" style={{ fontFamily: 'Poppins, sans-serif' }}>PhilHealth</Option>
               </Select>
             </Form.Item>
-            <Form.Item 
+            {/* <Form.Item 
               label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Amount (₱)<span style={{ color: 'red' }}>*</span></span>} 
               name="amount" 
               rules={[
@@ -555,7 +555,7 @@ const ContributionsTable = () => {
               ]}
             >
               <Input type="number" step="0.01" min="0" style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }} />
-            </Form.Item>
+            </Form.Item> */}
           </Form>
         )}
 

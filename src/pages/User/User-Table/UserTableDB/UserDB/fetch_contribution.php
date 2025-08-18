@@ -7,6 +7,8 @@ header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type");
 header("Content-Type: application/json");
 
+require_once 'fetch_payroll.php';
+
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     header("HTTP/1.1 200 OK");
     exit();
@@ -82,7 +84,45 @@ try {
         return number_format((float)$amount, 2, '.', '');
     }
 
-    $method = $_SERVER['REQUEST_METHOD'];
+    function getHrMinWagebyId($conn, $employeeId, $position) {
+        $smt = $conn->prepare("SELECT HourlyMinimumWage FROM positions WHERE PositionID = ?");
+        if (!$smt) {
+            error_log("Prepare failed for getHrMinWagebyId: " . $conn->error);
+            throw new Exception("Failed to fetch hourly minimum wage: " . $conn->error);
+        }
+        $smt->bind_param("si", $position, $employeeId);
+        $smt->execute();
+        $result = $smt->get_result();
+        if ($row = $result->fetch_assoc()) {
+            $hourlyMinWage = $row['HourlyMinimumWage'];
+            $smt->close();
+            return number_format((float)$hourlyMinWage, 3, '.', '');
+        }
+        $smt->close();
+        return 0;
+    }
+    function getBasicPay($dailyRateAmt, $transportAllowanceAmt) {
+        $basicPay = computeBasicPay($dailyRateAmt, $transportAllowanceAmt);
+        return $basicPay;
+    }
+
+   function getTableofContribution($employeeData, $startDate, $endDate, $totalDeductions){
+    $basicPay = getBasicPay($GLOBALS['dailyRateAmount'], $GLOBALS['transportAllowanceAmount']);
+    // Check if basic pay is in the range
+    if ($basicPay >= 10000 && $basicPay <= 100000) {
+        $philhealth = $basicPay * 0.05;
+
+        // Add PhilHealth to deductions (example: add to a field or array)
+        if (!isset($row['TotalDeductions'])) $row['TotalDeductions'] = 0;
+        $row['TotalDeductions'] += $philhealth;
+
+        // Optionally, add a field to show PhilHealth
+        $row['PhilHealthContribution'] = $philhealth;
+    }
+    }
+
+
+   $method = $_SERVER['REQUEST_METHOD'];
     $user_id = isset($_GET['user_id']) ? (int)$_GET['user_id'] : null;
     $role = isset($_GET['role']) ? $_GET['role'] : null;
     $search = isset($_GET['search']) ? trim($_GET['search']) : '';

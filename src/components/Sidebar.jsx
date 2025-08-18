@@ -13,6 +13,7 @@ import {
   MinusCircleOutlined,
   InsuranceOutlined,
   CreditCardOutlined,
+  CalculatorOutlined,
   SolutionOutlined,
   TransactionOutlined,
   CarryOutOutlined,
@@ -46,8 +47,8 @@ const UserSidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysS
     '/user/holidaytype': '9',
     '/user/leavetype': '10',
     '/user/allowances': '11',
-    '/user/contributions': '12', 
-    '/user/loan': '13', 
+    '/user/contributions': '12',
+    '/user/loan': '13',
     '/user/cash-advance': '14'
   };
 
@@ -195,7 +196,7 @@ const UserSidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysS
         collapsed={collapsed}
         width={250}
         collapsedWidth={100}
-        style={{ 
+        style={{
           background: '#1D3863',
           position: 'fixed',
           top: 0,
@@ -204,7 +205,7 @@ const UserSidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysS
         }}
         ref={sidebarRef}
       >
-        <div 
+        <div
           className="logo-section"
           style={{
             display: 'flex',
@@ -233,9 +234,9 @@ const UserSidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysS
           )}
         </div>
 
-        <div 
+        <div
           ref={scrollableRef}
-          style={{ 
+          style={{
             display: 'flex',
             flexDirection: 'column',
             overflowY: 'auto',
@@ -253,15 +254,15 @@ const UserSidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysS
             onOpenChange={onOpenChange}
             onClick={handleMenuClick}
             style={{ background: '#1D3863', color: 'white', borderRadius: 6, flex: '1 0 auto', fontFamily: 'Poppins, sans-serif' }}
-            items={menuItems.map((item) => 
+            items={menuItems.map((item) =>
               item.type === 'group' ? {
                 key: item.key,
                 label: item.label,
                 type: 'group',
-                style: { 
-                  color: '#A9BADA', 
-                  fontWeight: 'bold', 
-                  cursor: 'default', 
+                style: {
+                  color: '#A9BADA',
+                  fontWeight: 'bold',
+                  cursor: 'default',
                   pointerEvents: 'none',
                   background: '#0D1F3C',
                   textAlign: collapsed ? 'center' : 'left',
@@ -272,7 +273,7 @@ const UserSidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysS
                 key: item.key,
                 icon: item.icon,
                 label: item.label,
-                children: item.children.map((child) => 
+                children: item.children.map((child) =>
                   child.children ? {
                     key: child.key,
                     icon: child.icon,
@@ -322,22 +323,22 @@ const UserSidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysS
           <Menu
             theme="dark"
             mode="inline"
-            style={{ 
-              background: '#1D3863', 
-              color: 'white', 
+            style={{
+              background: '#1D3863',
+              color: 'white',
               borderRadius: 6,
               marginTop: 'auto',
               fontFamily: 'Poppins, sans-serif'
             }}
-            items={logoutMenuItems.map((item) => 
+            items={logoutMenuItems.map((item) =>
               item.type === 'group' ? {
                 key: item.key,
                 label: item.label,
                 type: 'group',
-                style: { 
-                  color: '#A9BADA', 
-                  fontWeight: 'bold', 
-                  cursor: 'default', 
+                style: {
+                  color: '#A9BADA',
+                  fontWeight: 'bold',
+                  cursor: 'default',
                   pointerEvents: 'none',
                   background: '#0D1F3C',
                   textAlign: collapsed ? 'center' : 'left',

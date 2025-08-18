@@ -624,6 +624,13 @@ function calculatePayroll($employeeData, $attendance, $overtime, $holidays, $pay
     $basicPay = $dailyRateAmount + $transportAllowanceAmount;
     $leavePay = $dailyRate * $leaveDays;
 
+    function computeBasicPay($dailyRateAmount, $transportAllowanceAmount) {
+        $dailyRateAmt = $dailyRateAmount;
+        $transportAllowanceAmt = $transportAllowanceAmount;
+        $_basicPay = $dailyRateAmt + $transportAllowanceAmt;
+        return $_basicPay;
+    }
+
     $payroll['BasicPay'] = formatNumber($basicPay, true);
     $payroll['LeavePay'] = formatNumber($leavePay, true);
     
