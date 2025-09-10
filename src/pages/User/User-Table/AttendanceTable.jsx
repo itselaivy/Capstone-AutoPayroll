@@ -124,8 +124,6 @@ const AttendanceTable = () => {
         totalAbsent: attendance.TotalAbsent
       }));
 
-      console.log('Mapped Data:', mappedData);
-
       setFilteredData(mappedData);
       setOriginalData(mappedData);
       setPaginationTotal(response.total);
@@ -555,8 +553,6 @@ const AttendanceTable = () => {
     console.log('Evaluating showBranchFilter - Role:', role, 'Assigned Branches Length:', assignedBranches.length, 'Result:', shouldShow);
     return shouldShow;
   }, [role, assignedBranches]);
-
-  console.log('Rendering - Role:', role, 'Assigned Branches:', assignedBranches, 'Show Branch Filter:', showBranchFilter);
 
   const handleDownloadTemplate = () => {
     const templateData = [
