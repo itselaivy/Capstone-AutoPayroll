@@ -281,6 +281,7 @@ const CashAdvanceTable = () => {
     }
   };
 
+
   const handleOk = async () => {
     const userId = localStorage.getItem('userId');
     if (!userId) {
@@ -296,6 +297,14 @@ const CashAdvanceTable = () => {
     if (modalType === "Add" || modalType === "Edit") {
       try {
         const values = await form.validateFields();
+        const amount = parseFloat(values.amount);
+
+        // Check if amount exceeds 5000.00
+        if (amount > 5000.00) {
+          message.error('Cash advance amount cannot exceed ₱5000.00.');
+          return;
+        }
+
         const date = values.date.format('YYYY-MM-DD');
         const employeeId = modalType === "Edit" ? selectedCashAdvance.employeeId : values.employeeId;
         const excludeId = modalType === "Edit" && selectedCashAdvance ? selectedCashAdvance.key : null;
@@ -346,9 +355,9 @@ const CashAdvanceTable = () => {
               ),
               okText: 'OK',
               cancelText: 'Cancel',
-              okButtonProps: { 
+              okButtonProps: {
                 type: 'primary',
-                style: { backgroundColor: '#1890ff', borderColor: '#1890ff', color: '#ffffff' } 
+                style: { backgroundColor: '#1890ff', borderColor: '#1890ff', color: '#ffffff' }
               },
               centered: true,
               width: 500,
@@ -370,8 +379,8 @@ const CashAdvanceTable = () => {
           Date: date,
           EmployeeID: employeeId,
           BranchID: branchId,
-          Amount: parseFloat(values.amount).toFixed(2),
-          Balance: parseFloat(values.amount).toFixed(2),
+          Amount: amount.toFixed(2),
+          Balance: amount.toFixed(2),
           user_id: parseInt(userId),
         };
 
@@ -424,7 +433,7 @@ const CashAdvanceTable = () => {
         const values = await form.validateFields();
         const paymentAmount = parseFloat(values.paymentAmount);
         const currentBalance = parseFloat(selectedCashAdvance.balance);
-        
+
         if (paymentAmount > currentBalance) {
           message.error('Payment amount cannot exceed current balance!');
           return;
@@ -520,12 +529,12 @@ const CashAdvanceTable = () => {
                 </Option>
               ))}
             </Select>
-          </div>  
+          </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-            <Button 
-              icon={<PlusOutlined />} 
-              size="middle" 
-              style={{ backgroundColor: '#2C3743', borderColor: '#2C3743', color: 'white' }} 
+            <Button
+              icon={<PlusOutlined />}
+              size="middle"
+              style={{ backgroundColor: '#2C3743', borderColor: '#2C3743', color: 'white' }}
               onClick={() => openModal('Add')}
             >
               Add Cash Advance
@@ -541,51 +550,51 @@ const CashAdvanceTable = () => {
           </div>
         </div>
 
-        <Table 
-          dataSource={filteredData} 
-          bordered 
-          scroll={{ x: true }} 
+        <Table
+          dataSource={filteredData}
+          bordered
+          scroll={{ x: true }}
           pagination={false}
         >
-          <Column 
-            title="Date" 
-            dataIndex="date" 
-            key="date" 
+          <Column
+            title="Date"
+            dataIndex="date"
+            key="date"
             sorter={(a, b) => moment(a.date, DATE_FORMAT).diff(moment(b.date, DATE_FORMAT))}
             render={(text) => <span>{text}</span>}
           />
-          <Column 
-            title="Employee ID" 
-            dataIndex="employeeId" 
-            key="employeeId" 
+          <Column
+            title="Employee ID"
+            dataIndex="employeeId"
+            key="employeeId"
             sorter={(a, b) => a.employeeId - b.employeeId}
             render={(text) => <span>{text}</span>}
           />
-          <Column 
-            title="Employee Name" 
-            dataIndex="employeeName" 
-            key="employeeName" 
+          <Column
+            title="Employee Name"
+            dataIndex="employeeName"
+            key="employeeName"
             sorter={(a, b) => a.employeeName.localeCompare(b.employeeName)}
             render={(text) => <span>{text}</span>}
           />
-          <Column 
-            title="Branch" 
-            dataIndex="branch" 
-            key="branch" 
+          <Column
+            title="Branch"
+            dataIndex="branch"
+            key="branch"
             sorter={(a, b) => a.branch.localeCompare(b.branch)}
             render={(text) => <span>{text}</span>}
           />
-          <Column 
-            title="Amount" 
-            dataIndex="amount" 
-            key="amount" 
+          <Column
+            title="Amount"
+            dataIndex="amount"
+            key="amount"
             sorter={(a, b) => a.amount - b.amount}
             render={(amount) => <span>₱{formatNumberWithCommas(amount)}</span>}
           />
-          <Column 
-            title="Balance" 
-            dataIndex="balance" 
-            key="balance" 
+          <Column
+            title="Balance"
+            dataIndex="balance"
+            key="balance"
             sorter={(a, b) => a.balance - b.balance}
             render={(balance) => <span>₱{formatNumberWithCommas(balance)}</span>}
           />
@@ -628,8 +637,8 @@ const CashAdvanceTable = () => {
                     isFullyPaid
                       ? 'This cash advance record is fully paid and cannot be edited further'
                       : isPartiallyPaid
-                      ? 'This cash advance record cannot be edited because the payment has already been made'
-                      : 'Edit'
+                        ? 'This cash advance record cannot be edited because the payment has already been made'
+                        : 'Edit'
                   }>
                     <Button
                       icon={<EditOutlined />}
@@ -680,11 +689,11 @@ const CashAdvanceTable = () => {
           title={
             <div style={{ textAlign: 'center' }}>
               <span style={{ fontSize: '22px', fontWeight: 'bold' }}>
-                {modalType === 'Add' ? 'Add New Cash Advance' : 
-                 modalType === 'Edit' ? 'Edit Cash Advance Details' : 
-                 modalType === 'View' ? 'View Cash Advance Information' : 
-                 modalType === 'Pay' ? 'Pay Cash Advance' :
-                 'Confirm Cash Advance Deletion'}
+                {modalType === 'Add' ? 'Add New Cash Advance' :
+                  modalType === 'Edit' ? 'Edit Cash Advance Details' :
+                    modalType === 'View' ? 'View Cash Advance Information' :
+                      modalType === 'Pay' ? 'Pay Cash Advance' :
+                        'Confirm Cash Advance Deletion'}
               </span>
             </div>
           }
@@ -692,7 +701,7 @@ const CashAdvanceTable = () => {
           onOk={handleOk}
           onCancel={handleCancel}
           okText={modalType === 'Delete' ? 'Delete' : modalType === 'Pay' ? 'Pay' : 'OK'}
-          okButtonProps={{ 
+          okButtonProps={{
             danger: modalType === 'Delete'
           }}
           width={600}
@@ -701,19 +710,19 @@ const CashAdvanceTable = () => {
         >
           {(modalType === 'Add') && (
             <Form form={form} layout="vertical">
-              <Form.Item 
-                label={<span>Date<span style={{ color: 'red' }}>*</span></span>} 
-                name="date" 
+              <Form.Item
+                label={<span>Date<span style={{ color: 'red' }}>*</span></span>}
+                name="date"
                 rules={[{ required: true, message: 'Please select a date!' }]}
               >
-                <DatePicker 
-                  format={DATE_FORMAT} 
-                  style={{ width: '100%' }} 
+                <DatePicker
+                  format={DATE_FORMAT}
+                  style={{ width: '100%' }}
                 />
               </Form.Item>
-              <Form.Item 
-                label={<span>Employee<span style={{ color: 'red' }}>*</span></span>} 
-                name="employeeId" 
+              <Form.Item
+                label={<span>Employee<span style={{ color: 'red' }}>*</span></span>}
+                name="employeeId"
                 rules={[{ required: true, message: 'Please select an employee!' }]}
               >
                 <Select
@@ -723,8 +732,8 @@ const CashAdvanceTable = () => {
                   onChange={handleEmployeeChange}
                   filterOption={(input, option) => option.children.toLowerCase().includes(input.toLowerCase())}
                 >
-                  {(role === 'Payroll Staff' ? 
-                    employees.filter(emp => assignedBranches.some(ab => ab.BranchID === emp.BranchID)) : 
+                  {(role === 'Payroll Staff' ?
+                    employees.filter(emp => assignedBranches.some(ab => ab.BranchID === emp.BranchID)) :
                     employees).map((employee) => (
                       <Option key={employee.EmployeeID} value={employee.EmployeeID}>
                         {employee.EmployeeName}
@@ -732,19 +741,19 @@ const CashAdvanceTable = () => {
                     ))}
                 </Select>
               </Form.Item>
-              <Form.Item 
-                label={<span>Amount (₱)<span style={{ color: 'red' }}>*</span></span>} 
-                name="amount" 
+              <Form.Item
+                label={<span>Amount (₱)<span style={{ color: 'red' }}>*</span></span>}
+                name="amount"
                 rules={[
                   { required: true, message: 'Please enter the amount!' },
                   { validator: (_, value) => value >= 0 ? Promise.resolve() : Promise.reject('Amount cannot be negative!') }
                 ]}
               >
-                <Input 
-                  type="number" 
-                  step="0.01" 
-                  min="0" 
-                  style={{ width: '100%' }} 
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  style={{ width: '100%' }}
                 />
               </Form.Item>
             </Form>
@@ -752,29 +761,29 @@ const CashAdvanceTable = () => {
 
           {(modalType === 'Edit') && (
             <Form form={form} layout="vertical">
-              <Form.Item 
-                label={<span>Date<span style={{ color: 'red' }}>*</span></span>} 
-                name="date" 
+              <Form.Item
+                label={<span>Date<span style={{ color: 'red' }}>*</span></span>}
+                name="date"
                 rules={[{ required: true, message: 'Please select a date!' }]}
               >
-                <DatePicker 
-                  format={DATE_FORMAT} 
-                  style={{ width: '100%' }} 
+                <DatePicker
+                  format={DATE_FORMAT}
+                  style={{ width: '100%' }}
                 />
               </Form.Item>
-              <Form.Item 
-                label={<span>Amount (₱)<span style={{ color: 'red' }}>*</span></span>} 
-                name="amount" 
+              <Form.Item
+                label={<span>Amount (₱)<span style={{ color: 'red' }}>*</span></span>}
+                name="amount"
                 rules={[
                   { required: true, message: 'Please enter the amount!' },
                   { validator: (_, value) => value >= 0 ? Promise.resolve() : Promise.reject('Amount cannot be negative!') }
                 ]}
               >
-                <Input 
-                  type="number" 
-                  step="0.01" 
-                  min="0" 
-                  style={{ width: '100%' }} 
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  style={{ width: '100%' }}
                 />
               </Form.Item>
             </Form>
@@ -782,27 +791,27 @@ const CashAdvanceTable = () => {
 
           {(modalType === 'Pay') && (
             <Form form={form} layout="vertical">
-              <Form.Item 
+              <Form.Item
                 label="Current Balance"
               >
-                <Input 
-                  value={`₱${formatNumberWithCommas(selectedCashAdvance?.balance)}`} 
-                  disabled 
+                <Input
+                  value={`₱${formatNumberWithCommas(selectedCashAdvance?.balance)}`}
+                  disabled
                 />
               </Form.Item>
-              <Form.Item 
-                label={<span>Payment Amount (₱)<span style={{ color: 'red' }}>*</span></span>} 
-                name="paymentAmount" 
+              <Form.Item
+                label={<span>Payment Amount (₱)<span style={{ color: 'red' }}>*</span></span>}
+                name="paymentAmount"
                 rules={[
                   { required: true, message: 'Please enter the payment amount!' },
                   { validator: (_, value) => value > 0 ? Promise.resolve() : Promise.reject('Payment amount must be greater than zero!') }
                 ]}
               >
-                <Input 
-                  type="number" 
-                  step="0.01" 
-                  min="0" 
-                  style={{ width: '100%' }} 
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  style={{ width: '100%' }}
                 />
               </Form.Item>
             </Form>

@@ -158,6 +158,62 @@ try {
         return 0;
     }
 
+    function formatNumber($amount) {
+        return number_format((float)$amount, 2, '.', '');
+    }
+
+    function getBasicPayFromDays($conn, $employeeId, $daysPresent) {
+        try {
+            if (!is_numeric($daysPresent) || $daysPresent < 0) {
+                throw new Exception("Invalid days present: must be a non-negative number");
+            }
+            $stmt = $conn->prepare("SELECT p.HourlyMinimumWage FROM employees e JOIN positions p ON e.PositionID = p.PositionID WHERE e.EmployeeID = ?");
+            $stmt->bind_param("i", $employeeId);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            if ($row = $result->fetch_assoc()) {
+                $hourlyMinWage = floatval($row['HourlyMinimumWage']);
+            } else {
+                throw new Exception("No hourly wage found for employee");
+            }
+            $stmt->close();
+            $dailyBasic = ($hourlyMinWage * 8) - 100.00; // Exclude transportation allowance
+            $basicPay = $dailyBasic * $daysPresent;
+            return number_format((float)$basicPay, 2, '.', '');
+        } catch (Exception $e) {
+            throw new Exception("Error calculating basic pay from days: " . $e->getMessage());
+        }
+    }
+
+    function getPhilHealthContri($conn, $employeeId, $daysPresent = null) {
+        try {
+            $stmt = $conn->prepare("SELECT p.HourlyMinimumWage FROM employees e JOIN positions p ON e.PositionID = p.PositionID WHERE e.EmployeeID = ?");
+            $stmt->bind_param("i", $employeeId);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            if ($row = $result->fetch_assoc()) {
+                $hourlySalary = floatval($row['HourlyMinimumWage']);
+            } else {
+                throw new Exception("No hourly wage found for employee");
+            }
+            $stmt->close();
+            $dailySalary = $hourlySalary * 8;
+            $dailyBasic = $dailySalary - 100.00; // Exclude transportation allowance
+            if ($daysPresent !== null) {
+                $monthlyBasicPay = $dailyBasic * $daysPresent;
+            } else {
+                $monthlyFactor = 365 / 12;
+                $monthlyBasicPay = $dailyBasic * $monthlyFactor;
+            }
+            $assessedSalary = min(max($monthlyBasicPay, 10000), 100000);
+            $totalContriAmount = $assessedSalary * 0.05;
+            $employeeShare = $totalContriAmount / 2;
+            return number_format((float)$employeeShare, 2, '.', '');
+        } catch (Exception $e) {
+            throw new Exception("Error calculating PhilHealth contribution: " . $e->getMessage());
+        }
+    }
+
     $method = $_SERVER['REQUEST_METHOD'];
 
     if ($method == "GET") {
@@ -226,6 +282,7 @@ try {
             $year = (int)$_GET['year'];
             $month = isset($_GET['month']) && $_GET['month'] !== 'all' ? (int)$_GET['month'] : null;
             $branch = isset($_GET['branch']) && $_GET['branch'] !== 'all' ? (int)$_GET['branch'] : null;
+            $employee = isset($_GET['employee']) && $_GET['employee'] !== 'all' ? (int)$_GET['employee'] : null;
             $user_id = isset($_GET['user_id']) ? (int)$_GET['user_id'] : null;
             $role = isset($_GET['role']) ? $_GET['role'] : null;
 
@@ -233,11 +290,18 @@ try {
                 throw new Exception("user_id and role are required for attendance fetch.");
             }
 
-            $sql = "SELECT DAY(Date) AS day,
-                           SUM(CASE WHEN TimeInStatus = 'On-Time' THEN 1 ELSE 0 END) AS onTime,
-                           SUM(CASE WHEN TimeInStatus = 'Late' THEN 1 ELSE 0 END) AS late
-                    FROM attendance
-                    WHERE YEAR(Date) = ?";
+            $sql = "SELECT 
+                        a.EmployeeID, 
+                        e.EmployeeName, 
+                        a.BranchID, 
+                        b.BranchName,
+                        DAY(a.Date) AS day,
+                        a.TimeInStatus,
+                        a.TotalHours
+                    FROM attendance a
+                    JOIN employees e ON a.EmployeeID = e.EmployeeID
+                    JOIN branches b ON a.BranchID = b.BranchID
+                    WHERE YEAR(a.Date) = ?";
             $types = "i";
             $params = [$year];
 
@@ -263,59 +327,110 @@ try {
                         echo json_encode([]);
                         exit;
                     }
-                    $sql .= " AND BranchID = ?";
+                    $sql .= " AND a.BranchID = ?";
                     $types .= "i";
                     $params[] = $branch;
                 } else {
                     $placeholders = implode(',', array_fill(0, count($allowedBranches), '?'));
-                    $sql .= " AND BranchID IN ($placeholders)";
+                    $sql .= " AND a.BranchID IN ($placeholders)";
                     $types .= str_repeat('i', count($allowedBranches));
                     $params = array_merge($params, $allowedBranches);
                 }
             } else {
                 if ($branch !== null) {
-                    $sql .= " AND BranchID = ?";
+                    $sql .= " AND a.BranchID = ?";
                     $types .= "i";
                     $params[] = $branch;
                 }
             }
 
+            if ($employee !== null) {
+                $sql .= " AND a.EmployeeID = ?";
+                $types .= "i";
+                $params[] = $employee;
+            }
+
             if ($month !== null) {
-                $sql .= " AND MONTH(Date) = ?";
+                $sql .= " AND MONTH(a.Date) = ?";
                 $types .= "i";
                 $params[] = $month;
             }
 
-            $sql .= " GROUP BY DAY(Date)";
-
             $stmt = $conn->prepare($sql);
             if (!$stmt) throw new Exception("Failed to prepare the database query: " . $conn->error);
 
-            if (count($params) > 1) {
+            if ($types) {
                 $stmt->bind_param($types, ...$params);
             } else {
-                $stmt->bind_param($types, $params[0]);
+                $stmt->bind_param("i", $year);
             }
 
             $stmt->execute();
             $result = $stmt->get_result();
-            $data = [];
 
+            $employeeData = [];
             $daysInPeriod = $month !== null ? cal_days_in_month(CAL_GREGORIAN, $month, $year) : 365;
-            $dayMap = array_fill(1, $daysInPeriod, ['onTime' => 0, 'late' => 0]);
 
             while ($row = $result->fetch_assoc()) {
-                $dayMap[(int)$row['day']] = [
-                    'onTime' => (int)$row['onTime'],
-                    'late' => (int)$row['late'],
-                ];
+                $employeeId = $row['EmployeeID'];
+                if (!isset($employeeData[$employeeId])) {
+                    $employeeData[$employeeId] = [
+                        'employee_id' => $employeeId,
+                        'employee_name' => $row['EmployeeName'],
+                        'branch_id' => $row['BranchID'],
+                        'branch_name' => $row['BranchName'],
+                        'days_present' => 0,
+                        'basic_pay' => '0.00',
+                        'philhealth_contribution' => '0.00',
+                        'daily_attendance' => array_fill(1, $daysInPeriod, ['onTime' => 0, 'late' => 0])
+                    ];
+                }
+
+                $day = (int)$row['day'];
+                if ($row['TotalHours'] >= 8 && in_array($row['TimeInStatus'], ['On-Time', 'Late'])) {
+                    $employeeData[$employeeId]['days_present']++;
+                    $employeeData[$employeeId]['daily_attendance'][$day] = [
+                        'onTime' => $row['TimeInStatus'] === 'On-Time' ? 1 : 0,
+                        'late' => $row['TimeInStatus'] === 'Late' ? 1 : 0
+                    ];
+                }
             }
 
-            foreach ($dayMap as $day => $counts) {
+            $data = [];
+            foreach ($employeeData as $emp) {
+                try {
+                    $emp['basic_pay'] = getBasicPayFromDays($conn, $emp['employee_id'], $emp['days_present']);
+                    $emp['philhealth_contribution'] = getPhilHealthContri($conn, $emp['employee_id'], $emp['days_present']);
+                } catch (Exception $e) {
+                    $emp['error'] = $e->getMessage();
+                }
+
+                $emp['daily_attendance'] = array_map(function ($counts, $day) use ($year, $month) {
+                    return [
+                        'date' => sprintf("%d-%02d-%02d", $year, $month ?: 1, $day),
+                        'onTime' => $counts['onTime'],
+                        'late' => $counts['late']
+                    ];
+                }, $emp['daily_attendance'], array_keys($emp['daily_attendance']));
+                $data[] = $emp;
+            }
+
+            if (empty($data)) {
                 $data[] = [
-                    "date" => sprintf("%d-%02d-%02d", $year, $month ?: 1, $day),
-                    "onTime" => $counts['onTime'],
-                    "late" => $counts['late'],
+                    'employee_id' => null,
+                    'employee_name' => 'No Data',
+                    'branch_id' => null,
+                    'branch_name' => 'No Data',
+                    'days_present' => 0,
+                    'basic_pay' => '0.00',
+                    'philhealth_contribution' => '0.00',
+                    'daily_attendance' => array_map(function ($day) use ($year, $month) {
+                        return [
+                            'date' => sprintf("%d-%02d-%02d", $year, $month ?: 1, $day),
+                            'onTime' => 0,
+                            'late' => 0
+                        ];
+                    }, range(1, $daysInPeriod))
                 ];
             }
 
@@ -329,6 +444,7 @@ try {
             $branch = isset($_GET['branch']) && $_GET['branch'] !== 'all' ? (int)$_GET['branch'] : null;
             $start_date = isset($_GET['start_date']) ? $_GET['start_date'] : null;
             $end_date = isset($_GET['end_date']) ? $_GET['end_date'] : null;
+            $fetchAll = isset($_GET['all']) && $_GET['all'] == '1';
 
             error_log("Received parameters: user_id=$user_id, role=$role, page=$page, limit=$limit, branch=$branch, start_date=$start_date, end_date=$end_date");
 
@@ -336,7 +452,7 @@ try {
                 throw new Exception("user_id and role are required for attendance fetch.");
             }
 
-            $offset = $page * $limit;
+            $offset = ($page - 1) * $limit;
 
             if ($role === 'Payroll Staff') {
                 $branchStmt = $conn->prepare("SELECT BranchID FROM UserBranches WHERE UserID = ?");
@@ -423,10 +539,14 @@ try {
                 $params[] = $end_date;
             }
 
-            $sql .= " ORDER BY a.Date DESC LIMIT ? OFFSET ?";
-            $types .= "ii";
-            $params[] = $limit;
-            $params[] = $offset;
+            if (!$fetchAll) {
+                $sql .= " ORDER BY a.Date DESC LIMIT ? OFFSET ?";
+                $types .= "ii";
+                $params[] = $limit;
+                $params[] = $offset;
+            } else {
+                $sql .= " ORDER BY a.Date DESC";
+            }
 
             error_log("SQL Query: $sql");
             error_log("Count SQL Query: $countSql");
@@ -436,26 +556,9 @@ try {
             $stmt = $conn->prepare($sql);
             if (!$stmt) throw new Exception("Prepare failed for main query: " . $conn->error);
 
-            $countStmt = $conn->prepare($countSql);
-            if (!$countStmt) throw new Exception("Prepare failed for count query: " . $conn->error);
-
             if ($types) {
                 $stmt->bind_param($types, ...$params);
-                $countTypes = substr($types, 0, -2);
-                $countParams = array_slice($params, 0, -2);
-                if ($countTypes) {
-                    if (!$countStmt->bind_param($countTypes, ...$countParams)) {
-                        throw new Exception("Count query bind failed: " . $countStmt->error);
-                    }
-                }
             }
-
-            if (!$countStmt->execute()) {
-                throw new Exception("Count query execution failed: " . $countStmt->error);
-            }
-            $countResult = $countStmt->get_result();
-            $total = $countResult->fetch_assoc()['total'];
-            $countStmt->close();
 
             if (!$stmt->execute()) {
                 throw new Exception("Main query execution failed: " . $stmt->error);
@@ -466,9 +569,31 @@ try {
                 $data[] = $row;
             }
 
-            error_log("Fetched " . count($data) . " records");
-            error_log("Sample data (first 2 records): " . (count($data) > 0 ? json_encode(array_slice($data, 0, 2)) : "No records"));
-            error_log("Total matching records: $total");
+            if ($fetchAll) {
+                echo json_encode([
+                    "success" => true,
+                    "data" => $data,
+                    "total" => count($data)
+                ]);
+                $stmt->close();
+                exit;
+            }
+
+            $countStmt = $conn->prepare($countSql);
+            if (!$countStmt) throw new Exception("Prepare failed for count query: " . $conn->error);
+            if ($types) {
+                $countTypes = substr($types, 0, -2);
+                $countParams = array_slice($params, 0, -2);
+                if ($countTypes) {
+                    $countStmt->bind_param($countTypes, ...$countParams);
+                }
+            }
+            if (!$countStmt->execute()) {
+                throw new Exception("Count query execution failed: " . $countStmt->error);
+            }
+            $countResult = $countStmt->get_result();
+            $total = $countResult->fetch_assoc()['total'];
+            $countStmt->close();
 
             echo json_encode([
                 "success" => true,
@@ -548,6 +673,7 @@ try {
                     }
 
                     $validRecords++;
+                    $totalHours = computeHours($conn, $employeeId, $record["Date"]);
 
                     if (attendanceExists($conn, $employeeId, $record["Date"])) {
                         $existingRecord = getAttendanceRecord($conn, $employeeId, $record["Date"]);
@@ -566,8 +692,8 @@ try {
                         if ($existingRecord["TimeInStatus"] != $record["TimeInStatus"]) {
                             $changes[] = "TimeInStatus from '{$existingRecord["TimeInStatus"]}' to '{$record["TimeInStatus"]}'";
                         }
-                        if ($existingRecord["TotalHours"] != computeHours($conn, $employeeId, $record["Date"])) {
-                            $changes[] = "TotalHours from '{$existingRecord["TotalHours"]}' to '{$record["TotalHours"]}'";
+                        if ($existingRecord["TotalHours"] != $totalHours) {
+                            $changes[] = "TotalHours from '{$existingRecord["TotalHours"]}' to '$totalHours'";
                         }
 
                         if (empty($changes)) {
@@ -576,7 +702,7 @@ try {
                         }
 
                         $stmt = $conn->prepare("UPDATE attendance SET BranchID = ?, TimeIn = ?, TimeOut = ?, TotalHours = ?, TimeInStatus = ? WHERE AttendanceID = ?");
-                        $stmt->bind_param("isssdi", $branchId, $record["TimeIn"], $record["TimeOut"], $record["TotalHours"], $record["TimeInStatus"], $existingRecord["AttendanceID"]);
+                        $stmt->bind_param("isssdi", $branchId, $record["TimeIn"], $record["TimeOut"], $totalHours, $record["TimeInStatus"], $existingRecord["AttendanceID"]);
 
                         if ($stmt->execute()) {
                             $updatedCount++;
@@ -589,8 +715,8 @@ try {
                         }
                         $stmt->close();
                     } else {
-                        $stmt = $conn->prepare("INSERT INTO attendance (Date, EmployeeID, BranchID, TimeIn, TimeOut, TimeInStatus) VALUES (?, ?, ?, ?, ?, ?)");
-                        $stmt->bind_param("siisss", $record["Date"], $employeeId, $branchId, $record["TimeIn"], $record["TimeOut"], $record["TimeInStatus"]);
+                        $stmt = $conn->prepare("INSERT INTO attendance (Date, EmployeeID, BranchID, TimeIn, TimeOut, TotalHours, TimeInStatus) VALUES (?, ?, ?, ?, ?, ?, ?)");
+                        $stmt->bind_param("siisssd", $record["Date"], $employeeId, $branchId, $record["TimeIn"], $record["TimeOut"], $totalHours, $record["TimeInStatus"]);
 
                         if ($stmt->execute()) {
                             $successCount++;
@@ -660,10 +786,12 @@ try {
                 throw new Exception("An attendance record for $employeeName on $formattedDate already exists.");
             }
 
+            $totalHours = computeHours($conn, $data["EmployeeID"], $data["Date"]);
+
             $conn->begin_transaction();
             try {
                 $stmt = $conn->prepare("INSERT INTO attendance (Date, EmployeeID, BranchID, TimeIn, TimeOut, TotalHours, TimeInStatus) VALUES (?, ?, ?, ?, ?, ?, ?)");
-                $stmt->bind_param("siissss", $data["Date"], $data["EmployeeID"], $data["BranchID"], $data["TimeIn"], $data["TimeOut"], $data["TotalHours"], $data["TimeInStatus"]);
+                $stmt->bind_param("siisssd", $data["Date"], $data["EmployeeID"], $data["BranchID"], $data["TimeIn"], $data["TimeOut"], $totalHours, $data["TimeInStatus"]);
 
                 if ($stmt->execute()) {
                     $attendanceId = $conn->insert_id;
@@ -720,9 +848,11 @@ try {
             }
             $stmt->close();
 
+            $totalHours = computeHours($conn, $data["EmployeeID"], $data["Date"]);
+
             $conn->begin_transaction();
             try {
-                $stmt = $conn->prepare("SELECT Date, EmployeeID, BranchID, TimeIn, TimeOut, TimeInStatus FROM attendance WHERE AttendanceID = ?");
+                $stmt = $conn->prepare("SELECT Date, EmployeeID, BranchID, TimeIn, TimeOut, TimeInStatus, TotalHours FROM attendance WHERE AttendanceID = ?");
                 $stmt->bind_param("i", $data["AttendanceID"]);
                 $stmt->execute();
                 $result = $stmt->get_result();
@@ -755,15 +885,15 @@ try {
                 if ($currentRecord["TimeOut"] != $data["TimeOut"]) {
                     $changes[] = "TimeOut from '{$currentRecord["TimeOut"]}' to '{$data["TimeOut"]}'";
                 }
-                if ($currentRecord["TotalHours"] != $data["TotalHours"]) {
-                    $changes[] = "TotalHours from '{$currentRecord["TotalHours"]}' to '{$data["TotalHours"]}'";
+                if ($currentRecord["TotalHours"] != $totalHours) {
+                    $changes[] = "TotalHours from '{$currentRecord["TotalHours"]}' to '$totalHours'";
                 }
                 if ($currentRecord["TimeInStatus"] != $data["TimeInStatus"]) {
                     $changes[] = "TimeInStatus from '{$currentRecord["TimeInStatus"]}' to '{$data["TimeInStatus"]}'";
                 }
 
                 $stmt = $conn->prepare("UPDATE attendance SET Date = ?, EmployeeID = ?, BranchID = ?, TimeIn = ?, TimeOut = ?, TotalHours = ?, TimeInStatus = ? WHERE AttendanceID = ?");
-                $stmt->bind_param("siissssi", $data["Date"], $data["EmployeeID"], $data["BranchID"], $data["TimeIn"], $data["TimeOut"], $data["TotalHours"], $data["TimeInStatus"], $data["AttendanceID"]);
+                $stmt->bind_param("siisssdi", $data["Date"], $data["EmployeeID"], $data["BranchID"], $data["TimeIn"], $data["TimeOut"], $totalHours, $data["TimeInStatus"], $data["AttendanceID"]);
 
                 if ($stmt->execute()) {
                     $employeeName = getEmployeeNameById($conn, $data["EmployeeID"]);

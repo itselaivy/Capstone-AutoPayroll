@@ -47,9 +47,9 @@ const UserSidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysS
     '/user/holidaytype': '9',
     '/user/leavetype': '10',
     '/user/allowances': '11',
-    '/user/contributions': '12',
-    '/user/loan': '13',
-    '/user/cash-advance': '14'
+   // '/user/contributions': '12',
+    '/user/loan': '12',
+    '/user/cash-advance': '13'
   };
 
   // Sync selectedKey with current route
@@ -174,11 +174,11 @@ const UserSidebar = ({ collapsed, setSelectedKey, setSidebarHeight, setOpenKeysS
           icon: <MinusCircleOutlined />,
           label: 'Deductions',
           children: [
-            { key: '12', icon: <InsuranceOutlined />, label: 'Contribution', route: '/user/contributions' },
-            { key: '13', icon: <CreditCardOutlined />, label: 'Loan', route: '/user/loan' }
+          //  { key: '12', icon: <InsuranceOutlined />, label: 'Contribution', route: '/user/contributions' },
+            { key: '12', icon: <CreditCardOutlined />, label: 'Loan', route: '/user/loan' }
           ]
         },
-        { key: '14', icon: <IoCashOutline />, label: 'Cash Advance', route: '/user/cash-advance' }
+        { key: '13', icon: <IoCashOutline />, label: 'Cash Advance', route: '/user/cash-advance' }
       ]
     }
   ];

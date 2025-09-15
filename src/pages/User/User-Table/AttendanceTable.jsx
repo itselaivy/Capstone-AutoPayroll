@@ -1,16 +1,20 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Space, Table, Tag, Button, Input, Modal, Form, message, DatePicker, TimePicker, Select, Upload, Typography, Pagination, Tooltip, ConfigProvider } from 'antd';
-import { EyeOutlined, EditOutlined, DeleteOutlined, PlusOutlined, SearchOutlined, UploadOutlined } from '@ant-design/icons';
+import { Space, Table, Tag, Button, Input, Modal, Form, message, DatePicker, TimePicker, Select, Upload, Typography, Pagination, Tooltip, ConfigProvider, Row, Col, Card } from 'antd';
+import { EyeOutlined, EditOutlined, DeleteOutlined, PlusOutlined, SearchOutlined, UploadOutlined, SolutionOutlined, FileTextOutlined } from '@ant-design/icons';
 import moment from 'moment';
 import Papa from 'papaparse';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 const { Column } = Table;
 const { Option } = Select;
 const { Title, Text } = Typography;
+const DATE_FORMAT = 'MM/DD/YYYY';
 
 const AttendanceTable = () => {
   const [searchText, setSearchText] = useState('');
   const [selectedBranch, setSelectedBranch] = useState('all');
+  const [modalBranchId, setModalBranchId] = useState('all');
   const [filteredData, setFilteredData] = useState([]);
   const [originalData, setOriginalData] = useState([]);
   const [screenWidth, setScreenWidth] = useState(window.innerWidth);
@@ -27,57 +31,82 @@ const AttendanceTable = () => {
   const [paginationTotal, setPaginationTotal] = useState(0);
   const [serverTotal, setServerTotal] = useState(0);
   const [isCsvInstructionModalOpen, setIsCsvInstructionModalOpen] = useState(false);
-  const getTotalOnTime = (employeeId) => {
-    return originalData.filter(
-      (item) => item.employeeId === employeeId && item.status === 'On-Time'
-    ).length;
-  };
-  
-  const getTotalLate = (employeeId) => {
-    return originalData.filter(
-      (item) => item.employeeId === employeeId && item.status === 'Late'
-    ).length;
-  };
-  
-  const getTotalAbsent = (employeeId) => {
-    return originalData.filter(
-      (item) => item.employeeId === employeeId && item.status === 'Absent'
-    ).length;
-  };
-  
-  const getTotalLeave = (employeeId) => {
-    return originalData.filter(
-      (item) => item.employeeId === employeeId && item.status === 'Leave'
-    ).length;
-  };
-  
+  const [allAttendance, setAllAttendance] = useState([]);
+  const [filteredEmployees, setFilteredEmployees] = useState([]);
+  const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false);
+  const [summaryData, setSummaryData] = useState({});
+  const [isLoading, setIsLoading] = useState(false);
+
   const API_BASE_URL = "http://localhost/UserTableDB/UserDB";
-  const DATE_FORMAT = 'MM/DD/YYYY';
+
+  const getTotalOnTime = (employeeId) => {
+    return allAttendance.filter(
+      (item) => String(item.employeeId) === String(employeeId) && item.status === 'On-Time'
+    ).length;
+  };
+
+  const getTotalLate = (employeeId) => {
+    return allAttendance.filter(
+      (item) => String(item.employeeId) === String(employeeId) && item.status === 'Late'
+    ).length;
+  };
+
+  const getTotalAbsent = (employeeId) => {
+    return allAttendance.filter(
+      (item) => String(item.employeeId) === String(employeeId) && item.status === 'Absent'
+    ).length;
+  };
+
+  const getTotalLeave = (employeeId) => {
+    return allAttendance.filter(
+      (item) => String(item.employeeId) === String(employeeId) && item.status === 'Leave'
+    ).length;
+  };
 
   const fetchDropdownData = async () => {
+    setIsLoading(true);
     try {
       const userId = localStorage.getItem('userId');
       const role = localStorage.getItem('role');
-      if (!userId || !role) throw new Error('Missing userId or role');
+      if (!userId || !role) {
+        throw new Error('Missing userId or role in localStorage. Please log in.');
+      }
+
       const [branchesRes, employeesRes, assignedBranchesRes] = await Promise.all([
         fetch(`${API_BASE_URL}/fetch_attendance.php?type=branches`),
         fetch(`${API_BASE_URL}/fetch_attendance.php?type=employees&user_id=${userId}&role=${encodeURIComponent(role)}`),
         fetch(`${API_BASE_URL}/fetch_branches.php?user_id=${userId}&role=${encodeURIComponent(role)}`)
       ]);
+
+      if (!branchesRes.ok) throw new Error(`Branches fetch failed: ${branchesRes.status}`);
+      if (!employeesRes.ok) throw new Error(`Employees fetch failed: ${employeesRes.status}`);
+      if (!assignedBranchesRes.ok) throw new Error(`Assigned branches fetch failed: ${assignedBranchesRes.status}`);
+
       const [branchesData, employeesData, assignedBranchesResData] = await Promise.all([
         branchesRes.json(),
         employeesRes.json(),
         assignedBranchesRes.json()
       ]);
-      console.log('Branches Data:', branchesData);
-      console.log('Employees Data:', employeesData);
-      console.log('Assigned Branches Data:', assignedBranchesResData);
+
+      if (!Array.isArray(branchesData)) {
+        throw new Error('Branches data is not an array');
+      }
+      if (!Array.isArray(employeesData)) {
+        throw new Error('Employees data is not an array');
+      }
+      if (!Array.isArray(assignedBranchesResData.data)) {
+        throw new Error('Assigned branches data is not an array');
+      }
+
       setBranches(branchesData);
       setEmployees(employeesData);
       setAssignedBranches(assignedBranchesResData.data || []);
+      setFilteredEmployees(employeesData);
     } catch (err) {
-      message.error('Unable to load dropdown options');
+      message.error(`Unable to load dropdown options: ${err.message}`);
       console.error('Fetch Dropdown Error:', err);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -98,13 +127,9 @@ const AttendanceTable = () => {
         url += `&start_date=${dateRange[0].format('YYYY-MM-DD')}&end_date=${dateRange[1].format('YYYY-MM-DD')}`;
       }
 
-      console.log('Fetching URL:', url);
-
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Attendance fetch failed: ${res.status}`);
       const response = await res.json();
-
-      console.log('Response:', response);
 
       if (!response.success) throw new Error(response.error || 'Failed to fetch attendance');
 
@@ -134,9 +159,30 @@ const AttendanceTable = () => {
     }
   };
 
+  const fetchAllAttendance = async () => {
+    try {
+      const userId = localStorage.getItem('userId');
+      const role = localStorage.getItem('role');
+      let url = `${API_BASE_URL}/fetch_attendance.php?user_id=${userId}&role=${encodeURIComponent(role)}&all=1`;
+      const res = await fetch(url);
+      const response = await res.json();
+      if (response.success) {
+        setAllAttendance(response.data.map(attendance => ({
+          employeeId: attendance.EmployeeID,
+          status: attendance.TimeInStatus,
+          timeOut: attendance.TimeOut,
+          date: attendance.Date
+        })));
+      }
+    } catch (err) {
+      console.error('Fetch All Attendance Error:', err);
+    }
+  };
+
   useEffect(() => {
     fetchDropdownData();
     fetchData();
+    fetchAllAttendance();
   }, [currentPage, pageSize, selectedBranch, dateRange]);
 
   useEffect(() => {
@@ -163,28 +209,81 @@ const AttendanceTable = () => {
     setCurrentPage(1);
   };
 
-  const handleBranchChange = (value) => {
-    setSelectedBranch(value);
-    setCurrentPage(1);
+  const handleBranchChange = (branchId, context) => {
+    if (context === 'table') {
+      setSelectedBranch(branchId);
+      setCurrentPage(1);
+
+      let filtered;
+      const role = localStorage.getItem('role');
+      if (role === "Payroll Staff") {
+        if (branchId === "all") {
+          filtered = employees.filter(emp =>
+            assignedBranches.some(ab => ab.BranchID === emp.BranchID)
+          );
+        } else {
+          filtered = employees.filter(
+            emp =>
+              String(emp.BranchID) === String(branchId) &&
+              assignedBranches.some(ab => ab.BranchID === emp.BranchID)
+          );
+        }
+      } else {
+        if (branchId === "all") {
+          filtered = employees;
+        } else {
+          filtered = employees.filter(
+            emp => String(emp.BranchID) === String(branchId)
+          );
+        }
+      }
+      setFilteredEmployees(filtered);
+      form.setFieldsValue({ employeeId: undefined });
+    } else if (context === 'modal') {
+      setModalBranchId(branchId);
+      let filtered;
+      const role = localStorage.getItem('role');
+      if (role === "Payroll Staff") {
+        if (branchId === "all") {
+          filtered = employees.filter(emp =>
+            assignedBranches.some(ab => ab.BranchID === emp.BranchID)
+          );
+        } else {
+          filtered = employees.filter(
+            emp =>
+              String(emp.BranchID) === String(branchId) &&
+              assignedBranches.some(ab => ab.BranchID === emp.BranchID)
+          );
+        }
+      } else {
+        if (branchId === "all") {
+          filtered = employees;
+        } else {
+          filtered = employees.filter(
+            emp => String(emp.BranchID) === String(branchId)
+          );
+        }
+      }
+      setFilteredEmployees(filtered);
+      form.setFieldsValue({ employeeId: undefined });
+    }
   };
 
   const handleEmployeeChange = (employeeId) => {
+    setSelectedAttendance({ ...selectedAttendance, employeeId });
     const employee = employees.find(emp => emp.EmployeeID === employeeId);
     if (employee && employee.BranchID) {
       const branch = branches.find(br => String(br.BranchID) === String(employee.BranchID));
-      console.log('handleEmployeeChange - Employee BranchID:', employee.BranchID, 'Branches:', branches, 'Found Branch:', branch);
       form.setFieldsValue({
         branchId: branch ? String(employee.BranchID) : '',
         branchName: branch ? branch.BranchName : 'Branch Not Found'
       });
-      console.log('Set Branch in Form - BranchID:', employee.BranchID, 'BranchName:', form.getFieldValue('branchName'));
     } else {
       form.setFieldsValue({
         branchId: '',
         branchName: 'No Branch Assigned'
       });
       message.warning('Selected employee has no assigned branch');
-      console.log('No Branch Set - Form Values:', form.getFieldsValue());
     }
   };
 
@@ -193,36 +292,85 @@ const AttendanceTable = () => {
     setPageSize(pageSize);
   };
 
-  const openModal = (type, record = null) => {
+  const handleAttendanceSummary = async () => {
+    try {
+      const values = await form.validateFields();
+      const [startDate, endDate] = values.date || [];
+
+      if (!startDate || !endDate) {
+        throw new Error("Please select a date range");
+      }
+
+      const employeeId = values.employeeId;
+      const branchId = values.BranchId === "all" ? null : values.BranchId;
+      const startDateStr = startDate.format('YYYY-MM-DD');
+      const endDateStr = endDate.format('YYYY-MM-DD');
+
+      const employee = employees.find(emp => emp.EmployeeID === employeeId);
+      const branch = employee && employee.BranchID
+        ? branches.find(br => String(br.BranchID) === String(employee.BranchID))
+        : null;
+
+      const filteredAttendance = allAttendance.filter(att =>
+        String(att.employeeId) === String(employeeId) &&
+        moment(att.date, 'YYYY-MM-DD').isBetween(startDateStr, endDateStr, null, '[]')
+      );
+
+      const summary = {
+        totalAttendance: filteredAttendance.filter(att => att.status === 'On-Time' || att.status === 'Late').length,
+        onTime: filteredAttendance.filter(att => att.status === 'On-Time').length,
+        late: filteredAttendance.filter(att => att.status === 'Late').length,
+        absences: filteredAttendance.filter(att => att.status === 'Absent').length,
+        leave: filteredAttendance.filter(att => att.status === 'Leave').length
+      };
+
+      setSummaryData({
+        employeeName: employee ? employee.EmployeeName : 'Unknown',
+        branchName: branch ? branch.BranchName : 'No Branch Assigned',
+        startDate: startDate.format(DATE_FORMAT),
+        endDate: endDate.format(DATE_FORMAT),
+        summary
+      });
+      setIsSummaryModalOpen(true);
+      setIsModalOpen(false);
+    } catch (error) {
+      console.error("Error generating attendance summary:", error);
+      message.error("Failed to generate summary: " + error.message);
+    }
+  };
+
+  const openModal = async (type, record = null) => {
     setModalType(type);
     setSelectedAttendance(record);
     setIsModalOpen(true);
+    setModalBranchId('all');
+    setFilteredEmployees(employees);
 
     if (record) {
       const branch = branches.find(br => String(br.BranchID) === String(record.branchId));
-      console.log('openModal Edit - Record BranchID:', record.branchId, 'Record BranchName:', record.branch, 'Branches:', branches, 'Found Branch:', branch);
       form.setFieldsValue({
         date: moment(record.date, DATE_FORMAT),
         employeeId: record.employeeId,
         branchId: record.branchId,
-        branchName: record.branch,
-        timeIn: moment(record.timeIn, 'HH:mm'),
-        timeOut: moment(record.timeOut, 'HH:mm'),
+        branchName: branch ? branch.BranchName : 'Branch Not Found',
       });
-      console.log('Edit Modal Form Values:', form.getFieldsValue());
     } else {
       form.resetFields();
       form.setFieldsValue({
-        branchId: '',
+        branchId: 'all',
         branchName: ''
       });
-      console.log('Add Modal Form Values:', form.getFieldsValue());
     }
   };
 
   const handleOk = async () => {
     if (modalType === "View") {
       handleCancel();
+      return;
+    }
+
+    if (modalType === "ViewSummary") {
+      await handleAttendanceSummary();
       return;
     }
 
@@ -236,6 +384,7 @@ const AttendanceTable = () => {
         const timeInStatus = timeInMoment.isBefore(startDuty) ||
           (timeInMoment.isSameOrAfter(startDuty) && timeInMoment.isBefore(lateThreshold))
           ? 'On-Time' : 'Late';
+        const totalHours = values.timeOut.diff(values.timeIn, 'hours', true);
 
         const employee = employees.find(emp => emp.EmployeeID === values.employeeId);
         if (!employee || !employee.BranchID) {
@@ -253,9 +402,8 @@ const AttendanceTable = () => {
           TimeIn: timeIn,
           TimeOut: values.timeOut.format('HH:mm'),
           TimeInStatus: timeInStatus,
+          TotalHours: totalHours
         };
-
-        console.log('Add Payload:', payload);
 
         const res = await fetch(`${API_BASE_URL}/fetch_attendance.php`, {
           method: "POST",
@@ -274,6 +422,7 @@ const AttendanceTable = () => {
           setIsModalOpen(false);
           form.resetFields();
           fetchData();
+          fetchAllAttendance();
         } else {
           throw new Error(data.error || "An unexpected error occurred.");
         }
@@ -295,6 +444,7 @@ const AttendanceTable = () => {
         const timeInStatus = timeInMoment.isBefore(startDuty) ||
           (timeInMoment.isSameOrAfter(startDuty) && timeInMoment.isBefore(lateThreshold))
           ? 'On-Time' : 'Late';
+        const totalHours = values.timeOut.diff(values.timeIn, 'hours', true);
 
         const payload = {
           Date: values.date.format('YYYY-MM-DD'),
@@ -303,7 +453,8 @@ const AttendanceTable = () => {
           TimeIn: timeIn,
           TimeOut: values.timeOut.format('HH:mm'),
           TimeInStatus: timeInStatus,
-          AttendanceID: selectedAttendance.key
+          AttendanceID: selectedAttendance.key,
+          TotalHours: totalHours
         };
 
         console.log('Edit Payload:', payload);
@@ -325,6 +476,7 @@ const AttendanceTable = () => {
           setIsModalOpen(false);
           form.resetFields();
           fetchData();
+          fetchAllAttendance();
         } else {
           throw new Error(data.error || "An unexpected error occurred.");
         }
@@ -336,39 +488,168 @@ const AttendanceTable = () => {
             : `Failed to update the attendance record: ${err.message}`
         );
       }
-    } /* else if (modalType === "Delete" && selectedAttendance) {
-      try {
-        const res = await fetch(`${API_BASE_URL}/fetch_attendance.php`, {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ AttendanceID: selectedAttendance.key }),
-        });
-
-        const responseText = await res.text();
-        console.log("Delete Response:", responseText);
-
-        if (!res.ok) {
-          throw new Error(`Delete failed: ${res.statusText} - ${responseText}`);
-        }
-
-        const data = JSON.parse(responseText);
-        if (data.success) {
-          message.success("Attendance record deleted successfully.");
-          setIsModalOpen(false);
-          fetchData();
-        } else {
-          throw new Error(data.error || "An unexpected error occurred during deletion.");
-        }
-      } catch (err) {
-        console.error("Delete Error:", err.message);
-        message.error(`Failed to delete attendance record. Please try again or contact the System Administrator.`);
-      }
-    } */
+    }
   };
 
   const handleCancel = () => {
     setIsModalOpen(false);
+    setModalBranchId('all');
+    setFilteredEmployees(employees);
     form.resetFields();
+    setModalType('');
+  };
+
+  const handleSummaryModalClose = () => {
+    setIsSummaryModalOpen(false);
+    setSummaryData({});
+  };
+
+  const AttendanceSummaryModal = ({ visible, onClose, summaryData, setIsSummaryModalOpen, setSummaryData }) => {
+    // Debug: Log summaryData to inspect branchName
+    console.log('summaryData in AttendanceSummaryModal:', summaryData);
+
+    const exportAttendanceSummaryPDF = () => {
+      const doc = new jsPDF();
+      console.log('jsPDF instance:', doc);
+
+      // Set document title
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(16);
+      doc.text('Attendance Summary', 14, 20);
+
+      // Add header information
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(12);
+      doc.text(`Employee Name: ${summaryData.employeeName || 'N/A'}`, 14, 30);
+      doc.text(`Branch: ${summaryData.branchName || 'No Branch Assigned'}`, 14, 40);
+      doc.text(`Date Range: ${summaryData.startDate || 'N/A'} to ${summaryData.endDate || 'N/A'}`, 14, 50);
+
+      // Define table data
+      const tableData = [
+        ['Employee Name', summaryData.employeeName || 'N/A'],
+        ['Branch', summaryData.branchName || 'No Branch Assigned'],
+        ['Date Range', `${summaryData.startDate || 'N/A'} to ${summaryData.endDate || 'N/A'}`],
+        ['Total Attendance', summaryData.summary?.totalAttendance || 0],
+        ['On-Time', summaryData.summary?.onTime || 0],
+        ['Late', summaryData.summary?.late || 0],
+        ['Absences', summaryData.summary?.absences || 0],
+        ['Leave', summaryData.summary?.leave || 0],
+      ];
+
+      // Use autoTable for structured table
+      autoTable(doc, {
+        startY: 60,
+        head: [['Description', 'Value']],
+        body: tableData,
+        theme: 'striped',
+        headStyles: {
+          fillColor: [44, 55, 67], // Match button color (#2C3743)
+          textColor: [255, 255, 255],
+          fontSize: 12,
+          font: 'helvetica',
+          fontStyle: 'bold',
+        },
+        bodyStyles: {
+          fontSize: 10,
+          font: 'helvetica',
+          textColor: [0, 0, 0],
+        },
+        alternateRowStyles: {
+          fillColor: [240, 240, 240],
+        },
+        margin: { left: 14, right: 14 },
+        styles: {
+          cellPadding: 3,
+          lineWidth: 0.2,
+          lineColor: [0, 0, 0],
+        },
+      });
+
+      // Save the PDF
+      try {
+        doc.save(`attendance_summary_${summaryData.employeeName || 'employee'}.pdf`);
+      } catch (error) {
+        console.error('PDF save failed:', error);
+        message.error('Failed to save PDF: ' + error.message);
+      }
+    };
+
+    // Table data for the modal
+    const tableData = [
+      { key: 'employeeName', description: 'Employee Name', value: summaryData.employeeName || 'N/A' },
+      { key: 'branchName', description: 'Branch', value: summaryData.branchName || 'No Branch Assigned' },
+      { key: 'dateRange', description: 'Date Range', value: `${summaryData.startDate || 'N/A'} to ${summaryData.endDate || 'N/A'}` },
+      { key: 'totalAttendance', description: 'Total Attendance', value: summaryData.summary?.totalAttendance || 0 },
+      { key: 'onTime', description: 'On-Time', value: summaryData.summary?.onTime || 0 },
+      { key: 'late', description: 'Late', value: summaryData.summary?.late || 0 },
+      { key: 'absences', description: 'Absences', value: summaryData.summary?.absences || 0 },
+      { key: 'leave', description: 'Leave', value: summaryData.summary?.leave || 0 },
+    ];
+
+    const columns = [
+      { title: 'Description', dataIndex: 'description', key: 'description' },
+      { title: 'Value', dataIndex: 'value', key: 'value' },
+    ];
+
+    return (
+      <Modal
+        title={<span style={{ fontSize: '20px', fontWeight: 'bold', fontFamily: 'Poppins, sans-serif' }}>Attendance Summary</span>}
+        open={visible}
+        onOk={onClose}
+        onCancel={onClose}
+        okText="Close"
+        cancelText="Cancel"
+        width={600}
+        style={{ fontFamily: 'Poppins, sans-serif' }}
+        footer={[
+          <Button
+            key="download"
+            type="primary"
+            icon={<FileTextOutlined />}
+            onClick={exportAttendanceSummaryPDF}
+            style={{ backgroundColor: '#2C3743', borderColor: '#2C3743', color: 'white' }}
+          >
+            Export Report
+          </Button>,
+          <Button
+            key="close"
+            onClick={() => {
+              setIsSummaryModalOpen(false);
+              setSummaryData({});
+            }}
+          >
+            Close
+          </Button>,
+        ]}
+      >
+        <div style={{ padding: '20px', maxHeight: '60vh', overflowY: 'auto' }}>
+          <Row gutter={[16, 16]}>
+            <Col xs={24}>
+              <Card
+                bordered={false}
+                style={{
+                  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+                  borderRadius: '8px',
+                }}
+              >
+                <Title level={4} style={{ marginBottom: '16px', fontFamily: 'Poppins, sans-serif' }}>
+                  Attendance Summary for {summaryData.employeeName || 'N/A'}
+                </Title>
+                <Table
+                  columns={columns}
+                  dataSource={tableData}
+                  pagination={false}
+                  size="small"
+                  bordered
+                  style={{ fontFamily: 'Poppins, sans-serif' }}
+                  rowClassName={() => 'ant-table-row-custom'}
+                />
+              </Card>
+            </Col>
+          </Row>
+        </div>
+      </Modal>
+    );
   };
 
   const handleCsvInstructionOk = () => {
@@ -499,8 +780,6 @@ const AttendanceTable = () => {
               if (status !== 200) throw new Error(`Server error: ${status} - ${text}`);
               const json = JSON.parse(text);
 
-              console.log('Server Response:', json);
-
               if (json.success) {
                 let messageContent = [];
                 if (json.successCount > 0) messageContent.push(`Successfully imported ${json.successCount} new attendance record(s).`);
@@ -509,6 +788,7 @@ const AttendanceTable = () => {
                 if (messageContent.length > 0) {
                   message.success({ content: messageContent.join(" "), duration: 5 });
                   fetchData();
+                  fetchAllAttendance();
                 } else if (json.allDuplicates) {
                   message.warning({ content: "All records in the CSV already exist. No changes made.", duration: 5 });
                 } else {
@@ -550,7 +830,6 @@ const AttendanceTable = () => {
 
   const showBranchFilter = useMemo(() => {
     const shouldShow = role !== 'Payroll Staff' || (role === 'Payroll Staff' && assignedBranches.length > 1);
-    console.log('Evaluating showBranchFilter - Role:', role, 'Assigned Branches Length:', assignedBranches.length, 'Result:', shouldShow);
     return shouldShow;
   }, [role, assignedBranches]);
 
@@ -573,6 +852,20 @@ const AttendanceTable = () => {
     link.click();
     URL.revokeObjectURL(url);
   };
+
+  const employeesWithAttendance = employees.map(emp => {
+    const totalAttendance = allAttendance.filter(
+      att => String(att.employeeId) === String(emp.EmployeeID)
+    ).length;
+    return {
+      ...emp,
+      TotalAttendance: totalAttendance,
+      TotalAbsent: getTotalAbsent(emp.EmployeeID),
+      TotalLeave: getTotalLeave(emp.EmployeeID),
+      TotalOnTime: getTotalOnTime(emp.EmployeeID),
+      TotalLate: getTotalLate(emp.EmployeeID),
+    };
+  });
 
   return (
     <ConfigProvider theme={{ token: { fontFamily: 'Poppins, sans-serif' } }}>
@@ -597,13 +890,14 @@ const AttendanceTable = () => {
             {showBranchFilter && (
               <Select
                 value={selectedBranch}
-                onChange={handleBranchChange}
+                onChange={(value) => handleBranchChange(value, 'table')}
                 style={{
                   width: screenWidth < 480 ? '100%' : '200px',
                   marginTop: screenWidth < 480 ? 10 : 0,
                   fontFamily: 'Poppins, sans-serif'
                 }}
                 placeholder="Filter by Branch"
+                loading={isLoading}
               >
                 <Option value="all" style={{ fontFamily: 'Poppins, sans-serif' }}>
                   All Branches
@@ -621,6 +915,14 @@ const AttendanceTable = () => {
             )}
           </Space>
           <Space>
+            <Button
+              icon={<SolutionOutlined />}
+              size="middle"
+              style={{ backgroundColor: '#2C3743', borderColor: '#2C3743', color: 'white', fontFamily: 'Poppins, sans-serif' }}
+              onClick={() => openModal('ViewSummary')}
+            >
+              {showLabels && 'Attendance Summary'}
+            </Button>
             <Button
               icon={<PlusOutlined />}
               size="middle"
@@ -747,19 +1049,6 @@ const AttendanceTable = () => {
                     onClick={() => openModal('Edit', record)}
                   />
                 </Tooltip>
-                {/*  <Tooltip title="Delete">
-                  <Button
-                    icon={<DeleteOutlined />}
-                    size="middle"
-                    style={{
-                      width: '40px',
-                      backgroundColor: '#ff4d4f',
-                      borderColor: '#ff4d4f',
-                      color: 'white'
-                    }}
-                    onClick={() => openModal('Delete', record)}
-                  />
-                </Tooltip> */}
               </Space>
             )}
           />
@@ -781,23 +1070,97 @@ const AttendanceTable = () => {
           title={
             <div style={{ textAlign: 'center' }}>
               <span style={{ fontSize: '22px', fontWeight: 'bold', fontFamily: 'Poppins, sans-serif' }}>
-                {modalType === 'Add' ? 'Add New Attendance' :
-                  modalType === 'Edit' ? 'Edit Attendance Details' :
-                    modalType === 'View' ? 'View Attendance Information' :
-                      'Confirm Attendance Deletion'}
+                {modalType === 'ViewSummary' ? 'Attendance Summary Filter' :
+                  modalType === 'Add' ? 'Add New Attendance' :
+                    modalType === 'Edit' ? 'Edit Attendance Details' :
+                      modalType === 'View' ? 'View Attendance Information' :
+                        'Delete Attendance'}
               </span>
             </div>
           }
           open={isModalOpen}
           onOk={handleOk}
           onCancel={handleCancel}
-          okText={modalType === 'Delete' ? 'Delete' : 'OK'}
-          okButtonProps={{ danger: modalType === 'Delete', style: { fontFamily: 'Poppins, sans-serif' } }}
+          okButtonProps={{ style: { fontFamily: 'Poppins, sans-serif' } }}
           cancelButtonProps={{ style: { fontFamily: 'Poppins, sans-serif' } }}
           width={600}
           centered
         >
-          {(modalType === 'Add') && (
+          {modalType === 'ViewSummary' && (
+            <Form form={form} layout="vertical" style={{ fontFamily: 'Poppins, sans-serif' }}>
+              <Form.Item
+                label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Date<span style={{ color: 'red' }}>*</span></span>}
+                name="date"
+                rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select a date!</span> }]}
+              >
+                <DatePicker.RangePicker
+                  format={DATE_FORMAT}
+                  style={{ width: '80%', fontFamily: 'Poppins, sans-serif' }}
+                />
+              </Form.Item>
+              <Form.Item
+                label={<span>Branch<span style={{ color: 'red' }}>*</span></span>}
+                name="BranchId"
+                rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select a branch!</span> }]}
+              >
+                <Select
+                  showSearch
+                  onChange={(value) => handleBranchChange(value, 'modal')}
+                  style={{
+                    width: screenWidth < 768 ? '100%' : '410px',
+                    marginTop: screenWidth < 480 ? 10 : 0,
+                    fontFamily: 'Poppins, sans-serif'
+                  }}
+                  placeholder="Select a Branch"
+                  loading={isLoading}
+                >
+                  <Option value="all" style={{ fontFamily: 'Poppins, sans-serif' }}>
+                    All Branches
+                  </Option>
+                  {(role === 'Payroll Staff' ? assignedBranches : branches).map(branch => (
+                    <Option
+                      key={branch.BranchID}
+                      value={branch.BranchID}
+                      style={{ fontFamily: 'Poppins, sans-serif' }}
+                    >
+                      {branch.BranchName}
+                    </Option>
+                  ))}
+                </Select>
+              </Form.Item>
+              <Form.Item
+                label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Employee<span style={{ color: 'red' }}>*</span></span>}
+                name="employeeId"
+                rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select an employee!</span> }]}
+              >
+                <Select
+                  showSearch
+                  placeholder="Type or select an employee"
+                  optionFilterProp="children"
+                  filterOption={(input, option) =>
+                    option?.children?.toLowerCase().includes(input.toLowerCase())
+                  }
+                  style={{
+                    fontFamily: 'Poppins, sans-serif',
+                    width: screenWidth < 768 ? '100%' : '410px'
+                  }}
+                  disabled={!modalBranchId || isLoading}
+                >
+                  {(filteredEmployees || []).map((employee) => (
+                    <Option
+                      key={employee.EmployeeID}
+                      value={employee.EmployeeID}
+                      style={{ fontFamily: 'Poppins, sans-serif' }}
+                    >
+                      {employee.EmployeeName}
+                    </Option>
+                  ))}
+                </Select>
+              </Form.Item>
+            </Form>
+          )}
+
+          {modalType === 'Add' && (
             <Form form={form} layout="vertical" style={{ fontFamily: 'Poppins, sans-serif' }}>
               <Form.Item
                 label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Date<span style={{ color: 'red' }}>*</span></span>}
@@ -867,7 +1230,7 @@ const AttendanceTable = () => {
             </Form>
           )}
 
-          {(modalType === 'Edit') && (
+          {modalType === 'Edit' && (
             <Form form={form} layout="vertical" style={{ fontFamily: 'Poppins, sans-serif' }}>
               <Form.Item
                 label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Date<span style={{ color: 'red' }}>*</span></span>}
@@ -877,6 +1240,7 @@ const AttendanceTable = () => {
                 <DatePicker
                   format={DATE_FORMAT}
                   style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }}
+                  onWheel={(e) => e.stopPropagation()}
                 />
               </Form.Item>
               <Form.Item
@@ -904,7 +1268,7 @@ const AttendanceTable = () => {
             </Form>
           )}
 
-            {modalType === 'View' && selectedAttendance && (
+          {modalType === 'View' && selectedAttendance && (
             <div style={{ fontFamily: 'Poppins, sans-serif' }}>
               <p><strong>Date:</strong> {selectedAttendance.date}</p>
               <p><strong>Employee Name:</strong> {selectedAttendance.employeeName}</p>
@@ -921,16 +1285,15 @@ const AttendanceTable = () => {
               <p><strong>Total Leave:</strong> {getTotalLeave(selectedAttendance.employeeId)}</p>
             </div>
           )}
-
-          {modalType === 'Delete' && selectedAttendance && (
-            <div style={{ fontFamily: 'Poppins, sans-serif', textAlign: 'center' }}>
-              <p style={{ fontSize: '18px', fontWeight: 'bold', color: '#ff4d4f' }}>
-                ⚠️ Are you sure you want to delete this attendance record?
-              </p>
-              <p>This action <strong>cannot be undone</strong>. The attendance record for "<strong>{selectedAttendance.employeeName}</strong>" will be permanently removed.</p>
-            </div>
-          )}
         </Modal>
+
+        <AttendanceSummaryModal
+          visible={isSummaryModalOpen}
+          onClose={handleSummaryModalClose}
+          summaryData={summaryData}
+          setIsSummaryModalOpen={setIsSummaryModalOpen}
+          setSummaryData={setSummaryData}
+        />
 
         <Modal
           title={<span style={{ fontSize: '20px', fontWeight: 'bold', fontFamily: 'Poppins, sans-serif' }}>How to Import Attendance CSV</span>}
@@ -953,7 +1316,7 @@ const AttendanceTable = () => {
               Download Template
             </Button>,
             <Upload key="upload" {...uploadProps}>
-              <Button type="primary" onClick={handleCsvInstructionOk} style={{ backgroundColor: '#9532AD', borderColor: '#9532AD', fontFamily: 'Poppins, sans-serif' }}>
+              <Button type="primary" onClick={handleCsvInstructionOk} style={{ backgroundColor: '#9532AD', borderColor: '#9532AD', color: 'white', fontFamily: 'Poppins, sans-serif' }}>
                 Proceed with Upload
               </Button>
             </Upload>,

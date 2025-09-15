@@ -7,8 +7,6 @@ header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type");
 header("Content-Type: application/json");
 
-require_once 'fetch_payroll.php';
-
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     header("HTTP/1.1 200 OK");
     exit();
@@ -23,6 +21,24 @@ try {
     $conn = new mysqli($servername, $dbusername, $dbpassword, $dbname);
     if ($conn->connect_error) {
         throw new Exception("Connection failed: " . $conn->connect_error);
+    }
+
+    function getUserIdByRole($conn, $role) {
+        $stmt = $conn->prepare("SELECT UserID FROM useraccounts WHERE Role = ? LIMIT 1");
+        if (!$stmt) {
+            error_log("Prepare failed for getUserIdByRole: " . $conn->error);
+            throw new Exception("Failed to fetch user ID: " . $conn->error);
+        }
+        $stmt->bind_param("s", $role);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        if ($row = $result->fetch_assoc()) {
+            $userId = (int)$row['UserID'];
+            $stmt->close();
+            return $userId;
+        }
+        $stmt->close();
+        throw new Exception("No user found for role: $role");
     }
 
     function logUserActivity($conn, $user_id, $activity_type, $affected_table, $affected_record_id, $activity_description) {
@@ -45,8 +61,10 @@ try {
     function recordExists($conn, $table, $id) {
         $idColumnMap = [
             'employees' => 'EmployeeID',
-            'Contributions' => 'ContributionID',
-            'branches' => 'BranchID'
+            'contributions' => 'ContributionID',
+            'branches' => 'BranchID',
+            'useraccounts' => 'UserID',
+            'positions' => 'PositionID'
         ];
         $idColumn = $idColumnMap[$table] ?? 'ID';
         $stmt = $conn->prepare("SELECT * FROM $table WHERE $idColumn = ?");
@@ -84,46 +102,87 @@ try {
         return number_format((float)$amount, 2, '.', '');
     }
 
-    function getHrMinWagebyId($conn, $employeeId, $position) {
-        $smt = $conn->prepare("SELECT HourlyMinimumWage FROM positions WHERE PositionID = ?");
-        if (!$smt) {
-            error_log("Prepare failed for getHrMinWagebyId: " . $conn->error);
-            throw new Exception("Failed to fetch hourly minimum wage: " . $conn->error);
+    function getPhilHealthContri($conn, $employeeId, $periodStart = null, $periodEnd = null) {
+        try {
+            if (!recordExists($conn, "employees", $employeeId)) {
+                throw new Exception("Invalid EmployeeID: $employeeId does not exist");
+            }
+
+            // Fetch HourlyMinWage from contributions or positions
+            $stmt = $conn->prepare("
+                SELECT c.HourlyMinWage 
+                FROM contributions c 
+                JOIN employees e ON c.EmployeeID = e.EmployeeID 
+                JOIN positions p ON e.PositionID = p.PositionID 
+                WHERE c.EmployeeID = ? 
+                LIMIT 1
+            ");
+            $stmt->bind_param("i", $employeeId);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            if ($row = $result->fetch_assoc()) {
+                $hourlyMinWage = floatval($row['HourlyMinWage']);
+            } else {
+                $stmt = $conn->prepare("
+                    SELECT p.HourlyMinimumWage 
+                    FROM employees e 
+                    JOIN positions p ON e.PositionID = p.PositionID 
+                    WHERE e.EmployeeID = ?
+                ");
+                $stmt->bind_param("i", $employeeId);
+                $stmt->execute();
+                $result = $stmt->get_result();
+                if ($row = $result->fetch_assoc()) {
+                    $hourlyMinWage = floatval($row['HourlyMinimumWage']);
+                } else {
+                    error_log("No hourly wage found for employee ID: $employeeId");
+                    return number_format(0.00, 2, '.', '');
+                }
+            }
+            $stmt->close();
+
+            // Sum TotalHours from attendance for the period
+            if (!$periodStart) {
+                $periodStart = date('Y-m-d', strtotime('-30 days'));
+            }
+            if (!$periodEnd) {
+                $periodEnd = date('Y-m-d');
+            }
+            $stmt = $conn->prepare("
+                SELECT SUM(TotalHours) as total_hours 
+                FROM attendance 
+                WHERE EmployeeID = ? AND Date BETWEEN ? AND ? AND TimeInStatus IN ('On-Time', 'Late')
+            ");
+            $stmt->bind_param("iss", $employeeId, $periodStart, $periodEnd);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            $totalHours = $result->fetch_assoc()['total_hours'] ?? 0;
+            $stmt->close();
+
+            if ($totalHours <= 0) {
+                error_log("No valid attendance hours found for employee ID: $employeeId between $periodStart and $periodEnd");
+                return number_format(0.00, 2, '.', '');
+            }
+
+            // Calculate basic pay based on actual hours
+            $basicPay = $hourlyMinWage * $totalHours;
+            // Exclude transportation allowance (assuming 100.00 per day, estimate days from total hours)
+            $estimatedDays = $totalHours / 8; // Rough estimate of days worked
+            $basicPay -= (100.00 * $estimatedDays);
+            // Convert to monthly equivalent
+            $monthlyFactor = 365 / 12;
+            $monthlyBasicPay = ($basicPay / $estimatedDays) * $monthlyFactor;
+            $assessedSalary = min(max($monthlyBasicPay, 10000), 100000);
+            $totalContriAmount = $assessedSalary * 0.05;
+            $employeeShare = $totalContriAmount / 2;
+            return number_format((float)$employeeShare, 2, '.', '');
+        } catch (Exception $e) {
+            error_log("Error calculating PhilHealth contribution for employee ID $employeeId: " . $e->getMessage());
+            return number_format(0.00, 2, '.', '');
         }
-        $smt->bind_param("si", $position, $employeeId);
-        $smt->execute();
-        $result = $smt->get_result();
-        if ($row = $result->fetch_assoc()) {
-            $hourlyMinWage = $row['HourlyMinimumWage'];
-            $smt->close();
-            return number_format((float)$hourlyMinWage, 3, '.', '');
-        }
-        $smt->close();
-        return 0;
-    }
-    function getBasicPay($dailyRateAmt, $transportAllowanceAmt) {
-        $basicPay = computeBasicPay($dailyRateAmt, $transportAllowanceAmt);
-        return $basicPay;
     }
 
-   function getTableofContribution($employeeData, $startDate, $endDate, $totalDeductions){
-    $basicPay = getBasicPay($GLOBALS['dailyRateAmount'], $GLOBALS['transportAllowanceAmount']);
-    // Check if basic pay is in the range
-    if ($basicPay >= 10000 && $basicPay <= 100000) {
-        $philhealth = $basicPay * 0.05;
-
-        // Add PhilHealth to deductions (example: add to a field or array)
-        if (!isset($row['TotalDeductions'])) $row['TotalDeductions'] = 0;
-        $row['TotalDeductions'] += $philhealth;
-
-        // Optionally, add a field to show PhilHealth
-        $row['PhilHealthContribution'] = $philhealth;
-    }
-    }
-
-
-   $method = $_SERVER['REQUEST_METHOD'];
-    $user_id = isset($_GET['user_id']) ? (int)$_GET['user_id'] : null;
+    $method = $_SERVER['REQUEST_METHOD'];
     $role = isset($_GET['role']) ? $_GET['role'] : null;
     $search = isset($_GET['search']) ? trim($_GET['search']) : '';
 
@@ -131,14 +190,15 @@ try {
         if (isset($_GET['type'])) {
             $type = $_GET['type'];
             if ($type == 'employees') {
-                if (!$user_id || !$role) {
-                    throw new Exception("user_id and role are required for fetching employees.");
+                if (!$role) {
+                    throw new Exception("role is required for fetching employees.");
                 }
 
                 if ($role === 'Payroll Staff') {
+                    $userId = getUserIdByRole($conn, $role);
                     $branchStmt = $conn->prepare("SELECT BranchID FROM UserBranches WHERE UserID = ?");
                     if (!$branchStmt) throw new Exception("Prepare failed for branch query: " . $conn->error);
-                    $branchStmt->bind_param("i", $user_id);
+                    $branchStmt->bind_param("i", $userId);
                     $branchStmt->execute();
                     $branchResult = $branchStmt->get_result();
                     $allowedBranches = [];
@@ -183,6 +243,27 @@ try {
                     $data[] = $row;
                 }
                 echo json_encode($data);
+            } elseif ($type == 'employee_details') {
+                $employeeId = isset($_GET['employee_id']) ? (int)$_GET['employee_id'] : null;
+                if (!$employeeId) {
+                    throw new Exception("employee_id is required");
+                }
+                $stmt = $conn->prepare("
+                    SELECT p.HourlyMinimumWage 
+                    FROM employees e 
+                    JOIN positions p ON e.PositionID = p.PositionID 
+                    WHERE e.EmployeeID = ?
+                ");
+                $stmt->bind_param("i", $employeeId);
+                $stmt->execute();
+                $result = $stmt->get_result();
+                if ($row = $result->fetch_assoc()) {
+                    echo json_encode($row);
+                } else {
+                    echo json_encode(['HourlyMinimumWage' => 0]);
+                }
+                $stmt->close();
+                exit;
             } else {
                 throw new Exception("Invalid type specified");
             }
@@ -192,8 +273,8 @@ try {
             $offset = $page * $limit;
             $branch_id = isset($_GET['branch_id']) ? (int)$_GET['branch_id'] : null;
 
-            if (!$user_id || !$role) {
-                throw new Exception("user_id and role are required for contributions fetch.");
+            if (!$role) {
+                throw new Exception("role is required for contributions fetch.");
             }
 
             $params = [];
@@ -202,9 +283,10 @@ try {
             $countTypes = '';
 
             if ($role === 'Payroll Staff') {
+                $userId = getUserIdByRole($conn, $role);
                 $branchStmt = $conn->prepare("SELECT BranchID FROM UserBranches WHERE UserID = ?");
                 if (!$branchStmt) throw new Exception("Prepare failed for branch query: " . $conn->error);
-                $branchStmt->bind_param("i", $user_id);
+                $branchStmt->bind_param("i", $userId);
                 $branchStmt->execute();
                 $branchResult = $branchStmt->get_result();
                 $allowedBranches = [];
@@ -226,13 +308,12 @@ try {
 
                 $placeholders = implode(',', array_fill(0, count($allowedBranches), '?'));
                 $countSql = "SELECT COUNT(DISTINCT c2.EmployeeID) as total 
-                            FROM Contributions c2
+                            FROM contributions c2
                             JOIN employees e2 ON c2.EmployeeID = e2.EmployeeID
                             WHERE e2.BranchID IN ($placeholders)";
                 
-                // Derived table for paginated EmployeeIDs
                 $subquery = "SELECT DISTINCT c2.EmployeeID
-                            FROM Contributions c2
+                            FROM contributions c2
                             JOIN employees e2 ON c2.EmployeeID = e2.EmployeeID
                             WHERE e2.BranchID IN ($placeholders)";
                 if ($branch_id) {
@@ -266,8 +347,9 @@ try {
                             e.BranchID,
                             b.BranchName,
                             c.ContributionType,
-                            c.Amount
-                        FROM Contributions c
+                            c.Amount,
+                            c.HourlyMinWage
+                        FROM contributions c
                         JOIN employees e ON c.EmployeeID = e.EmployeeID
                         JOIN branches b ON e.BranchID = b.BranchID
                         JOIN ($subquery) AS emp ON c.EmployeeID = emp.EmployeeID
@@ -279,11 +361,11 @@ try {
                 $types = str_repeat('i', count($allowedBranches)) . $types;
             } else {
                 $countSql = "SELECT COUNT(DISTINCT c2.EmployeeID) as total 
-                            FROM Contributions c2
+                            FROM contributions c2
                             JOIN employees e2 ON c2.EmployeeID = e2.EmployeeID";
                 
                 $subquery = "SELECT DISTINCT c2.EmployeeID
-                            FROM Contributions c2
+                            FROM contributions c2
                             JOIN employees e2 ON c2.EmployeeID = e2.EmployeeID";
                 if ($branch_id) {
                     if (!recordExists($conn, 'branches', $branch_id)) {
@@ -320,8 +402,9 @@ try {
                             e.BranchID,
                             b.BranchName,
                             c.ContributionType,
-                            c.Amount
-                        FROM Contributions c
+                            c.Amount,
+                            c.HourlyMinWage
+                        FROM contributions c
                         JOIN employees e ON c.EmployeeID = e.EmployeeID
                         JOIN branches b ON e.BranchID = b.BranchID
                         JOIN ($subquery) AS emp ON c.EmployeeID = emp.EmployeeID
@@ -371,83 +454,128 @@ try {
             throw new Exception("Invalid JSON data");
         }
 
-        $user_id = isset($data['user_id']) ? (int)$data['user_id'] : null;
-        if (!$user_id) {
-            throw new Exception("user_id is required");
+        error_log("POST payload: " . json_encode($data));
+
+        $missingFields = [];
+        if (!isset($data['EmployeeID']) || (empty($data['EmployeeID']) && $data['EmployeeID'] !== 0)) $missingFields[] = 'EmployeeID';
+        if (!isset($data['BranchID']) || (empty($data['BranchID']) && $data['BranchID'] !== 0)) $missingFields[] = 'BranchID';
+        if (!isset($data['ContributionType']) || empty($data['ContributionType'])) $missingFields[] = 'ContributionType';
+        if (!isset($data['Amount']) && $data['Amount'] !== 0) $missingFields[] = 'Amount';
+        if (!isset($data['role']) || empty($data['role'])) $missingFields[] = 'role';
+        if (!isset($data['user_id']) || (empty($data['user_id']) && $data['user_id'] !== 0)) $missingFields[] = 'user_id';
+        if (!isset($data['HourlyMinWage']) || (empty($data['HourlyMinWage']) && $data['HourlyMinWage'] !== 0)) $missingFields[] = 'HourlyMinWage';
+
+        if (!empty($missingFields)) {
+            throw new Exception("Missing or empty fields: " . implode(', ', $missingFields));
         }
 
-        if (isset($data["EmployeeID"]) && 
-            !empty($data["ContributionType"]) && 
-            !empty($data["Amount"])) {
-            
-            if (!recordExists($conn, "employees", $data["EmployeeID"])) {
-                throw new Exception("Invalid EmployeeID");
+        $employeeId = (int)$data['EmployeeID'];
+        $branchId = (int)$data['BranchID'];
+        $contributionType = $data['ContributionType'];
+        $amount = (float)$data['Amount'];
+        $role = $data['role'];
+        $userId = (int)$data['user_id'];
+        $hourlyMinWage = (float)$data['HourlyMinWage'];
+
+        if (!recordExists($conn, "useraccounts", $userId)) {
+            throw new Exception("Invalid user_id: $userId does not exist in useraccounts");
+        }
+
+        if ($role !== 'Payroll Admin') {
+            $branchStmt = $conn->prepare("SELECT BranchID FROM UserBranches WHERE UserID = ?");
+            if (!$branchStmt) throw new Exception("Prepare failed for branch query: " . $conn->error);
+            $branchStmt->bind_param("i", $userId);
+            $branchStmt->execute();
+            $branchResult = $branchStmt->get_result();
+            $allowedBranches = [];
+            while ($row = $branchResult->fetch_assoc()) {
+                $allowedBranches[] = $row['BranchID'];
             }
+            $branchStmt->close();
 
-            $validTypes = ['Pag-Ibig', 'SSS', 'PhilHealth'];
-            if (!in_array($data["ContributionType"], $validTypes)) {
-                throw new Exception("Invalid ContributionType");
+            if (!in_array($branchId, $allowedBranches)) {
+                throw new Exception("Unauthorized access: Branch $branchId not assigned to user $userId");
             }
+        }
 
-            $checkStmt = $conn->prepare("SELECT ContributionID FROM Contributions WHERE EmployeeID = ? AND ContributionType = ?");
-            $checkStmt->bind_param("is", $data["EmployeeID"], $data["ContributionType"]);
-            $checkStmt->execute();
-            $checkStmt->store_result();
-            if ($checkStmt->num_rows > 0) {
-                $checkStmt->close();
-                echo json_encode([
-                    "success" => false,
-                    "warning" => "Warning: An employee with this contribution record already exists."
-                ]);
-                exit;
-            }
-            $checkStmt->close();
-
-            if ($role === 'Payroll Staff') {
-                $branchStmt = $conn->prepare("SELECT BranchID FROM UserBranches WHERE UserID = ?");
-                $branchStmt->bind_param("i", $user_id);
-                $branchStmt->execute();
-                $branchResult = $branchStmt->get_result();
-                $allowedBranches = [];
-                while ($row = $branchResult->fetch_assoc()) {
-                    $allowedBranches[] = $row['BranchID'];
-                }
-                $branchStmt->close();
-
-                $empStmt = $conn->prepare("SELECT BranchID FROM employees WHERE EmployeeID = ?");
-                $empStmt->bind_param("i", $data["EmployeeID"]);
-                $empStmt->execute();
-                $empResult = $empStmt->get_result();
-                $employeeBranch = $empResult->fetch_assoc()['BranchID'];
-                $empStmt->close();
-
-                if (!in_array($employeeBranch, $allowedBranches)) {
-                    throw new Exception("Employee does not belong to an assigned branch");
-                }
-            }
-
-            $conn->begin_transaction();
-            try {
-                $stmt = $conn->prepare("INSERT INTO Contributions (EmployeeID, ContributionType, Amount) VALUES (?, ?, ?)");
-                $stmt->bind_param("isd", $data["EmployeeID"], $data["ContributionType"], $data["Amount"]);
-
-                if ($stmt->execute()) {
-                    $contributionId = $conn->insert_id;
-                    $employeeName = getEmployeeNameById($conn, $data["EmployeeID"]);
-                    $description = "Contribution '{$data["ContributionType"]}' of ₱" . formatNumber($data["Amount"]) . " added for '$employeeName'";
-                    logUserActivity($conn, $user_id, "ADD_DATA", "Contributions", $contributionId, $description);
-                    $conn->commit();
-                    echo json_encode(["success" => true, "id" => $contributionId]);
-                } else {
-                    throw new Exception("Failed to add contribution: " . $stmt->error);
-                }
-                $stmt->close();
-            } catch (Exception $e) {
-                $conn->rollback();
-                throw $e;
-            }
+        if (!recordExists($conn, "employees", $employeeId)) {
+            throw new Exception("Invalid EmployeeID: $employeeId does not exist");
+        }
+        if (!recordExists($conn, "branches", $branchId)) {
+            throw new Exception("Invalid BranchID: $branchId does not exist");
+        }
+        $empStmt = $conn->prepare("SELECT BranchID, PositionID FROM employees WHERE EmployeeID = ?");
+        $empStmt->bind_param("i", $employeeId);
+        $empStmt->execute();
+        $empResult = $empStmt->get_result();
+        if ($row = $empResult->fetch_assoc()) {
+            $employeeBranch = $row['BranchID'];
+            $positionId = $row['PositionID'];
         } else {
-            throw new Exception("All fields are required");
+            $empStmt->close();
+            throw new Exception("EmployeeID $employeeId not found");
+        }
+        $empStmt->close();
+        if ($employeeBranch != $branchId) {
+            throw new Exception("Employee $employeeId does not belong to BranchID $branchId");
+        }
+
+        if (!recordExists($conn, "positions", $positionId)) {
+            throw new Exception("Invalid PositionID: $positionId for EmployeeID $employeeId");
+        }
+
+        $validTypes = ['Pag-Ibig', 'SSS', 'PhilHealth'];
+        if (!in_array($contributionType, $validTypes)) {
+            throw new Exception("Invalid ContributionType: $contributionType");
+        }
+
+        $checkStmt = $conn->prepare("SELECT ContributionID FROM contributions WHERE EmployeeID = ? AND ContributionType = ?");
+        $checkStmt->bind_param("is", $employeeId, $contributionType);
+        $checkStmt->execute();
+        $checkStmt->store_result();
+        if ($checkStmt->num_rows > 0) {
+            $checkStmt->close();
+            echo json_encode([
+                "success" => false,
+                "warning" => "Warning: An employee with this contribution record already exists."
+            ]);
+            exit;
+        }
+        $checkStmt->close();
+
+        if ($contributionType === "PhilHealth") {
+            $amount = getPhilHealthContri($conn, $employeeId);
+        }
+
+        $conn->begin_transaction();
+        try {
+            $stmt = $conn->prepare("
+                INSERT INTO contributions (EmployeeID, BranchID, ContributionType, Amount, user_id, HourlyMinWage) 
+                VALUES (?, ?, ?, ?, ?, ?)
+            ");
+            $stmt->bind_param("iisdid", $employeeId, $branchId, $contributionType, $amount, $userId, $hourlyMinWage);
+
+            if ($stmt->execute()) {
+                $contributionId = $conn->insert_id;
+                $employeeName = getEmployeeNameById($conn, $employeeId);
+                $description = "Contribution '$contributionType' of ₱" . formatNumber($amount) . " added for '$employeeName'";
+                logUserActivity($conn, $userId, "ADD_DATA", "contributions", $contributionId, $description);
+                $conn->commit();
+                echo json_encode([
+                    "success" => true,
+                    "id" => $contributionId,
+                    "amount" => formatNumber($amount),
+                    "employee_id" => $employeeId,
+                    "contribution_type" => $contributionType
+                ]);
+            } else {
+                throw new Exception("Failed to add contribution: " . $stmt->error);
+            }
+            $stmt->close();
+        } catch (Exception $e) {
+            $conn->rollback();
+            error_log("Insert error: " . $e->getMessage() . " | Payload: " . json_encode($data));
+            throw $e;
         }
     } elseif ($method == "PUT") {
         $data = json_decode(file_get_contents("php://input"), true);
@@ -455,72 +583,145 @@ try {
             throw new Exception("Invalid JSON data");
         }
 
-        $user_id = isset($data['user_id']) ? (int)$data['user_id'] : null;
-        if (!$user_id) {
-            throw new Exception("user_id is required");
+        error_log("PUT payload: " . json_encode($data));
+
+        $missingFields = [];
+        if (!isset($data['ContributionID']) || empty($data['ContributionID'])) $missingFields[] = 'ContributionID';
+        if (!isset($data['EmployeeID']) || (empty($data['EmployeeID']) && $data['EmployeeID'] !== 0)) $missingFields[] = 'EmployeeID';
+        if (!isset($data['BranchID']) || (empty($data['BranchID']) && $data['BranchID'] !== 0)) $missingFields[] = 'BranchID';
+        if (!isset($data['ContributionType']) || empty($data['ContributionType'])) $missingFields[] = 'ContributionType';
+        if (!isset($data['Amount']) && $data['Amount'] !== 0) $missingFields[] = 'Amount';
+        if (!isset($data['role']) || empty($data['role'])) $missingFields[] = 'role';
+        if (!isset($data['user_id']) || (empty($data['user_id']) && $data['user_id'] !== 0)) $missingFields[] = 'user_id';
+        if (!isset($data['HourlyMinWage']) || (empty($data['HourlyMinWage']) && $data['HourlyMinWage'] !== 0)) $missingFields[] = 'HourlyMinWage';
+
+        if (!empty($missingFields)) {
+            throw new Exception("Missing or empty fields: " . implode(', ', $missingFields));
         }
 
-        if (!empty($data["ContributionID"]) && 
-            isset($data["EmployeeID"]) && 
-            !empty($data["ContributionType"]) && 
-            !empty($data["Amount"])) {
-            
-            if (!recordExists($conn, "employees", $data["EmployeeID"])) {
-                throw new Exception("Invalid EmployeeID");
+        $contributionId = (int)$data['ContributionID'];
+        $employeeId = (int)$data['EmployeeID'];
+        $branchId = (int)$data['BranchID'];
+        $contributionType = $data['ContributionType'];
+        $amount = (float)$data['Amount'];
+        $role = $data['role'];
+        $userId = (int)$data['user_id'];
+        $hourlyMinWage = (float)$data['HourlyMinWage'];
+
+        if (!recordExists($conn, "useraccounts", $userId)) {
+            throw new Exception("Invalid user_id: $userId does not exist in useraccounts");
+        }
+
+        if ($role !== 'Payroll Admin') {
+            $branchStmt = $conn->prepare("SELECT BranchID FROM UserBranches WHERE UserID = ?");
+            if (!$branchStmt) throw new Exception("Prepare failed for branch query: " . $conn->error);
+            $branchStmt->bind_param("i", $userId);
+            $branchStmt->execute();
+            $branchResult = $branchStmt->get_result();
+            $allowedBranches = [];
+            while ($row = $branchResult->fetch_assoc()) {
+                $allowedBranches[] = $row['BranchID'];
             }
+            $branchStmt->close();
 
-            $validTypes = ['Pag-Ibig', 'SSS', 'PhilHealth'];
-            if (!in_array($data["ContributionType"], $validTypes)) {
-                throw new Exception("Invalid ContributionType");
+            if (!in_array($branchId, $allowedBranches)) {
+                throw new Exception("Unauthorized access: Branch $branchId not assigned to user $userId");
             }
+        }
 
-            $conn->begin_transaction();
-            try {
-                $stmt = $conn->prepare("SELECT EmployeeID, ContributionType, Amount FROM Contributions WHERE ContributionID = ?");
-                $stmt->bind_param("i", $data["ContributionID"]);
-                $stmt->execute();
-                $result = $stmt->get_result();
-                $currentRecord = $result->fetch_assoc();
-                $stmt->close();
-
-                if (!$currentRecord) {
-                    throw new Exception("Contribution record with ID {$data["ContributionID"]} not found.");
-                }
-
-                $changes = [];
-                if ($currentRecord["EmployeeID"] != $data["EmployeeID"]) {
-                    $oldEmployeeName = getEmployeeNameById($conn, $currentRecord["EmployeeID"]);
-                    $newEmployeeName = getEmployeeNameById($conn, $data["EmployeeID"]);
-                    $changes[] = "Employee from '$oldEmployeeName' to '$newEmployeeName'";
-                }
-                if ($currentRecord["ContributionType"] != $data["ContributionType"]) {
-                    $changes[] = "ContributionType from '{$currentRecord["ContributionType"]}' to '{$data["ContributionType"]}'";
-                }
-                if ($currentRecord["Amount"] != $data["Amount"]) {
-                    $changes[] = "Amount from '₱" . formatNumber($currentRecord["Amount"]) . "' to '₱" . formatNumber($data["Amount"]) . "'";
-                }
-
-                $stmt = $conn->prepare("UPDATE Contributions SET EmployeeID = ?, ContributionType = ?, Amount = ? WHERE ContributionID = ?");
-                $stmt->bind_param("isdi", $data["EmployeeID"], $data["ContributionType"], $data["Amount"], $data["ContributionID"]);
-
-                if ($stmt->execute()) {
-                    $employeeName = getEmployeeNameById($conn, $data["EmployeeID"]);
-                    $description = empty($changes)
-                        ? "Contribution '{$data["ContributionType"]}' for '$employeeName' updated: No changes made"
-                        : "Contribution '{$data["ContributionType"]}' for '$employeeName' updated: " . implode('/ ', $changes);
-                    logUserActivity($conn, $user_id, "UPDATE_DATA", "Contributions", $data["ContributionID"], $description);
-                    $conn->commit();
-                    echo json_encode(["success" => true]);
-                } else {
-                    throw new Exception("Failed to update contribution: " . $stmt->error);
-                }
-                $stmt->close();
-            } catch (Exception $e) {
-                $conn->rollback();
-                throw $e;
-            }
+        if (!recordExists($conn, "employees", $employeeId)) {
+            throw new Exception("Invalid EmployeeID: $employeeId");
+        }
+        if (!recordExists($conn, "branches", $branchId)) {
+            throw new Exception("Invalid BranchID: $branchId");
+        }
+        if (!recordExists($conn, "contributions", $contributionId)) {
+            throw new Exception("Contribution record with ID $contributionId not found.");
+        }
+        $empStmt = $conn->prepare("SELECT BranchID, PositionID FROM employees WHERE EmployeeID = ?");
+        $empStmt->bind_param("i", $employeeId);
+        $empStmt->execute();
+        $empResult = $empStmt->get_result();
+        if ($row = $empResult->fetch_assoc()) {
+            $employeeBranch = $row['BranchID'];
+            $positionId = $row['PositionID'];
         } else {
-            throw new Exception("All fields are required");
+            $empStmt->close();
+            throw new Exception("EmployeeID $employeeId not found");
+        }
+        $empStmt->close();
+        if ($employeeBranch != $branchId) {
+            throw new Exception("Employee $employeeId does not belong to BranchID $branchId");
+        }
+
+        if (!recordExists($conn, "positions", $positionId)) {
+            throw new Exception("Invalid PositionID: $positionId for EmployeeID $employeeId");
+        }
+
+        $validTypes = ['Pag-Ibig', 'SSS', 'PhilHealth'];
+        if (!in_array($contributionType, $validTypes)) {
+            throw new Exception("Invalid ContributionType: $contributionType");
+        }
+
+        if ($contributionType === "PhilHealth") {
+            $amount = getPhilHealthContri($conn, $employeeId);
+        }
+
+        $conn->begin_transaction();
+        try {
+            $stmt = $conn->prepare("SELECT EmployeeID, BranchID, ContributionType, Amount, HourlyMinWage FROM contributions WHERE ContributionID = ?");
+            $stmt->bind_param("i", $contributionId);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            $currentRecord = $result->fetch_assoc();
+            $stmt->close();
+
+            if (!$currentRecord) {
+                throw new Exception("Contribution record with ID $contributionId not found.");
+            }
+
+            $changes = [];
+            if ($currentRecord["EmployeeID"] != $employeeId) {
+                $oldEmployeeName = getEmployeeNameById($conn, $currentRecord["EmployeeID"]);
+                $newEmployeeName = getEmployeeNameById($conn, $employeeId);
+                $changes[] = "Employee from '$oldEmployeeName' to '$newEmployeeName'";
+            }
+            if ($currentRecord["BranchID"] != $branchId) {
+                $changes[] = "BranchID from '{$currentRecord["BranchID"]}' to '$branchId'";
+            }
+            if ($currentRecord["ContributionType"] != $contributionType) {
+                $changes[] = "ContributionType from '{$currentRecord["ContributionType"]}' to '$contributionType'";
+            }
+            if ($currentRecord["Amount"] != $amount) {
+                $changes[] = "Amount from '₱" . formatNumber($currentRecord["Amount"]) . "' to '₱" . formatNumber($amount) . "'";
+            }
+            if ($currentRecord["HourlyMinWage"] != $hourlyMinWage) {
+                $changes[] = "HourlyMinWage from '{$currentRecord["HourlyMinWage"]}' to '$hourlyMinWage'";
+            }
+
+            $stmt = $conn->prepare("
+                UPDATE contributions 
+                SET EmployeeID = ?, BranchID = ?, ContributionType = ?, Amount = ?, user_id = ?, HourlyMinWage = ? 
+                WHERE ContributionID = ?
+            ");
+            $stmt->bind_param("iisdidi", $employeeId, $branchId, $contributionType, $amount, $userId, $hourlyMinWage, $contributionId);
+
+            if ($stmt->execute()) {
+                $employeeName = getEmployeeNameById($conn, $employeeId);
+                $description = empty($changes)
+                    ? "Contribution '$contributionType' for '$employeeName' updated: No changes made"
+                    : "Contribution '$contributionType' for '$employeeName' updated: " . implode('/ ', $changes);
+                logUserActivity($conn, $userId, "UPDATE_DATA", "contributions", $contributionId, $description);
+                $conn->commit();
+                echo json_encode(["success" => true]);
+            } else {
+                throw new Exception("Failed to update contribution: " . $stmt->error);
+            }
+            $stmt->close();
+        } catch (Exception $e) {
+            $conn->rollback();
+            error_log("Update error: " . $e->getMessage() . " | Payload: " . json_encode($data));
+            throw $e;
         }
     } elseif ($method == "DELETE") {
         $data = json_decode(file_get_contents("php://input"), true);
@@ -528,51 +729,80 @@ try {
             throw new Exception("Invalid JSON data");
         }
 
-        $user_id = isset($data['user_id']) ? (int)$data['user_id'] : null;
-        if (!$user_id) {
+        error_log("DELETE payload: " . json_encode($data));
+
+        if (!isset($data['ContributionID']) || empty($data['ContributionID'])) {
+            throw new Exception("ContributionID is required");
+        }
+        if (!isset($data['role']) || empty($data['role'])) {
+            throw new Exception("role is required");
+        }
+        if (!isset($data['user_id']) || (empty($data['user_id']) && $data['user_id'] !== 0)) {
             throw new Exception("user_id is required");
         }
 
-        if (!empty($data["ContributionID"])) {
-            $conn->begin_transaction();
-            try {
-                $stmt = $conn->prepare("SELECT EmployeeID, ContributionType, Amount FROM Contributions WHERE ContributionID = ?");
-                $stmt->bind_param("i", $data["ContributionID"]);
-                $stmt->execute();
-                $result = $stmt->get_result();
-                $record = $result->fetch_assoc();
+        $contributionId = (int)$data['ContributionID'];
+        $role = $data['role'];
+        $userId = (int)$data['user_id'];
+
+        if (!recordExists($conn, "useraccounts", $userId)) {
+            throw new Exception("Invalid user_id: $userId does not exist in useraccounts");
+        }
+
+        if ($role !== 'Payroll Admin') {
+            $stmt = $conn->prepare("
+                SELECT c.BranchID
+                FROM contributions c
+                JOIN UserBranches ub ON c.BranchID = ub.BranchID
+                WHERE c.ContributionID = ? AND ub.UserID = ?
+            ");
+            $stmt->bind_param("ii", $contributionId, $userId);
+            $stmt->execute();
+            $stmt->store_result();
+            if ($stmt->num_rows == 0) {
                 $stmt->close();
-
-                if (!$record) {
-                    throw new Exception("Contribution record with ID {$data["ContributionID"]} not found.");
-                }
-
-                $stmt = $conn->prepare("DELETE FROM Contributions WHERE ContributionID = ?");
-                $stmt->bind_param("i", $data["ContributionID"]);
-
-                if ($stmt->execute()) {
-                    $employeeName = getEmployeeNameById($conn, $record["EmployeeID"]);
-                    $description = "Contribution '{$record["ContributionType"]}' of ₱" . formatNumber($record["Amount"]) . " deleted for '$employeeName'";
-                    logUserActivity($conn, $user_id, "DELETE_DATA", "Contributions", $data["ContributionID"], $description);
-                    $conn->commit();
-                    echo json_encode(["success" => true]);
-                } else {
-                    throw new Exception("Failed to delete contribution: " . $stmt->error);
-                }
-                $stmt->close();
-            } catch (Exception $e) {
-                $conn->rollback();
-                throw $e;
+                throw new Exception("Unauthorized access: Not allowed to delete contribution in this branch");
             }
-        } else {
-            throw new Exception("Contribution ID is required");
+            $stmt->close();
+        }
+
+        $conn->begin_transaction();
+        try {
+            $stmt = $conn->prepare("SELECT EmployeeID, BranchID, ContributionType, Amount FROM contributions WHERE ContributionID = ?");
+            $stmt->bind_param("i", $contributionId);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            $record = $result->fetch_assoc();
+            $stmt->close();
+
+            if (!$record) {
+                throw new Exception("Contribution record with ID $contributionId not found.");
+            }
+
+            $stmt = $conn->prepare("DELETE FROM contributions WHERE ContributionID = ?");
+            $stmt->bind_param("i", $contributionId);
+
+            if ($stmt->execute()) {
+                $employeeName = getEmployeeNameById($conn, $record["EmployeeID"]);
+                $description = "Contribution '{$record["ContributionType"]}' of ₱" . formatNumber($record["Amount"]) . " deleted for '$employeeName'";
+                logUserActivity($conn, $userId, "DELETE_DATA", "contributions", $contributionId, $description);
+                $conn->commit();
+                echo json_encode(["success" => true]);
+            } else {
+                throw new Exception("Failed to delete contribution: " . $stmt->error);
+            }
+            $stmt->close();
+        } catch (Exception $e) {
+            $conn->rollback();
+            error_log("Delete error: " . $e->getMessage() . " | Payload: " . json_encode($data));
+            throw $e;
         }
     } else {
         throw new Exception("Method not allowed");
     }
 } catch (Exception $e) {
     http_response_code(500);
-    error_log("Error in fetch_contributions.php: " . $e->getMessage());
+    error_log("Error in fetch_contribution.php: " . $e->getMessage());
     echo json_encode(["error" => $e->getMessage()]);
 }
 

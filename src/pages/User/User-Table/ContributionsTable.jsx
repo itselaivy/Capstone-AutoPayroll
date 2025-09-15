@@ -16,6 +16,7 @@ const ContributionsTable = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalType, setModalType] = useState('');
   const [selectedEmployee, setSelectedEmployee] = useState(null);
+  const [OptionBranch,  setOptionBranch] = useState([]);
   const [deleteOption, setDeleteOption] = useState('all');
   const [form] = Form.useForm();
   const [employees, setEmployees] = useState([]);
@@ -71,12 +72,14 @@ const ContributionsTable = () => {
       if (searchText.trim()) {
         url += `&search=${encodeURIComponent(searchText.trim())}`;
       }
+      console.log("Fetching contributions from:", url);
       const res = await fetch(url);
       if (!res.ok) {
         const errorText = await res.text();
         throw new Error(`Contributions fetch failed: ${res.statusText} - ${errorText}`);
       }
       const response = await res.json();
+      console.log("Contributions response:", response);
 
       if (!response.success) throw new Error(response.error || 'Failed to fetch contributions');
 
@@ -85,6 +88,7 @@ const ContributionsTable = () => {
         employeeId: contribution.EmployeeID,
         employeeName: contribution.EmployeeName,
         branchId: contribution.BranchID,
+        hourlyMinWage: contribution.HourlyMinWage,
         branchName: contribution.BranchName,
         contributionType: contribution.ContributionType,
         amount: parseFloat(contribution.Amount).toFixed(2),
@@ -115,19 +119,30 @@ const ContributionsTable = () => {
         }, {})
       );
 
-      // Verify all employees have complete contributions
-      const employeeIds = [...new Set(response.data.map(d => d.EmployeeID))];
-      console.log(`Fetched ${groupedData.length} employees for page ${currentPage}, expected up to ${pageSize}`);
-      if (groupedData.length !== employeeIds.length) {
-        console.warn("Incomplete employee data: some contributions may be missing.");
-      }
-
+      console.log("Grouped data:", groupedData);
       setOriginalData(groupedData);
       setFilteredData(groupedData);
       setPaginationTotal(response.total);
     } catch (err) {
       console.error("Fetch Contributions Error:", err.message);
       message.error(`Failed to load contributions data: ${err.message}`);
+    }
+  };
+
+  const fetchPhilHealthAmount = async (employeeId) => {
+    try {
+      const year = new Date().getFullYear();
+      const month = new Date().getMonth() + 1;
+      const res = await fetch(`${API_BASE_URL}/fetch_attendance.php?year=${year}&month=${month}&employee=${employeeId}&user_id=${userId}&role=${encodeURIComponent(role)}`);
+      const data = await res.json();
+      console.log("PhilHealth amount response:", data);
+      if (data.length > 0) {
+        return data[0].philhealth_contribution || '0.00';
+      }
+      return '0.00';
+    } catch (err) {
+      console.error("Fetch PhilHealth Error:", err.message);
+      return '0.00';
     }
   };
 
@@ -190,11 +205,14 @@ const ContributionsTable = () => {
           const payload = {
             EmployeeID: values.employeeId,
             BranchID: values.branchId,
+            HourlyMinWage: values.hourlyMinWage,
             ContributionType: values.contributionType,
-            Amount: parseFloat(values.amount).toFixed(2),
-            user_id: userId,
+            Amount: values.amount, // Backend calculates PhilHealth amount
+            Role: role,
+            UserId: userId,
           };
 
+          console.log("Sending POST payload:", payload); 
           return fetch(`${API_BASE_URL}/fetch_contribution.php`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -205,10 +223,12 @@ const ContributionsTable = () => {
               return res.json();
             })
             .then((data) => {
+              console.log("POST response:", data);
               if (data.success) {
-                message.success("Contribution added successfully!");
+                message.success(`Contribution added successfully! Amount: ₱${data.amount}`);
                 setIsModalOpen(false);
                 form.resetFields();
+                setCurrentPage(1);
                 fetchData();
               } else if (data.warning) {
                 message.warning(data.warning);
@@ -217,10 +237,12 @@ const ContributionsTable = () => {
               }
             })
             .catch((err) => {
+              console.error("POST Error:", err.message);
               message.error(`Failed to add contribution: ${err.message || 'Please ensure all required fields are completed correctly.'}`);
             });
         })
         .catch((err) => {
+          console.error("Form Validation Error:", err);
           message.error(`Failed to add contribution: ${err.message || 'Please ensure all required fields are completed correctly.'}`);
         });
     } else if (modalType === "Edit" && selectedEmployee) {
@@ -234,6 +256,7 @@ const ContributionsTable = () => {
             user_id: userId,
           }));
 
+          console.log("Sending PUT payloads:", payloads);
           const updatePromises = payloads.map(payload =>
             fetch(`${API_BASE_URL}/fetch_contribution.php`, {
               method: "PUT",
@@ -251,6 +274,7 @@ const ContributionsTable = () => {
                 message.success("Contributions updated successfully!");
                 setIsModalOpen(false);
                 form.resetFields();
+                setCurrentPage(1);
                 fetchData();
               } else {
                 throw new Error("Failed to update some contributions");
@@ -258,10 +282,12 @@ const ContributionsTable = () => {
             });
         })
         .catch((err) => {
+          console.error("Edit Error:", err.message);
           message.error(`Failed to update contributions: ${err.message || 'Validation failed'}`);
         });
     } else if (modalType === "Delete" && selectedEmployee) {
       try {
+        console.log("Deleting contributions, option:", deleteOption);
         let deletePromises;
         if (deleteOption === 'all') {
           deletePromises = selectedEmployee.contributions.map(contribution =>
@@ -288,10 +314,10 @@ const ContributionsTable = () => {
         }
 
         const results = await Promise.all(deletePromises);
-
         if (results.every(result => result.success)) {
           message.success(`Contribution${deleteOption === 'all' ? 's' : ''} deleted successfully!`);
           setIsModalOpen(false);
+          setCurrentPage(1);
           fetchData();
         } else {
           throw new Error("Failed to delete some contributions");
@@ -329,8 +355,11 @@ const ContributionsTable = () => {
     const employee = employees.find(emp => emp.EmployeeID === employeeId);
     if (employee && employee.BranchID) {
       form.setFieldsValue({ branchId: employee.BranchID });
+      if (form.getFieldValue('contributionType') === 'PhilHealth') {
+        fetchPhilHealthAmount(employeeId).then(amount => form.setFieldsValue({ calculatedAmount: amount }));
+      }
     } else {
-      form.setFieldsValue({ branchId: undefined });
+      form.setFieldsValue({ branchId: undefined, calculatedAmount: undefined });
     }
   };
 
@@ -427,52 +456,52 @@ const ContributionsTable = () => {
           render={(totalAmount) => <span style={{ fontFamily: 'Poppins, sans-serif' }}>₱{formatNumberWithCommas(totalAmount)}</span>}
         />
         <Column
-            title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Action</span>}
-            key="action"
-            render={(_, record) => (
-              <Space size={7} wrap>
-                <Tooltip title="View">
-                  <Button
-                    icon={<EyeOutlined />}
-                    size="middle"
-                    style={{
-                      width: '40px',
-                      backgroundColor: '#52c41a',
-                      borderColor: '#52c41a',
-                      color: 'white',
-                      fontFamily: 'Poppins, sans-serif'
-                    }}
-                    onClick={() => openModal('View', record)}
-                  />
-                </Tooltip>
-                <Tooltip title="Edit">
-                  <Button
-                    icon={<EditOutlined />}
-                    size="middle"
-                    style={{
-                      width: '40px',
-                      backgroundColor: '#722ed1',
-                      borderColor: '#722ed1',
-                      color: 'white',
-                      fontFamily: 'Poppins, sans-serif'
-                    }}
-                    onClick={() => openModal('Edit', record)}
-                  />
-                </Tooltip>
-                <Tooltip title="Delete">
-                  <Button
-                    icon={<DeleteOutlined />}
-                    size="middle"
-                    style={{
-                      width: '40px',
-                      backgroundColor: '#ff4d4f',
-                      borderColor: '#ff4d4f',
-                      color: 'white',
-                      fontFamily: 'Poppins, sans-serif'
-                    }}
-                    onClick={() => openModal('Delete', record)}
-                  />
-                </Tooltip>
+          title={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Action</span>}
+          key="action"
+          render={(_, record) => (
+            <Space size={7} wrap>
+              <Tooltip title="View">
+                <Button
+                  icon={<EyeOutlined />}
+                  size="middle"
+                  style={{
+                    width: '40px',
+                    backgroundColor: '#52c41a',
+                    borderColor: '#52c41a',
+                    color: 'white',
+                    fontFamily: 'Poppins, sans-serif'
+                  }}
+                  onClick={() => openModal('View', record)}
+                />
+              </Tooltip>
+              <Tooltip title="Edit">
+                <Button
+                  icon={<EditOutlined />}
+                  size="middle"
+                  style={{
+                    width: '40px',
+                    backgroundColor: '#722ed1',
+                    borderColor: '#722ed1',
+                    color: 'white',
+                    fontFamily: 'Poppins, sans-serif'
+                  }}
+                  onClick={() => openModal('Edit', record)}
+                />
+              </Tooltip>
+              <Tooltip title="Delete">
+                <Button
+                  icon={<DeleteOutlined />}
+                  size="middle"
+                  style={{
+                    width: '40px',
+                    backgroundColor: '#ff4d4f',
+                    borderColor: '#ff4d4f',
+                    color: 'white',
+                    fontFamily: 'Poppins, sans-serif'
+                  }}
+                  onClick={() => openModal('Delete', record)}
+                />
+              </Tooltip>
             </Space>
           )}
         />
@@ -525,7 +554,12 @@ const ContributionsTable = () => {
                 optionFilterProp="children"
                 filterOption={(input, option) => option.children.toLowerCase().includes(input.toLowerCase())}
                 style={{ fontFamily: 'Poppins, sans-serif' }}
-                onChange={handleEmployeeChange}
+                onChange={(value) => {
+                  handleEmployeeChange(value);
+                  if (form.getFieldValue('contributionType') === 'PhilHealth') {
+                    fetchPhilHealthAmount(value).then(amount => form.setFieldsValue({ calculatedAmount: amount }));
+                  }
+                }}
               >
                 {(role === 'Payroll Admin' ? employees : employees.filter(emp => assignedBranches.some(ab => ab.BranchID === emp.BranchID)))
                   .map((employee) => (
@@ -536,29 +570,52 @@ const ContributionsTable = () => {
               </Select>
             </Form.Item>
             <Form.Item 
+              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Branch<span style={{ color: 'red' }}>*</span></span>} 
+              name="branchId" 
+              rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select a branch!</span> }]}
+            >
+              <Select
+                placeholder= "Branch set based on employee"
+                style={{ fontFamily: 'Poppins, sans-serif' }}
+                disabled
+                value = {OptionBranch}
+              >
+                {(role === 'Payroll Admin' ? branches : assignedBranches).map(branch => (
+                  <Option key={branch.BranchID} value={branch.BranchID} style={{ fontFamily: 'Poppins, sans-serif' }}>
+                    {branch.BranchName}
+                  </Option>
+                ))}
+              </Select>
+            </Form.Item>
+            <Form.Item 
               label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Contribution Type<span style={{ color: 'red' }}>*</span></span>} 
               name="contributionType" 
               rules={[{ required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please select a contribution type!</span> }]}
             >
-              <Select placeholder="Select contribution type" style={{ fontFamily: 'Poppins, sans-serif' }}>
+              <Select 
+                placeholder="Select contribution type" 
+                style={{ fontFamily: 'Poppins, sans-serif' }}
+                onChange={(value) => {
+                  if (value === 'PhilHealth' && form.getFieldValue('employeeId')) {
+                    fetchPhilHealthAmount(form.getFieldValue('employeeId')).then(amount => form.setFieldsValue({ calculatedAmount: amount }));
+                  } else {
+                    form.setFieldsValue({ calculatedAmount: undefined });
+                  }
+                }}
+              >
                 <Option value="Pag-Ibig" style={{ fontFamily: 'Poppins, sans-serif' }}>Pag-Ibig</Option>
                 <Option value="SSS" style={{ fontFamily: 'Poppins, sans-serif' }}>SSS</Option>
                 <Option value="PhilHealth" style={{ fontFamily: 'Poppins, sans-serif' }}>PhilHealth</Option>
               </Select>
             </Form.Item>
-            {/* <Form.Item 
-              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Amount (₱)<span style={{ color: 'red' }}>*</span></span>} 
-              name="amount" 
-              rules={[
-                { required: true, message: <span style={{ fontFamily: 'Poppins, sans-serif' }}>Please enter the amount!</span> },
-                { validator: (_, value) => value >= 0 ? Promise.resolve() : Promise.reject(<span style={{ fontFamily: 'Poppins, sans-serif' }}>Amount cannot be negative!</span>) }
-              ]}
+            <Form.Item
+              label={<span style={{ fontFamily: 'Poppins, sans-serif' }}>Calculated Amount (₱)</span>}
+              name="calculatedAmount"
             >
-              <Input type="number" step="0.01" min="0" style={{ width: '100%', fontFamily: 'Poppins, sans-serif' }} />
-            </Form.Item> */}
+              <Input disabled style={{ fontFamily: 'Poppins, sans-serif' }} />
+            </Form.Item>
           </Form>
         )}
-
         {modalType === 'Edit' && selectedEmployee && (
           <Form form={form} layout="vertical" style={{ fontFamily: 'Poppins, sans-serif' }}>
             <Form.List name="contributions">
@@ -597,7 +654,6 @@ const ContributionsTable = () => {
             </Form.List>
           </Form>
         )}
-
         {modalType === 'View' && selectedEmployee && (
           <div style={{ fontFamily: 'Poppins, sans-serif' }}>
             <p style={{ fontSize: '14px', fontFamily: 'Poppins, sans-serif' }}>
@@ -618,7 +674,6 @@ const ContributionsTable = () => {
             </p>
           </div>
         )}
-
         {modalType === 'Delete' && selectedEmployee && (
           <div style={{ fontFamily: 'Poppins, sans-serif' }}>
             <p style={{ fontSize: '17px', fontWeight: 'bold', color: '#ff4d4f', marginBottom: 16, fontFamily: 'Poppins, sans-serif', textAlign: 'center' }}>
@@ -633,7 +688,7 @@ const ContributionsTable = () => {
               <Radio value="all" style={{ fontFamily: 'Poppins, sans-serif' }}>Delete all contributions</Radio>
               {selectedEmployee.contributions.map((contribution) => (
                 <Radio key={contribution.contributionId} value={contribution.contributionId} style={{ fontFamily: 'Poppins, sans-serif' }}>
-                  Delete {getContributionLabel(contribution.type)} (₱{formatNumberWithCommas(contribution.amount)})
+                  Delete {getContributionLabel(contribution.atype)} (₱{formatNumberWithCommas(contribution.amount)})
                 </Radio>
               ))}
             </Radio.Group>

@@ -9,7 +9,7 @@ error_reporting(E_ALL);
 
 header('Content-Type: application/json; charset=utf-8');
 header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
+header("Access-Control-Allow-Methods: GET, POST, PUT OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type, Authorization");
 
 // Handle CORS preflight request
@@ -42,12 +42,14 @@ try {
         'attendance' => []
     ];
 
-    function formatNumberWithDecimals($value) {
+    function formatNumberWithDecimals($value)
+    {
         // Format to exactly 3 decimal places without rounding
         return sprintf('%.3f', floor($value * 1000) / 1000);
     }
 
-    function formatNumber($value, $roundToWhole = false) {
+    function formatNumber($value, $roundToWhole = false)
+    {
         $floatValue = (float)$value;
         if ($roundToWhole) {
             // Round to nearest whole number based on tenths digit
@@ -65,12 +67,18 @@ try {
         return number_format($floatValue, 2, '.', '');
     }
 
-    function recordExists($conn, $table, $id) {
+    function recordExists($conn, $table, $id)
+    {
+        $allowedTables = ['Employees', 'UserAccounts'];
+        if (!in_array($table, $allowedTables)) {
+            error_log("Invalid table name: $table");
+            return false;
+        }
+
         $id = (int)$id;
         if ($id <= 0) return false;
-        $table = $conn->real_escape_string($table);
         $idColumn = ($table === 'UserAccounts') ? 'UserID' : 'EmployeeID';
-        $stmt = $conn->prepare("SELECT 1 FROM $table WHERE $idColumn = ? LIMIT 1");
+        $stmt = $conn->prepare("SELECT 1 FROM `$table` WHERE $idColumn = ? LIMIT 1");
         if (!$stmt) {
             error_log("Prepare failed for recordExists ($table): " . $conn->error);
             return false;
@@ -83,7 +91,8 @@ try {
         return $exists;
     }
 
-    function getEmployeeNameById($conn, $employeeId) {
+    function getEmployeeNameById($conn, $employeeId)
+    {
         $stmt = $conn->prepare("SELECT EmployeeName FROM Employees WHERE EmployeeID = ?");
         if (!$stmt) return "Unknown";
         $stmt->bind_param("i", $employeeId);
@@ -94,7 +103,8 @@ try {
         return $row['EmployeeName'] ?? "Unknown";
     }
 
-    function logUserActivity($conn, $user_id, $activity_type, $affected_table, $affected_record_id, $description) {
+    function logUserActivity($conn, $user_id, $activity_type, $affected_table, $affected_record_id, $description)
+    {
         $stmt = $conn->prepare("
             INSERT INTO user_activity_logs (user_id, activity_type, affected_table, affected_record_id, activity_description)
             VALUES (?, ?, ?, ?, ?)
@@ -108,7 +118,14 @@ try {
         $stmt->close();
     }
 
-    function getAllowances($conn, $employeeId, &$cache) {
+    function validateDate($date, $format = 'Y-m-d')
+    {
+        $d = DateTime::createFromFormat($format, $date);
+        return $d && $d->format($format) === $date;
+    }
+
+    function getAllowances($conn, $employeeId, &$cache)
+    {
         $cacheKey = "allowances_{$employeeId}";
         if (isset($cache['allowances'][$cacheKey])) {
             return $cache['allowances'][$cacheKey];
@@ -139,58 +156,294 @@ try {
         return $allowances;
     }
 
-    function getContributions($conn, $employeeId, &$cache, $payroll_cut) {
-    $cacheKey = "contributions_{$employeeId}_{$payroll_cut}";
-    if (isset($cache[$cacheKey])) {
-        return $cache[$cacheKey];
-    }
+    function getContributions($conn, $employeeId, &$cache, $payroll_cut, $periodBasicPay, $userId, $periodStart, $periodEnd)
+    {
+        $cacheKey = "contributions_{$employeeId}_{$payroll_cut}";
+        if (isset($cache['contributions'][$cacheKey])) {
+            return $cache['contributions'][$cacheKey];
+        }
 
-    $data = [];
-    if ($payroll_cut === 'second') {
-        $stmt = $conn->prepare("
+        $data = [];
+        if ($payroll_cut === 'second') {
+            // Fetch loans for 2nd cutoff
+            $stmt = $conn->prepare("
             SELECT LoanID AS ID, LoanKey AS ContributionType, LoanType, Amount
             FROM Loans
             WHERE EmployeeID = ?
         ");
-        if (!$stmt) throw new Exception("Prepare failed for loans query: " . $conn->error);
-        $stmt->bind_param("i", $employeeId);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        while ($row = $result->fetch_assoc()) {
-            $data[] = [
-                'ID' => $row['ID'],
-                'ContributionType' => $row['ContributionType'] . ' ' . $row['LoanType'],
-                'Amount' => formatNumber($row['Amount']),
-                'Balance' => '0.00' // Assuming balance is not tracked here; adjust if needed
-            ];
-        }
-        $stmt->close();
-    } else {
-        $stmt = $conn->prepare("
+            $stmt->bind_param("i", $employeeId);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            while ($row = $result->fetch_assoc()) {
+                $data[] = [
+                    'ID' => $row['ID'],
+                    'ContributionType' => $row['ContributionType'] . ' ' . $row['LoanType'],
+                    'Amount' => formatNumber($row['Amount']),
+                    'Balance' => '0.00'
+                ];
+            }
+            $stmt->close();
+        } else {
+            // Fetch saved contributions for 1st cutoff
+            $stmt = $conn->prepare("
             SELECT ContributionID AS ID, ContributionType, Amount
             FROM Contributions
             WHERE EmployeeID = ?
         ");
-        if (!$stmt) throw new Exception("Prepare failed for contributions query: " . $conn->error);
+            $stmt->bind_param("i", $employeeId);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            while ($row = $result->fetch_assoc()) {
+                $data[] = [
+                    'ID' => $row['ID'],
+                    'ContributionType' => $row['ContributionType'],
+                    'Amount' => formatNumber($row['Amount']),
+                    'Balance' => '0.00'
+                ];
+            }
+            $stmt->close();
+        }
+
+        // Compute contributions
+        $sss = getSSSContribution($conn, $periodBasicPay);
+        $pagibig = getPagIbigContribution($conn, $employeeId, $periodBasicPay);
+        $philhealth = getPhilHealthContribution($conn, $employeeId, $periodBasicPay);
+
+        // Get employee branch + wage
+        $stmt = $conn->prepare("
+        SELECT e.BranchID, p.HourlyMinimumWage
+        FROM Employees e
+        JOIN Positions p ON e.PositionID = p.PositionID
+        WHERE e.EmployeeID = ?
+    ");
         $stmt->bind_param("i", $employeeId);
         $stmt->execute();
-        $result = $stmt->get_result();
-        while ($row = $result->fetch_assoc()) {
+        $empRow = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        $branchId = $empRow['BranchID'] ?? 0;
+        $hourlyMinWage = $empRow['HourlyMinimumWage'] ?? 0;
+
+        // Insert/Update contributions
+        $contributions = [
+            ["SSS", $sss],
+            ["PhilHealth", $philhealth],
+            ["Pag-Ibig", $pagibig],
+        ];
+
+        $stmt = $conn->prepare("
+        INSERT INTO contributions (EmployeeID, BranchID, HourlyMinWage, ContributionType, Amount, UserId, PayrollCut, PeriodStart, PeriodEnd)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE 
+            BranchID = VALUES(BranchID),
+            HourlyMinWage = VALUES(HourlyMinWage),
+            Amount = VALUES(Amount),
+            UserId = VALUES(UserId)
+    ");
+
+        foreach ($contributions as [$type, $amount]) {
+            $stmt->bind_param(
+                "iisdissss",
+                $employeeId,
+                $branchId,
+                $hourlyMinWage,
+                $type,
+                $amount,
+                $userId,
+                $payroll_cut,
+                $periodStart,
+                $periodEnd
+            );
+            $stmt->execute();
+
             $data[] = [
-                'ID' => $row['ID'],
-                'ContributionType' => $row['ContributionType'],
-                'Amount' => formatNumber($row['Amount']),
+                'ID' => $type . '_' . $employeeId,
+                'ContributionType' => $type,
+                'Amount' => formatNumber($amount),
                 'Balance' => '0.00'
             ];
+
+            // foreach ($contribs as $ctype => $amount) {
+            //     $amt = number_format($amount, 2, '.', '');
+            //     $stmt->bind_param("iiisdi", $employeeId, $branchId, $hourlyMinWage, $ctype, $amt, $userId);
+            //     $stmt->execute();
+
+            //     $data[] = [
+            //         'ID' => $ctype . '_' . $employeeId,
+            //         'ContributionType' => $ctype,
+            //         'Amount' => formatNumber($amt),
+            //         'Balance' => '0.00'
+            //     ];
         }
         $stmt->close();
+
+        $cache['contributions'][$cacheKey] = $data;
+        return $data;
     }
 
-    $cache[$cacheKey] = $data;
-    return $data;
-}
 
-    function getCashAdvances($conn, $employeeId, &$cache, $start_date, $end_date) {
+    function getPhilHealthContribution($conn, $employeeId, $periodStart = null, $periodEnd = null)
+    {
+        try {
+            if (!recordExists($conn, "Employees", $employeeId)) {
+                throw new Exception("Invalid EmployeeID: $employeeId does not exist");
+            }
+
+            // Fetch HourlyMinimumWage from Positions
+            $stmt = $conn->prepare("
+            SELECT p.HourlyMinimumWage 
+            FROM Employees e 
+            JOIN Positions p ON e.PositionID = p.PositionID 
+            WHERE e.EmployeeID = ?
+        ");
+            if (!$stmt) {
+                error_log("Prepare failed for HourlyMinimumWage query: " . $conn->error);
+                throw new Exception("Failed to fetch HourlyMinimumWage: " . $conn->error);
+            }
+            $stmt->bind_param("i", $employeeId);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            if ($row = $result->fetch_assoc()) {
+                $hourlyMinWage = floatval($row['HourlyMinimumWage']);
+            } else {
+                error_log("No hourly wage found for employee ID: $employeeId");
+                return number_format(0.00, 2, '.', '');
+            }
+            $stmt->close();
+
+            // Fetch daily transportation allowance
+            $transpoStmt = $conn->prepare("
+            SELECT Amount FROM Allowances 
+            WHERE EmployeeID = ? AND Description = 'Transportation' 
+            LIMIT 1
+        ");
+            if (!$transpoStmt) {
+                error_log("Prepare failed for transportation allowance query: " . $conn->error);
+                throw new Exception("Failed to fetch transportation allowance: " . $conn->error);
+            }
+            $transpoStmt->bind_param("i", $employeeId);
+            $transpoStmt->execute();
+            $transpoResult = $transpoStmt->get_result();
+            $transpoDaily = $transpoResult->num_rows > 0 ? floatval($transpoResult->fetch_assoc()['Amount']) : 0.00;
+            $transpoStmt->close();
+
+            // Use default period if not provided
+            if (!$periodStart) {
+                $periodStart = date('Y-m-d', strtotime('-30 days'));
+            }
+            if (!$periodEnd) {
+                $periodEnd = date('Y-m-d');
+            }
+
+            // Fetch TotalHours and count days worked from Attendance table for the period
+            $stmt = $conn->prepare("
+            SELECT SUM(TotalHours) as total_hours, COUNT(DISTINCT Date) as days_worked
+            FROM Attendance 
+            WHERE EmployeeID = ? AND Date BETWEEN ? AND ? 
+            AND TotalHours > 0 AND TimeIn IS NOT NULL AND TimeOut IS NOT NULL
+        ");
+            if (!$stmt) {
+                error_log("Prepare failed for TotalHours query: " . $conn->error);
+                throw new Exception("Failed to fetch TotalHours: " . $conn->error);
+            }
+            $stmt->bind_param("iss", $employeeId, $periodStart, $periodEnd);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            $row = $result->fetch_assoc();
+            $totalHours = $row['total_hours'] ?? 0;
+            $daysWorked = $row['days_worked'] ?? 0;
+            $stmt->close();
+
+            if ($totalHours <= 0 || $daysWorked <= 0) {
+                error_log("No valid attendance hours or days worked found for employee ID: $employeeId between $periodStart and $periodEnd");
+                return number_format(0.00, 2, '.', '');
+            }
+
+            // Subtract 1 hour per day worked for lunch break
+            $adjustedHours = $totalHours - $daysWorked; // Deduct 1 hour per day worked
+            if ($adjustedHours < 0) {
+                error_log("Adjusted hours negative for employee ID: $employeeId, setting to 0");
+                $adjustedHours = 0;
+            }
+
+            // Calculate basic pay based on adjusted hours
+            $basicPay = $hourlyMinWage * $adjustedHours;
+            if ($basicPay <= 0) {
+                error_log("Basic pay is zero for employee ID: $employeeId");
+                return number_format(0.00, 2, '.', '');
+            }
+
+            // Exclude transportation allowance
+            $estimatedDays = $adjustedHours / 8; // Rough estimate of days worked (post-lunch deduction)
+            $basicPay -= ($transpoDaily * $estimatedDays);
+            if ($basicPay < 0) {
+                $basicPay = 0; // Prevent negative basic pay
+            }
+
+            // Convert to monthly equivalent
+            $monthlyFactor = 365 / 12;
+            $monthlyBasicPay = ($basicPay / max($estimatedDays, 1)) * $monthlyFactor; // Avoid division by zero
+            $assessedSalary = min(max($monthlyBasicPay, 10000), 100000);
+            $totalContriAmount = $assessedSalary * 0.05;
+            $employeeShare = $totalContriAmount / 2;
+            return number_format((float)$employeeShare, 2, '.', '');
+        } catch (Exception $e) {
+            error_log("Error calculating PhilHealth contribution for employee ID $employeeId: " . $e->getMessage());
+            return number_format(0.00, 2, '.', '');
+        }
+    }
+
+    function getSSSContribution($conn, $periodBasicPay)
+    {
+        // If $periodBasicPay is semi-monthly, double it
+        $monthlySalary = $periodBasicPay * 2;
+
+        $stmt = $conn->prepare("
+        SELECT ee_regular 
+        FROM sss_contributions
+        WHERE ? BETWEEN range_from AND range_to
+        LIMIT 1
+    ");
+        $stmt->bind_param("d", $monthlySalary);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        if ($row = $result->fetch_assoc()) {
+            return floatval($row['ee_regular']);
+        } else {
+            // If above the maximum range, fetch the max bracket
+            $stmt2 = $conn->prepare("
+            SELECT ee_regular 
+            FROM sss_contributions
+            ORDER BY msc DESC
+            LIMIT 1
+        ");
+            $stmt2->execute();
+            $res2 = $stmt2->get_result();
+            if ($row2 = $res2->fetch_assoc()) {
+                return floatval($row2['ee_regular']);
+            } else {
+                return 0.00;
+            }
+        }
+    }
+
+    function getPagIbigContribution($conn, $employeeId, $periodBasicPay)
+    {
+        $monthlyBasicPay = $periodBasicPay * 2;
+
+        if ($monthlyBasicPay <= 1500) {
+            $employeeShareMonthly = $monthlyBasicPay * 0.01;
+        } else {
+            $base = min($monthlyBasicPay, 5000);
+            $employeeShareMonthly = $base * 0.02;
+        }
+
+        // Return full monthly employee share for deduction in first cut-off
+        return $employeeShareMonthly;
+    }
+
+    function getCashAdvances($conn, $employeeId, &$cache, $start_date, $end_date)
+    {
         $cacheKey = "cashadvances_{$employeeId}_{$start_date}_{$end_date}";
         if (isset($cache['cashadvances'][$cacheKey])) {
             return $cache['cashadvances'][$cacheKey];
@@ -222,7 +475,8 @@ try {
         return $cashAdvances;
     }
 
-    function getOvertime($conn, $employeeId, $start_date, $end_date, &$cache) {
+    function getOvertime($conn, $employeeId, $start_date, $end_date, &$cache)
+    {
         $cacheKey = "overtime_{$employeeId}_{$start_date}_{$end_date}";
         if (isset($cache['overtime'][$cacheKey])) {
             return $cache['overtime'][$cacheKey];
@@ -263,12 +517,13 @@ try {
         return $overtime;
     }
 
-    function getHolidays($conn, $employeeId, $start_date, $end_date, &$cache) {
+    function getHolidays($conn, $employeeId, $start_date, $end_date, &$cache)
+    {
         $cacheKey = "holidays_{$employeeId}_{$start_date}_{$end_date}";
         if (isset($cache['holidays'][$cacheKey])) {
             return $cache['holidays'][$cacheKey];
         }
-    
+
         // Get employee's branch
         $stmt = $conn->prepare("SELECT BranchID FROM Employees WHERE EmployeeID = ?");
         $stmt->bind_param("i", $employeeId);
@@ -276,10 +531,10 @@ try {
         $result = $stmt->get_result();
         $employeeBranchId = $result->fetch_assoc()['BranchID'] ?? 0;
         $stmt->close();
-    
+
         $startYear = date('Y', strtotime($start_date));
         $endYear = date('Y', strtotime($end_date));
-    
+
         $stmt = $conn->prepare("
             SELECT 
                 h.HolidayID, 
@@ -334,7 +589,8 @@ try {
         return $holidays;
     }
 
-    function getLeaves($conn, $employeeId, $start_date, $end_date, &$cache) {
+    function getLeaves($conn, $employeeId, $start_date, $end_date, &$cache)
+    {
         $cacheKey = "leaves_{$employeeId}_{$start_date}_{$end_date}";
         if (isset($cache[$cacheKey])) {
             return $cache[$cacheKey];
@@ -383,13 +639,14 @@ try {
         return $leaves;
     }
 
-function getAttendance($conn, $employeeId, $start_date, $end_date, &$cache) {
-    $cacheKey = "attendance_{$employeeId}_{$start_date}_{$end_date}";
-    if (isset($cache['attendance'][$cacheKey])) {
-        return $cache['attendance'][$cacheKey];
-    }
+    function getAttendance($conn, $employeeId, $start_date, $end_date, &$cache)
+    {
+        $cacheKey = "attendance_{$employeeId}_{$start_date}_{$end_date}";
+        if (isset($cache['attendance'][$cacheKey])) {
+            return $cache['attendance'][$cacheKey];
+        }
 
-    $stmt = $conn->prepare("
+        $stmt = $conn->prepare("
         SELECT 
             a.Date, 
             a.TimeIn, 
@@ -414,583 +671,602 @@ function getAttendance($conn, $employeeId, $start_date, $end_date, &$cache) {
         LEFT JOIN Overtime o ON a.EmployeeID = o.EmployeeID AND a.Date = o.Date
         WHERE a.EmployeeID = ? AND a.Date BETWEEN ? AND ?
     ");
-    if (!$stmt) {
-        error_log("Prepare failed for attendance: " . $conn->error);
-        throw new Exception("Failed to fetch attendance: " . $conn->error);
-    }
-    $stmt->bind_param("iss", $employeeId, $start_date, $end_date);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $attendance = [];
-    while ($row = $result->fetch_assoc()) {
-        $lateMinutes = 0;
-        $undertimeMinutes = 0;
-
-        // Calculate LateMinutes
-        if ($row['TimeIn']) {
-            $timeIn = new DateTime($row['Date'] . ' ' . $row['TimeIn']);
-            $shiftStart = new DateTime($row['Date'] . ' ' . $row['ShiftStart']);
-
-            // Check if overtime exists and StartOvertime1 is before ShiftStart
-            if ($row['StartOvertime1'] && $row['EndOvertime1'] && $row['StartOvertime1'] < $row['ShiftStart']) {
-                $otStart = new DateTime($row['Date'] . ' ' . $row['StartOvertime1']);
-                if ($timeIn > $otStart) {
-                    $interval = $otStart->diff($timeIn);
-                    $lateMinutes = $interval->h * 60 + $interval->i;
-                }
-            } else {
-                // Apply 10-minute grace period to ShiftStart
-                $gracePeriod = clone $shiftStart;
-                $gracePeriod->modify('+10 minutes');
-                if ($timeIn > $gracePeriod) {
-                    $interval = $shiftStart->diff($timeIn);
-                    $lateMinutes = $interval->h * 60 + $interval->i;
-                }
-            }
+        if (!$stmt) {
+            error_log("Prepare failed for attendance: " . $conn->error);
+            throw new Exception("Failed to fetch attendance: " . $conn->error);
         }
+        $stmt->bind_param("iss", $employeeId, $start_date, $end_date);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $attendance = [];
+        while ($row = $result->fetch_assoc()) {
+            $lateMinutes = 0;
+            $undertimeMinutes = 0;
 
-        // Calculate UndertimeMinutes
-        if ($row['TimeOut']) {
-            $timeOut = new DateTime($row['Date'] . ' ' . $row['TimeOut']);
-            $shiftEnd = new DateTime($row['Date'] . ' ' . $row['ShiftEnd']);
+            // Calculate LateMinutes
+            if ($row['TimeIn']) {
+                $timeIn = new DateTime($row['Date'] . ' ' . $row['TimeIn']);
+                $shiftStart = new DateTime($row['Date'] . ' ' . $row['ShiftStart']);
 
-            // Check if overtime exists after ShiftEnd (using either EndOvertime1 or EndOvertime2)
-            $otEnd = null;
-            if ($row['StartOvertime1'] && $row['EndOvertime1'] && $row['EndOvertime1'] > $row['ShiftEnd']) {
-                $otEnd = new DateTime($row['Date'] . ' ' . $row['EndOvertime1']);
-            } elseif ($row['StartOvertime2'] && $row['EndOvertime2'] && $row['EndOvertime2'] > $row['ShiftEnd']) {
-                $otEnd = new DateTime($row['Date'] . ' ' . $row['EndOvertime2']);
+                // Check if overtime exists and StartOvertime1 is before ShiftStart
+                if ($row['StartOvertime1'] && $row['EndOvertime1'] && $row['StartOvertime1'] < $row['ShiftStart']) {
+                    $otStart = new DateTime($row['Date'] . ' ' . $row['StartOvertime1']);
+                    if ($timeIn > $otStart) {
+                        $interval = $otStart->diff($timeIn);
+                        $lateMinutes = $interval->h * 60 + $interval->i;
+                    }
+                } else {
+                    // Apply 10-minute grace period to ShiftStart
+                    $gracePeriod = clone $shiftStart;
+                    $gracePeriod->modify('+10 minutes');
+                    if ($timeIn > $gracePeriod) {
+                        $interval = $shiftStart->diff($timeIn);
+                        $lateMinutes = $interval->h * 60 + $interval->i;
+                    }
+                }
             }
 
-            if ($otEnd) {
-                if ($otEnd < $timeOut) {
-                    $otEnd->modify('+1 day');
+            // Calculate UndertimeMinutes
+            if ($row['TimeOut']) {
+                $timeOut = new DateTime($row['Date'] . ' ' . $row['TimeOut']);
+                $shiftEnd = new DateTime($row['Date'] . ' ' . $row['ShiftEnd']);
+
+                // Check if overtime exists after ShiftEnd (using either EndOvertime1 or EndOvertime2)
+                $otEnd = null;
+                if ($row['StartOvertime1'] && $row['EndOvertime1'] && $row['EndOvertime1'] > $row['ShiftEnd']) {
+                    $otEnd = new DateTime($row['Date'] . ' ' . $row['EndOvertime1']);
+                } elseif ($row['StartOvertime2'] && $row['EndOvertime2'] && $row['EndOvertime2'] > $row['ShiftEnd']) {
+                    $otEnd = new DateTime($row['Date'] . ' ' . $row['EndOvertime2']);
                 }
-                if ($timeOut < $otEnd) {
-                    $interval = $timeOut->diff($otEnd);
-                    $undertimeMinutes = $interval->h * 60 + $interval->i;
-                }
-            } else {
-                // Compare against ShiftEnd
-                if ($timeOut < $shiftEnd) {
-                    $interval = $timeOut->diff($shiftEnd);
-                    $undertimeMinutes = $interval->h * 60 + $interval->i;
+
+                if ($otEnd) {
+                    if ($otEnd < $timeOut) {
+                        $otEnd->modify('+1 day');
+                    }
+                    if ($timeOut < $otEnd) {
+                        $interval = $timeOut->diff($otEnd);
+                        $undertimeMinutes = $interval->h * 60 + $interval->i;
+                    }
+                } else {
+                    // Compare against ShiftEnd
+                    if ($timeOut < $shiftEnd) {
+                        $interval = $timeOut->diff($shiftEnd);
+                        $undertimeMinutes = $interval->h * 60 + $interval->i;
+                    }
                 }
             }
+
+            $attendance[] = [
+                'Date' => $row['Date'],
+                'TimeIn' => $row['TimeIn'],
+                'TimeOut' => $row['TimeOut'],
+                'TimeInStatus' => $lateMinutes > 0 ? 'Late' : 'On-Time',
+                'HoursWorked' => formatNumber($row['HoursWorked']),
+                'LateMinutes' => (int)$lateMinutes,
+                'UndertimeMinutes' => (int)$undertimeMinutes
+            ];
         }
-
-        $attendance[] = [
-            'Date' => $row['Date'],
-            'TimeIn' => $row['TimeIn'],
-            'TimeOut' => $row['TimeOut'],
-            'TimeInStatus' => $lateMinutes > 0 ? 'Late' : 'On-Time',
-            'HoursWorked' => formatNumber($row['HoursWorked']),
-            'LateMinutes' => (int)$lateMinutes,
-            'UndertimeMinutes' => (int)$undertimeMinutes
-        ];
+        $stmt->close();
+        $cache['attendance'][$cacheKey] = $attendance;
+        return $attendance;
     }
-    $stmt->close();
-    $cache['attendance'][$cacheKey] = $attendance;
-    return $attendance;
-}
 
-function getAbsentDays($conn, $employeeId, $start_date, $end_date, $leaves, $holidays) {
-    $stmt = $conn->prepare("
+    function getAbsentDays($conn, $employeeId, $start_date, $end_date, $leaves, $holidays)
+    {
+        $stmt = $conn->prepare("
         SELECT DISTINCT Date
         FROM Attendance
         WHERE EmployeeID = ? AND Date BETWEEN ? AND ?
     ");
-    if (!$stmt) {
-        error_log("Prepare failed for attendance: " . $conn->error);
-        throw new Exception("Failed to fetch attendance: " . $conn->error);
-    }
-    $stmt->bind_param("iss", $employeeId, $start_date, $end_date);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $attendanceDates = [];
-    while ($row = $result->fetch_assoc()) {
-        $attendanceDates[] = $row['Date'];
-    }
-    $stmt->close();
-
-    $leaveDates = [];
-    foreach ($leaves as $leave) {
-        $leavePeriod = new DatePeriod(
-            new DateTime($leave['StartDate']),
-            new DateInterval('P1D'),
-            (new DateTime($leave['EndDate']))->modify('+1 day')
-        );
-        foreach ($leavePeriod as $date) {
-            $leaveDates[] = $date->format('Y-m-d');
+        if (!$stmt) {
+            error_log("Prepare failed for attendance: " . $conn->error);
+            throw new Exception("Failed to fetch attendance: " . $conn->error);
         }
-    }
-
-    // Only Legal Holidays count as "Present"
-    $legalHolidayDates = array_filter($holidays, function($h) {
-        return $h['HolidayType'] === 'Legal Holiday';
-    });
-    $legalHolidayDates = array_map(function($h) { return $h['Date']; }, $legalHolidayDates);
-
-    $period = new DatePeriod(
-        new DateTime($start_date),
-        new DateInterval('P1D'),
-        (new DateTime($end_date))->modify('+1 day')
-    );
-    $allDates = [];
-    foreach ($period as $date) {
-        $allDates[] = $date->format('Y-m-d');
-    }
-
-    $absentDays = 0;
-    foreach ($allDates as $date) {
-        $dateObj = new DateTime($date);
-        $isSunday = $dateObj->format('N') == 7;
-        $isLegalHoliday = in_array($date, $legalHolidayDates);
-        $isLeave = in_array($date, $leaveDates);
-        $isAttendance = in_array($date, $attendanceDates);
-
-        if (!$isAttendance && !$isSunday && !$isLegalHoliday && !$isLeave) {
-            $absentDays++;
-        }
-    }
-
-    return $absentDays;
-}
-
-function calculatePayroll($employeeData, $attendance, $overtime, $holidays, $payrollCut, $startDate, $endDate) {
-    global $conn;
-    $payroll = [];
-    $employeeId = $employeeData['EmployeeID'];
-
-    // Calculate Days Present
-    $start = new DateTime($startDate);
-    $end = new DateTime($endDate);
-    $interval = DateInterval::createFromDateString('1 day');
-    $period = new DatePeriod($start, $interval, $end->modify('+1 day')); // Include end date
-    $expectedDays = 0;
-    foreach ($period as $date) {
-        $dayOfWeek = $date->format('N');
-        if ($dayOfWeek >= 1 && $dayOfWeek <= 6) { // Monday to Saturday
-            $expectedDays++;
-        }
-    }
-    $absentDays = (float)$employeeData['AbsentDays'];
-    $leaveDays = 0;
-    if (is_array($employeeData['LeaveData'])) {
-        foreach ($employeeData['LeaveData'] as $leave) {
-            $leaveStart = new DateTime($leave['StartDate']);
-            $leaveEnd = new DateTime($leave['EndDate']);
-            if (
-                ($leaveStart >= $start && $leaveStart <= $end) ||
-                ($leaveEnd >= $start && $leaveEnd <= $end) ||
-                ($leaveStart <= $start && $leaveEnd >= $end)
-            ) {
-                $leaveDays += (float)($leave['UsedLeaveCredits'] ?? 0);
-            }
-        }
-    }
-    $holidayDays = is_array($holidays) ? count(array_filter($holidays, function($h) use ($start, $end) {
-        $holidayDate = new DateTime($h['Date']);
-        return $holidayDate >= $start && $holidayDate <= $end;
-    })) : 0;
-    $daysPresent = max(0, $expectedDays - $absentDays - $leaveDays - $holidayDays);
-
-    // Calculate Rates
-    $hourlyMinimumWage = (float)$employeeData['HourlyMinimumWage'];
-    $dailyRate = $hourlyMinimumWage * 8;
-    $hourlyRate = $hourlyMinimumWage;
-    $payroll['DailyRate'] = formatNumber($dailyRate, true);
-    $payroll['BasicRate'] = formatNumber($dailyRate, true);
-    $payroll['HourlyRate'] = formatNumber($hourlyRate, true);
-
-    // Calculate Allowances
-    $allowancesData = [];
-    $transportAllowance = 0;
-    foreach ($employeeData['AllowancesData'] as $allowance) {
-        $amount = (float)$allowance['Amount'];
-        if ($allowance['Description'] === 'Transportation') {
-            $transportAllowance = $amount;
-        }
-        $allowancesData[] = [
-            'Description' => $allowance['Description'],
-            'Amount' => formatNumber($amount, true)
-        ];
-    }
-
-    // Calculate Earnings
-    $dailyRateAmount = $dailyRate * $daysPresent;
-    $transportAllowanceAmount = ($leaveDays + $daysPresent + $holidayDays) * $transportAllowance;
-    $minTranspo = ($dailyRate + $transportAllowance) / 8;
-    $basicPay = $dailyRateAmount + $transportAllowanceAmount;
-    $leavePay = $dailyRate * $leaveDays;
-
-    function computeBasicPay($dailyRateAmount, $transportAllowanceAmount) {
-        $dailyRateAmt = $dailyRateAmount;
-        $transportAllowanceAmt = $transportAllowanceAmount;
-        $_basicPay = $dailyRateAmt + $transportAllowanceAmt;
-        return $_basicPay;
-    }
-
-    $payroll['BasicPay'] = formatNumber($basicPay, true);
-    $payroll['LeavePay'] = formatNumber($leavePay, true);
-    
-    // Calculate Overtime Pay
-    $regularOtHours = 0;
-    $nightOtHours = 0;
-    $regularOtAmount = 0;
-    $nightOtAmount = 0;
-
-    foreach ($overtime as $ot) {
-        $otDate = new DateTime($ot['Date']);
-        $isSunday = $otDate->format('N') == 7;
-        $isHoliday = array_filter($holidays, function($h) use ($ot) {
-            return $h['Date'] === $ot['Date'];
-        });
-
-        if ($isSunday || !empty($isHoliday)) {
-            continue; // Skip overtime on Sundays or holidays as they are handled in PremiumPayData
-        }
-
-        // Get attendance for the overtime date
-        $attendanceOnDate = array_filter($attendance, function($a) use ($ot) {
-            return $a['Date'] === $ot['Date'];
-        });
-        $attendanceOnDate = reset($attendanceOnDate); // Get first matching attendance
-
-        if (!$attendanceOnDate) {
-            continue; // Skip if no attendance for this date
-        }
-
-        // Get schedule for the employee
-        $stmt = $conn->prepare("SELECT ShiftStart, ShiftEnd FROM Schedules WHERE ScheduleID = (SELECT ScheduleID FROM Employees WHERE EmployeeID = ?)");
-        $stmt->bind_param("i", $employeeId);
+        $stmt->bind_param("iss", $employeeId, $start_date, $end_date);
         $stmt->execute();
-        $schedule = $stmt->get_result()->fetch_assoc();
+        $result = $stmt->get_result();
+        $attendanceDates = [];
+        while ($row = $result->fetch_assoc()) {
+            $attendanceDates[] = $row['Date'];
+        }
         $stmt->close();
 
-        $shiftStart = $schedule['ShiftStart'] ? new DateTime($ot['Date'] . ' ' . $schedule['ShiftStart']) : null;
-        $shiftEnd = $schedule['ShiftEnd'] ? new DateTime($ot['Date'] . ' ' . $schedule['ShiftEnd']) : null;
-
-        // Initialize overtime periods
-        $otPeriods = [];
-        if ($ot['StartOvertime1'] && $ot['EndOvertime1']) {
-            $startOt1 = new DateTime($ot['Date'] . ' ' . $ot['StartOvertime1']);
-            $endOt1 = new DateTime($ot['Date'] . ' ' . $ot['EndOvertime1']);
-            if ($endOt1 < $startOt1) {
-                $endOt1->modify('+1 day');
-            }
-            $otPeriods[] = ['start' => $startOt1, 'end' => $endOt1];
-        }
-        if ($ot['StartOvertime2'] && $ot['EndOvertime2']) {
-            $startOt2 = new DateTime($ot['Date'] . ' ' . $ot['StartOvertime2']);
-            $endOt2 = new DateTime($ot['Date'] . ' ' . $ot['EndOvertime2']);
-            if ($endOt2 < $startOt2) {
-                $endOt2->modify('+1 day');
-            }
-            $otPeriods[] = ['start' => $startOt2, 'end' => $endOt2];
-        }
-
-        // Calculate total overtime hours
-        $totalOtHours = 0;
-        foreach ($otPeriods as $period) {
-            // Ensure overtime is within attendance TimeIn and TimeOut
-            $attTimeIn = new DateTime($ot['Date'] . ' ' . $attendanceOnDate['TimeIn']);
-            $attTimeOut = new DateTime($ot['Date'] . ' ' . $attendanceOnDate['TimeOut']);
-            if ($attTimeOut < $attTimeIn) {
-                $attTimeOut->modify('+1 day');
-            }
-            $otStart = max($period['start'], $attTimeIn);
-            $otEnd = min($period['end'], $attTimeOut);
-            if ($otEnd <= $otStart) {
-                continue;
-            }
-            $interval = $otStart->diff($otEnd);
-            $hours = $interval->h + $interval->i / 60;
-            $totalOtHours += $hours;
-        }
-
-        if ($totalOtHours <= 0) {
-            continue;
-        }
-
-        // Calculate regular shift hours (capped at 8 hours)
-        $regularShiftStart = max($attTimeIn, $shiftStart);
-        $regularShiftEnd = min($attTimeOut, $shiftEnd);
-        $regularInterval = $regularShiftStart->diff($regularShiftEnd);
-        $regularShiftHours = ($regularInterval->h + $regularInterval->i / 60);
-        $regularShiftHours = min($regularShiftHours, 8); // Cap at 8 hours
-
-        // Overtime hours are the calculated periods minus any overlap with regular shift
-        $overtimeHours = $totalOtHours;
-        if ($overtimeHours <= 0) {
-            continue;
-        }
-
-        // Calculate night shift differential (10 PM - 6 AM)
-        $nightHours = 0;
-        foreach ($otPeriods as $period) {
-            $nightStart = new DateTime($ot['Date'] . ' 22:00:00');
-            $nightEnd = (new DateTime($ot['Date'] . ' 06:00:00'))->modify('+1 day');
-            $otStart = max($period['start'], $attTimeIn);
-            $otEnd = min($period['end'], $attTimeOut);
-            if ($otEnd <= $otStart) {
-                continue;
-            }
-            $nightShiftStart = max($otStart, $nightStart);
-            $nightShiftEnd = min($otEnd, $nightEnd);
-            if ($nightShiftStart < $nightShiftEnd) {
-                $nightInterval = $nightShiftStart->diff($nightShiftEnd);
-                $nightHours += $nightInterval->h + $nightInterval->i / 60;
+        $leaveDates = [];
+        foreach ($leaves as $leave) {
+            $leavePeriod = new DatePeriod(
+                new DateTime($leave['StartDate']),
+                new DateInterval('P1D'),
+                (new DateTime($leave['EndDate']))->modify('+1 day')
+            );
+            foreach ($leavePeriod as $date) {
+                $leaveDates[] = $date->format('Y-m-d');
             }
         }
 
-        // Ensure night hours do not exceed overtime hours
-        $nightHours = min($nightHours, $overtimeHours);
-        $regularHours = $overtimeHours - $nightHours;
+        // Only Legal Holidays count as "Present"
+        $legalHolidayDates = array_filter($holidays, function ($h) {
+            return $h['HolidayType'] === 'Legal Holiday';
+        });
+        $legalHolidayDates = array_map(function ($h) {
+            return $h['Date'];
+        }, $legalHolidayDates);
 
-        // Apply rates
-        $regularOtHours += $regularHours;
-        $regularOtAmount += $hourlyRate * 1.25 * $regularHours;
-        $nightOtHours += $nightHours;
-        $nightOtAmount += $hourlyRate * 1.375 * $nightHours;
+        $period = new DatePeriod(
+            new DateTime($start_date),
+            new DateInterval('P1D'),
+            (new DateTime($end_date))->modify('+1 day')
+        );
+        $allDates = [];
+        foreach ($period as $date) {
+            $allDates[] = $date->format('Y-m-d');
+        }
+
+        $absentDays = 0;
+        foreach ($allDates as $date) {
+            $dateObj = new DateTime($date);
+            $isSunday = $dateObj->format('N') == 7;
+            $isLegalHoliday = in_array($date, $legalHolidayDates);
+            $isLeave = in_array($date, $leaveDates);
+            $isAttendance = in_array($date, $attendanceDates);
+
+            if (!$isAttendance && !$isSunday && !$isLegalHoliday && !$isLeave) {
+                $absentDays++;
+            }
+        }
+
+        return $absentDays;
     }
 
-    $overtimePayTotal = $regularOtAmount + $nightOtAmount;
-    $payroll['OvertimePay'] = [
-        'Regular' => formatNumber($regularOtAmount, true),
-        'Night' => formatNumber($nightOtAmount, true),
-        'Total' => formatNumber($overtimePayTotal, true)
-    ];
-    $payroll['OvertimeHours'] = [
-        'Regular' => formatNumber($regularOtHours),
-        'Night' => formatNumber($nightOtHours)
-    ];
+    function calculatePayroll($conn, $employeeData, $attendance, $overtime, $holidays, $payrollCut, $startDate, $endDate)
+    {
+        $payroll = [];
+        $employeeId = $employeeData['EmployeeID'];
 
-    // Calculate Holiday Pay
-    $specialHolidayHours = 0;
-    $specialHolidayAmount = 0;
-    $specialOtHours = 0;
-    $specialOtAmount = 0;
-    $regularHolidayHours = 0;
-    $regularHolidayAmount = 0;
-    $regularOtHours = 0;
-    $regularOtAmount = 0;
-    $noWorkedLegalHolidayAmount = 0;
-    $holidayPay = 0;
-
-    // Ensure required variables are defined
-    $hourlyRate = isset($hourlyRate) ? (float)$hourlyRate : 0;
-    $dailyRate = isset($dailyRate) ? (float)$dailyRate : 0;
-    $holidays = isset($holidays) && is_array($holidays) ? $holidays : [];
-    $leaves = isset($leaves) && is_array($leaves) ? $leaves : [];
-    $attendance = isset($attendance) && is_array($attendance) ? $attendance : [];
-    $overtime = isset($overtime) && is_array($overtime) ? $overtime : [];
-
-    if ($hourlyRate === 0 || $dailyRate === 0) {
-        error_log("Warning: hourlyRate or dailyRate is zero for EmployeeID {$employeeData['EmployeeID']}");
-    }
-
-    try {
+        // Calculate Days Present
         $start = new DateTime($startDate);
         $end = new DateTime($endDate);
-    } catch (Exception $e) {
-        error_log("Invalid date format for start_date or end_date: " . $e->getMessage());
-        $start = new DateTime();
-        $end = new DateTime();
-    }
+        $interval = DateInterval::createFromDateString('1 day');
+        $period = new DatePeriod($start, $interval, $end->modify('+1 day')); // Include end date
+        $expectedDays = 0;
+        foreach ($period as $date) {
+            $dayOfWeek = $date->format('N');
+            if ($dayOfWeek >= 1 && $dayOfWeek <= 6) { // Monday to Saturday
+                $expectedDays++;
+            }
+        }
+        $absentDays = (float)$employeeData['AbsentDays'];
+        $leaveDays = 0;
+        if (is_array($employeeData['LeaveData'])) {
+            foreach ($employeeData['LeaveData'] as $leave) {
+                $leaveStart = new DateTime($leave['StartDate']);
+                $leaveEnd = new DateTime($leave['EndDate']);
+                if (
+                    ($leaveStart >= $start && $leaveStart <= $end) ||
+                    ($leaveEnd >= $start && $leaveEnd <= $end) ||
+                    ($leaveStart <= $start && $leaveEnd >= $end)
+                ) {
+                    $leaveDays += (float)($leave['UsedLeaveCredits'] ?? 0);
+                }
+            }
+        }
+        $holidayDays = is_array($holidays) ? count(array_filter($holidays, function ($h) use ($start, $end) {
+            $holidayDate = new DateTime($h['Date']);
+            return $holidayDate >= $start && $holidayDate <= $end;
+        })) : 0;
+        $daysPresent = max(0, $expectedDays - $absentDays - $leaveDays - $holidayDays);
 
-    foreach ($holidays as $holiday) {
-        $holidayDate = isset($holiday['Date']) ? $holiday['Date'] : null;
-        $holidayType = isset($holiday['HolidayType']) ? $holiday['HolidayType'] : null;
-        if (!$holidayDate || !$holidayType) continue;
+        // Calculate Rates
+        $hourlyMinimumWage = (float)$employeeData['HourlyMinimumWage'];
+        $dailyRate = $hourlyMinimumWage * 8;
+        $hourlyRate = $hourlyMinimumWage;
+        $absentDeduction = $dailyRate * (float)$employeeData['AbsentDays'];
+        $payroll['DailyRate'] = formatNumber($dailyRate, true);
+        $payroll['BasicRate'] = formatNumber($dailyRate, true);
+        $payroll['HourlyRate'] = formatNumber($hourlyRate, true);
+        $payroll['AbsentDeduction'] = formatNumber($absentDeduction, true);
+
+        if (!isset($employeeData['HourlyMinimumWage']) || !is_numeric($employeeData['HourlyMinimumWage'])) {
+            error_log("Invalid or missing HourlyMinimumWage for EmployeeID: $employeeId");
+            return [
+                'error' => 'Invalid employee data: HourlyMinimumWage is missing or invalid',
+                'TotalEarnings' => '0.00',
+                'TotalDeductions' => '0.00',
+                'NetPay' => '0.00'
+            ];
+        }
+
+        // Calculate Allowances
+        $allowancesData = [];
+        $transportAllowance = 0;
+        foreach ($employeeData['AllowancesData'] as $allowance) {
+            $amount = (float)$allowance['Amount'];
+            if ($allowance['Description'] === 'Transportation') {
+                $transportAllowance = $amount;
+            }
+            $allowancesData[] = [
+                'Description' => $allowance['Description'],
+                'Amount' => formatNumber($amount, true)
+            ];
+        }
+
+        // Calculate Earnings
+        $dailyRateAmount = $dailyRate * $daysPresent;
+        $transportAllowanceAmount = ($leaveDays + $daysPresent + $holidayDays) * $transportAllowance;
+        $minTranspo = ($dailyRate + $transportAllowance) / 8;
+        $basicPay = $dailyRateAmount + $transportAllowanceAmount;
+        $leavePay = $dailyRate * $leaveDays;
+
+        function computeBasicPay($dailyRateAmount, $transportAllowanceAmount)
+        {
+            $dailyRateAmt = $dailyRateAmount;
+            $transportAllowanceAmt = $transportAllowanceAmount;
+            $_basicPay = $dailyRateAmt + $transportAllowanceAmt;
+            return $_basicPay;
+        }
+
+        $payroll['BasicPay'] = formatNumber($basicPay, true);
+        $payroll['LeavePay'] = formatNumber($leavePay, true);
+
+        // Calculate Overtime Pay
+        $regularOtHours = 0;
+        $nightOtHours = 0;
+        $regularOtAmount = 0;
+        $nightOtAmount = 0;
+
+        foreach ($overtime as $ot) {
+            $otDate = new DateTime($ot['Date']);
+            $isSunday = $otDate->format('N') == 7;
+            $isHoliday = array_filter($holidays, function ($h) use ($ot) {
+                return $h['Date'] === $ot['Date'];
+            });
+
+            if ($isSunday || !empty($isHoliday)) {
+                continue; // Skip overtime on Sundays or holidays as they are handled in PremiumPayData
+            }
+
+            // Get attendance for the overtime date
+            $attendanceOnDate = array_filter($attendance, function ($a) use ($ot) {
+                return $a['Date'] === $ot['Date'];
+            });
+            $attendanceOnDate = reset($attendanceOnDate); // Get first matching attendance
+
+            if (!$attendanceOnDate) {
+                continue; // Skip if no attendance for this date
+            }
+
+            // Get schedule for the employee
+            $stmt = $conn->prepare("SELECT ShiftStart, ShiftEnd FROM Schedules WHERE ScheduleID = (SELECT ScheduleID FROM Employees WHERE EmployeeID = ?)");
+            $stmt->bind_param("i", $employeeId);
+            $stmt->execute();
+            $schedule = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+
+            $shiftStart = $schedule['ShiftStart'] ? new DateTime($ot['Date'] . ' ' . $schedule['ShiftStart']) : null;
+            $shiftEnd = $schedule['ShiftEnd'] ? new DateTime($ot['Date'] . ' ' . $schedule['ShiftEnd']) : null;
+
+            // Initialize overtime periods
+            $otPeriods = [];
+            if ($ot['StartOvertime1'] && $ot['EndOvertime1']) {
+                $startOt1 = new DateTime($ot['Date'] . ' ' . $ot['StartOvertime1']);
+                $endOt1 = new DateTime($ot['Date'] . ' ' . $ot['EndOvertime1']);
+                if ($endOt1 < $startOt1) {
+                    $endOt1->modify('+1 day');
+                }
+                $otPeriods[] = ['start' => $startOt1, 'end' => $endOt1];
+            }
+            if ($ot['StartOvertime2'] && $ot['EndOvertime2']) {
+                $startOt2 = new DateTime($ot['Date'] . ' ' . $ot['StartOvertime2']);
+                $endOt2 = new DateTime($ot['Date'] . ' ' . $ot['EndOvertime2']);
+                if ($endOt2 < $startOt2) {
+                    $endOt2->modify('+1 day');
+                }
+                $otPeriods[] = ['start' => $startOt2, 'end' => $endOt2];
+            }
+
+            // Calculate total overtime hours
+            $totalOtHours = 0;
+            foreach ($otPeriods as $period) {
+                // Ensure overtime is within attendance TimeIn and TimeOut
+                $attTimeIn = new DateTime($ot['Date'] . ' ' . $attendanceOnDate['TimeIn']);
+                $attTimeOut = new DateTime($ot['Date'] . ' ' . $attendanceOnDate['TimeOut']);
+                if ($attTimeOut < $attTimeIn) {
+                    $attTimeOut->modify('+1 day');
+                }
+                $otStart = max($period['start'], $attTimeIn);
+                $otEnd = min($period['end'], $attTimeOut);
+                if ($otEnd <= $otStart) {
+                    continue;
+                }
+                $interval = $otStart->diff($otEnd);
+                $hours = $interval->h + $interval->i / 60;
+                $totalOtHours += $hours;
+            }
+
+            if ($totalOtHours <= 0) {
+                continue;
+            }
+
+            // Calculate regular shift hours (capped at 8 hours)
+            $regularShiftStart = max($attTimeIn, $shiftStart);
+            $regularShiftEnd = min($attTimeOut, $shiftEnd);
+            $regularInterval = $regularShiftStart->diff($regularShiftEnd);
+            $regularShiftHours = ($regularInterval->h + $regularInterval->i / 60);
+            $regularShiftHours = min($regularShiftHours, 8); // Cap at 8 hours
+
+            // Overtime hours are the calculated periods minus any overlap with regular shift
+            $overtimeHours = $totalOtHours;
+            if ($overtimeHours <= 0) {
+                continue;
+            }
+
+            // Calculate night shift differential (10 PM - 6 AM)
+            $nightHours = 0;
+            foreach ($otPeriods as $period) {
+                $nightStart = new DateTime($ot['Date'] . ' 22:00:00');
+                $nightEnd = (new DateTime($ot['Date'] . ' 06:00:00'))->modify('+1 day');
+                $otStart = max($period['start'], $attTimeIn);
+                $otEnd = min($period['end'], $attTimeOut);
+                if ($otEnd <= $otStart) {
+                    continue;
+                }
+                $nightShiftStart = max($otStart, $nightStart);
+                $nightShiftEnd = min($otEnd, $nightEnd);
+                if ($nightShiftStart < $nightShiftEnd) {
+                    $nightInterval = $nightShiftStart->diff($nightShiftEnd);
+                    $nightHours += $nightInterval->h + $nightInterval->i / 60;
+                }
+            }
+
+            // Ensure night hours do not exceed overtime hours
+            $nightHours = min($nightHours, $overtimeHours);
+            $regularHours = $overtimeHours - $nightHours;
+
+            // Apply rates
+            $regularOtHours += $regularHours;
+            $regularOtAmount += $hourlyRate * 1.25 * $regularHours;
+            $nightOtHours += $nightHours;
+            $nightOtAmount += $hourlyRate * 1.375 * $nightHours;
+        }
+
+        $overtimePayTotal = $regularOtAmount + $nightOtAmount;
+        $payroll['OvertimePay'] = [
+            'Regular' => formatNumber($regularOtAmount, true),
+            'Night' => formatNumber($nightOtAmount, true),
+            'Total' => formatNumber($overtimePayTotal, true)
+        ];
+        $payroll['OvertimeHours'] = [
+            'Regular' => formatNumber($regularOtHours),
+            'Night' => formatNumber($nightOtHours)
+        ];
+
+        // Calculate Holiday Pay
+        $specialHolidayHours = 0;
+        $specialHolidayAmount = 0;
+        $specialOtHours = 0;
+        $specialOtAmount = 0;
+        $regularHolidayHours = 0;
+        $regularHolidayAmount = 0;
+        $regularOtHours = 0;
+        $regularOtAmount = 0;
+        $noWorkedLegalHolidayAmount = 0;
+        $holidayPay = 0;
+
+        // Ensure required variables are defined
+        $hourlyRate = isset($hourlyRate) ? (float)$hourlyRate : 0;
+        $dailyRate = isset($dailyRate) ? (float)$dailyRate : 0;
+        $holidays = isset($holidays) && is_array($holidays) ? $holidays : [];
+        $leaves = isset($leaves) && is_array($leaves) ? $leaves : [];
+        $attendance = isset($attendance) && is_array($attendance) ? $attendance : [];
+        $overtime = isset($overtime) && is_array($overtime) ? $overtime : [];
+
+        if ($hourlyRate === 0 || $dailyRate === 0) {
+            error_log("Warning: hourlyRate or dailyRate is zero for EmployeeID {$employeeData['EmployeeID']}");
+        }
 
         try {
-            $holidayDt = new DateTime($holidayDate);
-            if ($holidayDt < $start || $holidayDt > $end) continue;
+            $start = new DateTime($startDate);
+            $end = new DateTime($endDate);
         } catch (Exception $e) {
-            error_log("Invalid holiday date format for holiday: " . json_encode($holiday));
-            continue;
+            error_log("Invalid date format for start_date or end_date: " . $e->getMessage());
+            $start = new DateTime();
+            $end = new DateTime();
         }
 
-        // Check if employee has leave on this holiday
-        $hasLeave = array_filter($leaves, function($leave) use ($holidayDate) {
-            return isset($leave['StartDate']) && isset($leave['EndDate']) &&
-                   $leave['StartDate'] <= $holidayDate && $leave['EndDate'] >= $holidayDate;
-        });
+        foreach ($holidays as $holiday) {
+            $holidayDate = isset($holiday['Date']) ? $holiday['Date'] : null;
+            $holidayType = isset($holiday['HolidayType']) ? $holiday['HolidayType'] : null;
+            if (!$holidayDate || !$holidayType) continue;
 
-        // Check if employee worked on this holiday
-        $att = array_filter($attendance, function($a) use ($holidayDate) {
-            return isset($a['Date']) && $a['Date'] === $holidayDate;
-        });
-        $att = reset($att);
-
-        if ($holidayType === 'Special Non-Working Holiday') {
-            if ($att && isset($att['HoursWorked']) && (float)$att['HoursWorked'] > 0) {
-                $hoursWorked = min((float)$att['HoursWorked'], 8);
-                $specialHolidayHours += $hoursWorked;
-                $specialHolidayAmount += $hourlyRate * 1.30 * $hoursWorked;
-                $holidayPay += $hourlyRate * 1.30 * $hoursWorked;
+            try {
+                $holidayDt = new DateTime($holidayDate);
+                if ($holidayDt < $start || $holidayDt > $end) continue;
+            } catch (Exception $e) {
+                error_log("Invalid holiday date format for holiday: " . json_encode($holiday));
+                continue;
             }
-            // Special Holiday Overtime
-            $otOnDate = array_filter($overtime, function($ot) use ($holidayDate) {
-                return isset($ot['Date']) && $ot['Date'] === $holidayDate;
+
+            // Check if employee has leave on this holiday
+            $hasLeave = array_filter($leaves, function ($leave) use ($holidayDate) {
+                return isset($leave['StartDate']) && isset($leave['EndDate']) &&
+                    $leave['StartDate'] <= $holidayDate && $leave['EndDate'] >= $holidayDate;
             });
-            foreach ($otOnDate as $ot) {
-                $hours = isset($ot['Hours']) ? (float)$ot['Hours'] : 0;
-                $specialOtHours += $hours;
-                $specialOtAmount += $hourlyRate * 1.30 * $hours;
-                $holidayPay += $hourlyRate * 1.30 * $hours;
-            }
-        } elseif ($holidayType === 'Legal Holiday') {
-            if ($att && isset($att['HoursWorked']) && (float)$att['HoursWorked'] > 0) {
-                $hoursWorked = min((float)$att['HoursWorked'], 8);
-                $regularHolidayHours += $hoursWorked;
-                $regularHolidayAmount += $hourlyRate * 2.00 * $hoursWorked;
-                $holidayPay += $hourlyRate * 2.00 * $hoursWorked;
-            } elseif (!$hasLeave && !$att) {
-                // Non-worked legal holiday (100% of daily rate)
-                $noWorkedLegalHolidayAmount += $dailyRate;
-                $holidayPay += $dailyRate;
-            }
-            // Legal Holiday Overtime
-            $otOnDate = array_filter($overtime, function($ot) use ($holidayDate) {
-                return isset($ot['Date']) && $ot['Date'] === $holidayDate;
+
+            // Check if employee worked on this holiday
+            $att = array_filter($attendance, function ($a) use ($holidayDate) {
+                return isset($a['Date']) && $a['Date'] === $holidayDate;
             });
-            foreach ($otOnDate as $ot) {
-                $hours = isset($ot['Hours']) ? (float)$ot['Hours'] : 0;
-                $regularOtHours += $hours;
-                $regularOtAmount += $hourlyRate * 2.00 * $hours;
-                $holidayPay += $hourlyRate * 2.00 * $hours;
+            $att = reset($att);
+
+            if ($holidayType === 'Special Non-Working Holiday') {
+                if ($att && isset($att['HoursWorked']) && (float)$att['HoursWorked'] > 0) {
+                    $hoursWorked = min((float)$att['HoursWorked'], 8);
+                    $specialHolidayHours += $hoursWorked;
+                    $specialHolidayAmount += $hourlyRate * 1.30 * $hoursWorked;
+                    $holidayPay += $hourlyRate * 1.30 * $hoursWorked;
+                }
+                // Special Holiday Overtime
+                $otOnDate = array_filter($overtime, function ($ot) use ($holidayDate) {
+                    return isset($ot['Date']) && $ot['Date'] === $holidayDate;
+                });
+                foreach ($otOnDate as $ot) {
+                    $hours = isset($ot['Hours']) ? (float)$ot['Hours'] : 0;
+                    $specialOtHours += $hours;
+                    $specialOtAmount += $hourlyRate * 1.30 * $hours;
+                    $holidayPay += $hourlyRate * 1.30 * $hours;
+                }
+            } elseif ($holidayType === 'Legal Holiday') {
+                if ($att && isset($att['HoursWorked']) && (float)$att['HoursWorked'] > 0) {
+                    $hoursWorked = min((float)$att['HoursWorked'], 8);
+                    $regularHolidayHours += $hoursWorked;
+                    $regularHolidayAmount += $hourlyRate * 2.00 * $hoursWorked;
+                    $holidayPay += $hourlyRate * 2.00 * $hoursWorked;
+                } elseif (!$hasLeave && !$att) {
+                    // Non-worked legal holiday (100% of daily rate)
+                    $noWorkedLegalHolidayAmount += $dailyRate;
+                    $holidayPay += $dailyRate;
+                }
+                // Legal Holiday Overtime
+                $otOnDate = array_filter($overtime, function ($ot) use ($holidayDate) {
+                    return isset($ot['Date']) && $ot['Date'] === $holidayDate;
+                });
+                foreach ($otOnDate as $ot) {
+                    $hours = isset($ot['Hours']) ? (float)$ot['Hours'] : 0;
+                    $regularOtHours += $hours;
+                    $regularOtAmount += $hourlyRate * 2.00 * $hours;
+                    $holidayPay += $hourlyRate * 2.00 * $hours;
+                }
             }
         }
-    }
 
-    $payroll['HolidayPay'] = [
-        'Special' => formatNumber($specialHolidayAmount + $specialOtAmount),
-        'Regular' => formatNumber($regularHolidayAmount + $regularOtAmount),
-        'Total' => formatNumber($holidayPay, true)
-    ];
-    $payroll['HolidayHours'] = [
-        'Special' => formatNumber($specialHolidayHours),
-        'Regular' => formatNumber($regularHolidayHours)
-    ];
+        $payroll['HolidayPay'] = [
+            'Special' => formatNumber($specialHolidayAmount + $specialOtAmount),
+            'Regular' => formatNumber($regularHolidayAmount + $regularOtAmount),
+            'Total' => formatNumber($holidayPay, true)
+        ];
+        $payroll['HolidayHours'] = [
+            'Special' => formatNumber($specialHolidayHours),
+            'Regular' => formatNumber($regularHolidayHours)
+        ];
 
-    // Calculate Sunday Pay
-    $sundayHours = 0;
-    $sundayAmount = 0;
-    $sundayOtHours = 0;
-    $sundayOtAmount = 0;
-    foreach ($attendance as $att) {
-        $attDate = new DateTime($att['Date']);
-        $isSunday = $attDate->format('N') == 7;
-        $isHoliday = array_filter($holidays, function($h) use ($att) {
-            return $h['Date'] === $att['Date'];
-        });
-        if ($isSunday && empty($isHoliday)) {
-            $hoursWorked = (float)($att['HoursWorked'] ?? 0);
-            if ($hoursWorked > 0) {
-                $regularSundayHours = min($hoursWorked, 8);
-                $sundayHours += $regularSundayHours;
-                $sundayAmount += $hourlyRate * 1.30 * $regularSundayHours;
+        // Calculate Sunday Pay
+        $sundayHours = 0;
+        $sundayAmount = 0;
+        $sundayOtHours = 0;
+        $sundayOtAmount = 0;
+        foreach ($attendance as $att) {
+            $attDate = new DateTime($att['Date']);
+            $isSunday = $attDate->format('N') == 7;
+            $isHoliday = array_filter($holidays, function ($h) use ($att) {
+                return $h['Date'] === $att['Date'];
+            });
+            if ($isSunday && empty($isHoliday)) {
+                $hoursWorked = (float)($att['HoursWorked'] ?? 0);
+                if ($hoursWorked > 0) {
+                    $regularSundayHours = min($hoursWorked, 8);
+                    $sundayHours += $regularSundayHours;
+                    $sundayAmount += $hourlyRate * 1.30 * $regularSundayHours;
+                }
             }
         }
-    }
-    // Sunday Overtime
-    foreach ($overtime as $ot) {
-        $otDate = new DateTime($ot['Date']);
-        $isSunday = $otDate->format('N') == 7;
-        $isHoliday = array_filter($holidays, function($h) use ($ot) {
-            return $h['Date'] === $ot['Date'];
-        });
-        if ($isSunday && empty($isHoliday)) {
-            $sundayOtHours += (float)$ot['Hours'];
-            $sundayOtAmount += $hourlyRate * 1.30 * (float)$ot['Hours'];
+        // Sunday Overtime
+        foreach ($overtime as $ot) {
+            $otDate = new DateTime($ot['Date']);
+            $isSunday = $otDate->format('N') == 7;
+            $isHoliday = array_filter($holidays, function ($h) use ($ot) {
+                return $h['Date'] === $ot['Date'];
+            });
+            if ($isSunday && empty($isHoliday)) {
+                $sundayOtHours += (float)$ot['Hours'];
+                $sundayOtAmount += $hourlyRate * 1.30 * (float)$ot['Hours'];
+            }
         }
+        $sundayPayTotal = $sundayAmount + $sundayOtAmount;
+        $payroll['SundayPay'] = [
+            'Hours' => formatNumber($sundayHours),
+            'Total' => formatNumber($sundayPayTotal, true)
+        ];
+        $payroll['SundayHours'] = formatNumber($sundayHours);
+
+        // Calculate Deductions
+        $payroll['LateMinutes'] = array_sum(array_map(function ($a) use ($start, $end) {
+            $attDate = new DateTime($a['Date']);
+            if ($attDate < $start || $attDate > $end) return 0;
+            return (int)($a['LateMinutes'] ?? 0);
+        }, $attendance));
+        $payroll['UndertimeMinutes'] = array_sum(array_map(function ($a) use ($start, $end) {
+            $attDate = new DateTime($a['Date']);
+            if ($attDate < $start || $attDate > $end) return 0;
+            return (int)($a['UndertimeMinutes'] ?? 0);
+        }, $attendance));
+        $totalLateMinutes = $payroll['LateMinutes'] + $payroll['UndertimeMinutes'];
+        $payroll['LateDeduction'] = formatNumber(($minTranspo / 60) * $totalLateMinutes, true);
+
+        // Contributions
+        $contributionsSum = is_array($employeeData['ContributionsData']) ? array_sum(array_map(function ($c) {
+            return is_numeric($c['Amount']) ? (float)$c['Amount'] : 0;
+        }, $employeeData['ContributionsData'])) : 0;
+
+        // Earnings Data for Table
+        $payroll['EarningsData'] = array_merge(
+            [
+                ['Description' => "Daily Rate: $daysPresent Days Present", 'Amount' => formatNumber($dailyRateAmount, true)],
+                ['Description' => 'Transportation Allowance', 'Amount' => formatNumber($transportAllowanceAmount, true)],
+                ['Description' => 'Basic Pay', 'Amount' => formatNumber($basicPay, true)],
+                ['Description' => "Leave with Pay: $leaveDays Days", 'Amount' => formatNumber($leavePay, true)],
+                ['Description' => "Overtime Hours (125%): {$payroll['OvertimeHours']['Regular']} hrs", 'Amount' => $payroll['OvertimePay']['Regular']],
+                ['Description' => "Overtime Hours (137.5%): {$payroll['OvertimeHours']['Night']} hrs", 'Amount' => $payroll['OvertimePay']['Night']],
+                ['Description' => 'Overtime Pay', 'Amount' => $payroll['OvertimePay']['Total']],
+            ],
+            $allowancesData
+        );
+
+        // Premium Pay Data
+        $payroll['PremiumPayData'] = [
+            ['Description' => "Sunday Hours (130%): {$payroll['SundayHours']} hrs", 'Amount' => formatNumber($sundayAmount, true)],
+            ['Description' => "Sunday Overtime (130%): " . formatNumber($sundayOtHours) . " hrs", 'Amount' => formatNumber($sundayOtAmount, true)],
+            ['Description' => "Sunday Pay", 'Amount' => $payroll['SundayPay']['Total']],
+            ['Description' => "Holiday Hours (Special 130%): {$payroll['HolidayHours']['Special']} hrs", 'Amount' => formatNumber($specialHolidayAmount, true)],
+            ['Description' => "Holiday Overtime (Special 130%): " . formatNumber($specialOtHours) . " hrs", 'Amount' => formatNumber($specialOtAmount, true)],
+            ['Description' => "Holiday Hours (Legal 200%): {$payroll['HolidayHours']['Regular']} hrs", 'Amount' => formatNumber($regularHolidayAmount, true)],
+            ['Description' => "Holiday Overtime (Legal 200%): " . formatNumber($regularOtHours) . " hrs", 'Amount' => formatNumber($regularOtAmount, true)],
+            ['Description' => "No-Worked Legal Holiday (100%)", 'Amount' => formatNumber($noWorkedLegalHolidayAmount, true)],
+            ['Description' => "Holiday Pay", 'Amount' => $payroll['HolidayPay']['Total']]
+        ];
+
+        // Calculate Total Earnings (Gross Pay)
+        $payroll['TotalEarnings'] = formatNumber(
+            (float)$payroll['BasicPay'] +
+                (float)$payroll['OvertimePay']['Total'] +
+                (float)$payroll['HolidayPay']['Total'] +
+                (float)$payroll['SundayPay']['Total'] +
+                (float)$payroll['LeavePay'],
+            true
+        );
+
+        // Calculate Total Deductions
+        $payroll['TotalDeductions'] = formatNumber(
+            (float)$payroll['LateDeduction'] +
+                $contributionsSum +
+                (float)$payroll['AbsentDeduction'],
+            true
+        );
+
+        // Calculate Net Pay
+        $payroll['TotalDeductions'] = formatNumber(
+            (float)$payroll['LateDeduction'] +
+                $contributionsSum +
+                (float)$payroll['AbsentDeduction'],
+            true
+        );
+
+        // Additional Payroll Data
+        $payroll['LateMinutes'] = (int)$payroll['LateMinutes'];
+        $payroll['UndertimeMinutes'] = (int)$payroll['UndertimeMinutes'];
+        $payroll['AbsentDays'] = $absentDays;
+
+        error_log("EmployeeID $employeeId: Final Payroll=" . json_encode($payroll));
+        return $payroll;
     }
-    $sundayPayTotal = $sundayAmount + $sundayOtAmount;
-    $payroll['SundayPay'] = [
-        'Hours' => formatNumber($sundayHours),
-        'Total' => formatNumber($sundayPayTotal, true)
-    ];
-    $payroll['SundayHours'] = formatNumber($sundayHours);
-
-    // Calculate Deductions
-    $payroll['LateMinutes'] = array_sum(array_map(function($a) use ($start, $end) {
-        $attDate = new DateTime($a['Date']);
-        if ($attDate < $start || $attDate > $end) return 0;
-        return (int)($a['LateMinutes'] ?? 0);
-    }, $attendance));
-    $payroll['UndertimeMinutes'] = array_sum(array_map(function($a) use ($start, $end) {
-        $attDate = new DateTime($a['Date']);
-        if ($attDate < $start || $attDate > $end) return 0;
-        return (int)($a['UndertimeMinutes'] ?? 0);
-    }, $attendance));
-    $totalLateMinutes = $payroll['LateMinutes'] + $payroll['UndertimeMinutes'];
-    $payroll['LateDeduction'] = formatNumber(($minTranspo / 60) * $totalLateMinutes, true);
-
-    // Contributions
-    $contributionsSum = is_array($employeeData['ContributionsData']) ? array_sum(array_map(function($c) {
-        return is_numeric($c['Amount']) ? (float)$c['Amount'] : 0;
-    }, $employeeData['ContributionsData'])) : 0;
-
-    // Earnings Data for Table
-    $payroll['EarningsData'] = array_merge(
-        [
-            ['Description' => "Daily Rate: $daysPresent Days Present", 'Amount' => formatNumber($dailyRateAmount, true)],
-            ['Description' => 'Transportation Allowance', 'Amount' => formatNumber($transportAllowanceAmount, true)],
-            ['Description' => 'Basic Pay', 'Amount' => formatNumber($basicPay, true)],
-            ['Description' => "Leave with Pay: $leaveDays Days", 'Amount' => formatNumber($leavePay, true)],
-            ['Description' => "Overtime Hours (125%): {$payroll['OvertimeHours']['Regular']} hrs", 'Amount' => $payroll['OvertimePay']['Regular']],
-            ['Description' => "Overtime Hours (137.5%): {$payroll['OvertimeHours']['Night']} hrs", 'Amount' => $payroll['OvertimePay']['Night']],
-            ['Description' => 'Overtime Pay', 'Amount' => $payroll['OvertimePay']['Total']],
-        ],
-        $allowancesData
-    );
-
-    // Premium Pay Data
-    $payroll['PremiumPayData'] = [
-        ['Description' => "Sunday Hours (130%): {$payroll['SundayHours']} hrs", 'Amount' => formatNumber($sundayAmount, true)],
-        ['Description' => "Sunday Overtime (130%): " . formatNumber($sundayOtHours) . " hrs", 'Amount' => formatNumber($sundayOtAmount, true)],
-        ['Description' => "Sunday Pay", 'Amount' => $payroll['SundayPay']['Total']],
-        ['Description' => "Holiday Hours (Special 130%): {$payroll['HolidayHours']['Special']} hrs", 'Amount' => formatNumber($specialHolidayAmount, true)],
-        ['Description' => "Holiday Overtime (Special 130%): " . formatNumber($specialOtHours) . " hrs", 'Amount' => formatNumber($specialOtAmount, true)],
-        ['Description' => "Holiday Hours (Legal 200%): {$payroll['HolidayHours']['Regular']} hrs", 'Amount' => formatNumber($regularHolidayAmount, true)],
-        ['Description' => "Holiday Overtime (Legal 200%): " . formatNumber($regularOtHours) . " hrs", 'Amount' => formatNumber($regularOtAmount, true)],
-        ['Description' => "No-Worked Legal Holiday (100%)", 'Amount' => formatNumber($noWorkedLegalHolidayAmount, true)],
-        ['Description' => "Holiday Pay", 'Amount' => $payroll['HolidayPay']['Total']]
-    ];
-
-    // Calculate Total Earnings (Gross Pay)
-    $payroll['TotalEarnings'] = formatNumber(
-        (float)$payroll['BasicPay'] +
-        (float)$payroll['OvertimePay']['Total'] +
-        (float)$payroll['HolidayPay']['Total'] +
-        (float)$payroll['SundayPay']['Total'] +
-        (float)$payroll['LeavePay'],
-        true
-    );
-
-    // Calculate Total Deductions
-    $payroll['TotalDeductions'] = formatNumber(
-        (float)$payroll['LateDeduction'] +
-        $contributionsSum,
-        true
-    );
-
-    // Calculate Net Pay
-    $payroll['NetPay'] = formatNumber(
-        (float)$payroll['TotalEarnings'] - (float)$payroll['TotalDeductions'],
-        true
-    );
-
-    // Additional Payroll Data
-    $payroll['LateMinutes'] = (int)$payroll['LateMinutes'];
-    $payroll['UndertimeMinutes'] = (int)$payroll['UndertimeMinutes'];
-    $payroll['AbsentDays'] = $absentDays;
-
-    error_log("EmployeeID $employeeId: Final Payroll=" . json_encode($payroll));
-    return $payroll;
-}
 
     $method = $_SERVER['REQUEST_METHOD'];
 
@@ -1028,6 +1304,15 @@ function calculatePayroll($employeeData, $attendance, $overtime, $holidays, $pay
                 throw new Exception("Invalid user_id: User does not exist.");
             }
 
+            if ($start_date && $end_date) {
+                if (!validateDate($start_date) || !validateDate($end_date)) {
+                    throw new Exception("Invalid date format. Use YYYY-MM-DD.");
+                }
+                if (strtotime($end_date) < strtotime($start_date)) {
+                    throw new Exception("End date cannot be before start date.");
+                }
+            }
+
             $allowedBranches = [];
             if ($role === 'Payroll Staff') {
                 $branchStmt = $conn->prepare("SELECT BranchID FROM UserBranches WHERE UserID = ?");
@@ -1063,17 +1348,17 @@ function calculatePayroll($employeeData, $attendance, $overtime, $holidays, $pay
                 JOIN Employees e ON ual.affected_record_id = e.EmployeeID
                 WHERE ual.activity_type = 'GENERATE_DATA' 
                 AND ual.affected_table IN ('Single Payslip', 'Bulk Payslips')";
-            
+
             $countQuery = "
                 SELECT COUNT(DISTINCT ual.log_id) as total 
                 FROM user_activity_logs ual
                 JOIN Employees e ON ual.affected_record_id = e.EmployeeID
                 WHERE ual.activity_type = 'GENERATE_DATA' 
                 AND ual.affected_table IN ('Single Payslip', 'Bulk Payslips')";
-            
+
             $params = [];
             $types = "";
-            
+
             if ($role === 'Payroll Staff') {
                 $placeholders = implode(',', array_fill(0, count($allowedBranches), '?'));
                 $query .= " AND e.BranchID IN ($placeholders)";
@@ -1150,65 +1435,182 @@ function calculatePayroll($employeeData, $attendance, $overtime, $holidays, $pay
             ]);
             exit;
         }
-            $user_id = isset($_GET['user_id']) ? (int)$_GET['user_id'] : null;
-            $role = isset($_GET['role']) ? $_GET['role'] : null;
-            $page = isset($_GET['page']) ? (int)$_GET['page'] : 0;
-            $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 10;
-            $offset = $page * $limit;
-            $branch_id = isset($_GET['branch_id']) ? (int)$_GET['branch_id'] : null;
-            $start_date = isset($_GET['start_date']) ? $_GET['start_date'] : null;
-            $end_date = isset($_GET['end_date']) ? $_GET['end_date'] : null;
-            $payroll_cut = isset($_GET['payroll_cut']) ? $_GET['payroll_cut'] : null;
+        $user_id = isset($_GET['user_id']) ? (int)$_GET['user_id'] : null;
+        $role = isset($_GET['role']) ? $_GET['role'] : null;
+        $page = isset($_GET['page']) ? (int)$_GET['page'] : 0;
+        $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 10;
+        $offset = $page * $limit;
+        $branch_id = isset($_GET['branch_id']) ? (int)$_GET['branch_id'] : null;
+        $start_date = isset($_GET['start_date']) ? $_GET['start_date'] : null;
+        $end_date = isset($_GET['end_date']) ? $_GET['end_date'] : null;
+        $payroll_cut = isset($_GET['payroll_cut']) ? $_GET['payroll_cut'] : null;
 
-            if (!$user_id || !$role) {
-                throw new Exception("user_id and role are required for payroll fetch.");
+        if (!$user_id || !$role) {
+            throw new Exception("user_id and role are required for payroll fetch.");
+        }
+
+        if ($start_date && $end_date) {
+            if (!preg_match("/^\d{4}-\d{2}-\d{2}$/", $start_date) || !preg_match("/^\d{4}-\d{2}-\d{2}$/", $end_date)) {
+                throw new Exception("Invalid date format. Use YYYY-MM-DD.");
+            }
+            if (strtotime($end_date) < strtotime($start_date)) {
+                throw new Exception("End date cannot be before start date.");
+            }
+        }
+
+        if ($payroll_cut && !in_array($payroll_cut, ['first', 'second'])) {
+            throw new Exception("Invalid payroll_cut value. Must be 'first' or 'second'.");
+        }
+
+        $data = [];
+        $total = 0;
+
+        if ($role === 'Payroll Staff') {
+            $branchStmt = $conn->prepare("SELECT BranchID FROM UserBranches WHERE UserID = ?");
+            if (!$branchStmt) throw new Exception("Prepare failed for branch query: " . $conn->error);
+            $branchStmt->bind_param("i", $user_id);
+            $branchStmt->execute();
+            $branchResult = $branchStmt->get_result();
+            $allowedBranches = [];
+            while ($row = $branchResult->fetch_assoc()) {
+                $allowedBranches[] = $row['BranchID'];
+            }
+            $branchStmt->close();
+
+            if (empty($allowedBranches)) {
+                echo json_encode([
+                    "success" => true,
+                    "data" => [],
+                    "total" => 0,
+                    "page" => $page,
+                    "limit" => $limit
+                ]);
+                exit;
+            }
+
+            if ($branch_id && !in_array($branch_id, $allowedBranches)) {
+                throw new Exception("Selected branch is not assigned to this user.");
+            }
+
+            $placeholders = implode(',', array_fill(0, count($allowedBranches), '?'));
+            $sql = "
+                    SELECT 
+                        e.EmployeeID,
+                        e.EmployeeName,
+                        e.BranchID,
+                        b.BranchName,
+                        p.HourlyMinimumWage,
+                        SUM(
+                            COALESCE(
+                                CASE 
+                                    WHEN a.TimeIn IS NOT NULL AND TIME(a.TimeIn) > ADDTIME(s.ShiftStart, '00:10:00')
+                                    THEN TIMESTAMPDIFF(MINUTE, s.ShiftStart, TIME(a.TimeIn))
+                                    ELSE 0 
+                                END, 0
+                            )
+                        ) AS LateMinutes,
+                        SUM(
+                            COALESCE(
+                                CASE 
+                                    WHEN a.TimeOut IS NOT NULL AND TIME(a.TimeOut) < s.ShiftEnd
+                                    THEN TIMESTAMPDIFF(MINUTE, TIME(a.TimeOut), s.ShiftEnd)
+                                    ELSE 0 
+                                END, 0
+                            )
+                        ) AS UndertimeMinutes,
+                        COALESCE(
+                            SUM(
+                                CASE 
+                                    WHEN a.TimeIn IS NOT NULL AND a.TimeOut IS NOT NULL
+                                    THEN TIMESTAMPDIFF(MINUTE, a.TimeIn, a.TimeOut) / 60.0
+                                    - CASE 
+                                        WHEN TIME(a.TimeOut) > TIME('12:00:00') THEN 1 
+                                        ELSE 0 
+                                    END
+                                    ELSE 0 
+                                END
+                            ), 0
+                        ) AS HoursWorked
+                    FROM Employees e
+                    JOIN Attendance a ON e.EmployeeID = a.EmployeeID
+                    JOIN Branches b ON e.BranchID = b.BranchID
+                    LEFT JOIN Positions p ON e.PositionID = p.PositionID
+                    LEFT JOIN Schedules s ON e.ScheduleID = s.ScheduleID
+                    WHERE e.BranchID IN ($placeholders)";
+            $countSql = "
+                    SELECT COUNT(DISTINCT e.EmployeeID) as total 
+                    FROM Employees e
+                    JOIN Attendance a ON e.EmployeeID = a.EmployeeID
+                    WHERE e.BranchID IN ($placeholders)";
+
+            $params = $allowedBranches;
+            $types = str_repeat('i', count($allowedBranches));
+
+            if ($branch_id) {
+                $sql .= " AND e.BranchID = ?";
+                $countSql .= " AND e.BranchID = ?";
+                $params[] = $branch_id;
+                $types .= "i";
             }
 
             if ($start_date && $end_date) {
-                if (!preg_match("/^\d{4}-\d{2}-\d{2}$/", $start_date) || !preg_match("/^\d{4}-\d{2}-\d{2}$/", $end_date)) {
-                    throw new Exception("Invalid date format. Use YYYY-MM-DD.");
-                }
-                if (strtotime($end_date) < strtotime($start_date)) {
-                    throw new Exception("End date cannot be before start date.");
-                }
+                $sql .= " AND a.Date BETWEEN ? AND ?";
+                $countSql .= " AND a.Date BETWEEN ? AND ?";
+                $params[] = $start_date;
+                $params[] = $end_date;
+                $types .= "ss";
             }
 
-            if ($payroll_cut && !in_array($payroll_cut, ['first', 'second'])) {
-                throw new Exception("Invalid payroll_cut value. Must be 'first' or 'second'.");
+            $sql .= " GROUP BY e.EmployeeID, e.EmployeeName, e.BranchID, b.BranchName, p.HourlyMinimumWage";
+            $sql .= " LIMIT ? OFFSET ?";
+            $params[] = $limit;
+            $params[] = $offset;
+            $types .= "ii";
+
+            $stmt = $conn->prepare($sql);
+            if (!$stmt) throw new Exception("Prepare failed for main query: " . $conn->error);
+            $stmt->bind_param($types, ...$params);
+            $stmt->execute();
+            $result = $stmt->get_result();
+
+            while ($row = $result->fetch_assoc()) {
+                $employeeId = $row['EmployeeID'];
+                $leaves = getLeaves($conn, $employeeId, $start_date, $end_date, $cache);
+                $holidays = getHolidays($conn, $employeeId, $start_date, $end_date, $cache);
+                $data[] = [
+                    'EmployeeID' => $employeeId,
+                    'EmployeeName' => $row['EmployeeName'],
+                    'BranchID' => $row['BranchID'],
+                    'BranchName' => $row['BranchName'],
+                    'HourlyMinimumWage' => formatNumber($row['HourlyMinimumWage']),
+                    'LateMinutes' => (int)$row['LateMinutes'],
+                    'UndertimeMinutes' => (int)$row['UndertimeMinutes'],
+                    'HoursWorked' => formatNumber($row['HoursWorked']),
+                    'AllowancesData' => getAllowances($conn, $employeeId, $cache),
+                    'ContributionsData' => getContributions($conn, $employeeId, $cache, $payroll_cut),
+                    'CashAdvancesData' => getCashAdvances($conn, $employeeId, $cache, $start_date, $end_date),
+                    'OvertimeData' => getOvertime($conn, $employeeId, $start_date, $end_date, $cache),
+                    'HolidayData' => $holidays,
+                    'LeaveData' => $leaves,
+                    'AbsentDays' => getAbsentDays($conn, $employeeId, $start_date, $end_date, $leaves, $holidays),
+                    'AttendanceData' => getAttendance($conn, $employeeId, $start_date, $end_date, $cache)
+                ];
             }
+            $stmt->close();
 
-            $data = [];
-            $total = 0;
+            $countStmt = $conn->prepare($countSql);
+            if (!$countStmt) throw new Exception("Prepare failed for count query: " . $conn->error);
+            $countParams = array_slice($params, 0, count($params) - 2);
+            $countTypes = substr($types, 0, strlen($types) - 2);
+            $countStmt->bind_param($countTypes, ...$countParams);
+            $countStmt->execute();
+            $countResult = $countStmt->get_result();
+            $total = $countResult->fetch_assoc()['total'];
+            $countStmt->close();
 
-            if ($role === 'Payroll Staff') {
-                $branchStmt = $conn->prepare("SELECT BranchID FROM UserBranches WHERE UserID = ?");
-                if (!$branchStmt) throw new Exception("Prepare failed for branch query: " . $conn->error);
-                $branchStmt->bind_param("i", $user_id);
-                $branchStmt->execute();
-                $branchResult = $branchStmt->get_result();
-                $allowedBranches = [];
-                while ($row = $branchResult->fetch_assoc()) {
-                    $allowedBranches[] = $row['BranchID'];
-                }
-                $branchStmt->close();
-
-                if (empty($allowedBranches)) {
-                    echo json_encode([
-                        "success" => true,
-                        "data" => [],
-                        "total" => 0,
-                        "page" => $page,
-                        "limit" => $limit
-                    ]);
-                    exit;
-                }
-
-                if ($branch_id && !in_array($branch_id, $allowedBranches)) {
-                    throw new Exception("Selected branch is not assigned to this user.");
-                }
-
-                $placeholders = implode(',', array_fill(0, count($allowedBranches), '?'));
-                $sql = "
+            error_log("Payroll Staff Data for user_id=$user_id, branch_id=" . ($branch_id ?? 'all') . ": " . json_encode($data));
+        } elseif ($role === 'Payroll Admin') {
+            $sql = "
                     SELECT 
                         e.EmployeeID,
                         e.EmployeeName,
@@ -1251,211 +1653,94 @@ function calculatePayroll($employeeData, $attendance, $overtime, $holidays, $pay
                     JOIN Branches b ON e.BranchID = b.BranchID
                     LEFT JOIN Positions p ON e.PositionID = p.PositionID
                     LEFT JOIN Schedules s ON e.ScheduleID = s.ScheduleID
-                    WHERE e.BranchID IN ($placeholders)";
-                $countSql = "
+                    WHERE 1=1";
+            $countSql = "
                     SELECT COUNT(DISTINCT e.EmployeeID) as total 
                     FROM Employees e
                     JOIN Attendance a ON e.EmployeeID = a.EmployeeID
-                    WHERE e.BranchID IN ($placeholders)";
+                    WHERE 1=1";
 
-                $params = $allowedBranches;
-                $types = str_repeat('i', count($allowedBranches));
+            $params = [];
+            $types = "";
 
-                if ($branch_id) {
-                    $sql .= " AND e.BranchID = ?";
-                    $countSql .= " AND e.BranchID = ?";
-                    $params[] = $branch_id;
-                    $types .= "i";
-                }
+            if ($branch_id) {
+                $sql .= " AND e.BranchID = ?";
+                $countSql .= " AND e.BranchID = ?";
+                $params[] = $branch_id;
+                $types .= "i";
+            }
 
-                if ($start_date && $end_date) {
-                    $sql .= " AND a.Date BETWEEN ? AND ?";
-                    $countSql .= " AND a.Date BETWEEN ? AND ?";
-                    $params[] = $start_date;
-                    $params[] = $end_date;
-                    $types .= "ss";
-                }
+            if ($start_date && $end_date) {
+                $sql .= " AND a.Date BETWEEN ? AND ?";
+                $countSql .= " AND a.Date BETWEEN ? AND ?";
+                $params[] = $start_date;
+                $params[] = $end_date;
+                $types .= "ss";
+            }
 
-                $sql .= " GROUP BY e.EmployeeID, e.EmployeeName, e.BranchID, b.BranchName, p.HourlyMinimumWage";
-                $sql .= " LIMIT ? OFFSET ?";
-                $params[] = $limit;
-                $params[] = $offset;
-                $types .= "ii";
+            $sql .= " GROUP BY e.EmployeeID, e.EmployeeName, e.BranchID, b.BranchName, p.HourlyMinimumWage";
+            $sql .= " LIMIT ? OFFSET ?";
+            $params[] = $limit;
+            $params[] = $offset;
+            $types .= "ii";
 
-                $stmt = $conn->prepare($sql);
-                if (!$stmt) throw new Exception("Prepare failed for main query: " . $conn->error);
+            $stmt = $conn->prepare($sql);
+            if (!$stmt) throw new Exception("Prepare failed for main query: " . $conn->error);
+            if (!empty($params)) {
                 $stmt->bind_param($types, ...$params);
-                $stmt->execute();
-                $result = $stmt->get_result();
-
-                while ($row = $result->fetch_assoc()) {
-                    $employeeId = $row['EmployeeID'];
-                    $leaves = getLeaves($conn, $employeeId, $start_date, $end_date, $cache);
-                    $holidays = getHolidays($conn, $employeeId, $start_date, $end_date, $cache);
-                    $data[] = [
-                        'EmployeeID' => $employeeId,
-                        'EmployeeName' => $row['EmployeeName'],
-                        'BranchID' => $row['BranchID'],
-                        'BranchName' => $row['BranchName'],
-                        'HourlyMinimumWage' => formatNumber($row['HourlyMinimumWage']),
-                        'LateMinutes' => (int)$row['LateMinutes'],
-                        'UndertimeMinutes' => (int)$row['UndertimeMinutes'],
-                        'HoursWorked' => formatNumber($row['HoursWorked']),
-                        'AllowancesData' => getAllowances($conn, $employeeId, $cache),
-                        'ContributionsData' => getContributions($conn, $employeeId, $cache, $payroll_cut),
-                        'CashAdvancesData' => getCashAdvances($conn, $employeeId, $cache, $start_date, $end_date),
-                        'OvertimeData' => getOvertime($conn, $employeeId, $start_date, $end_date, $cache),
-                        'HolidayData' => $holidays,
-                        'LeaveData' => $leaves,
-                        'AbsentDays' => getAbsentDays($conn, $employeeId, $start_date, $end_date, $leaves, $holidays),
-                        'AttendanceData' => getAttendance($conn, $employeeId, $start_date, $end_date, $cache)
-                    ];
-                }
-                $stmt->close();
-
-                $countStmt = $conn->prepare($countSql);
-                if (!$countStmt) throw new Exception("Prepare failed for count query: " . $conn->error);
-                $countParams = array_slice($params, 0, count($params) - 2);
-                $countTypes = substr($types, 0, strlen($types) - 2);
-                $countStmt->bind_param($countTypes, ...$countParams);
-                $countStmt->execute();
-                $countResult = $countStmt->get_result();
-                $total = $countResult->fetch_assoc()['total'];
-                $countStmt->close();
-
-                error_log("Payroll Staff Data for user_id=$user_id, branch_id=" . ($branch_id ?? 'all') . ": " . json_encode($data));
-            } elseif ($role === 'Payroll Admin') {
-                $sql = "
-                    SELECT 
-                        e.EmployeeID,
-                        e.EmployeeName,
-                        e.BranchID,
-                        b.BranchName,
-                        p.HourlyMinimumWage,
-                        SUM(
-                            COALESCE(
-                                CASE 
-                                    WHEN a.TimeIn IS NOT NULL AND TIME(a.TimeIn) > ADDTIME(s.ShiftStart, '00:10:00')
-                                    THEN TIMESTAMPDIFF(MINUTE, s.ShiftStart, TIME(a.TimeIn))
-                                    ELSE 0 
-                                END, 0
-                            )
-                        ) AS LateMinutes,
-                        SUM(
-                            COALESCE(
-                                CASE 
-                                    WHEN a.TimeOut IS NOT NULL AND TIME(a.TimeOut) < s.ShiftEnd
-                                    THEN TIMESTAMPDIFF(MINUTE, TIME(a.TimeOut), s.ShiftEnd)
-                                    ELSE 0 
-                                END, 0
-                            )
-                        ) AS UndertimeMinutes,
-                        COALESCE(
-                            SUM(
-                                CASE 
-                                    WHEN a.TimeIn IS NOT NULL AND a.TimeOut IS NOT NULL
-                                    THEN TIMESTAMPDIFF(MINUTE, a.TimeIn, a.TimeOut) / 60.0
-                                    - CASE 
-                                        WHEN TIME(a.TimeOut) > TIME('12:00:00') THEN 1 
-                                        ELSE 0 
-                                    END
-                                    ELSE 0 
-                                END
-                            ), 0
-                        ) AS HoursWorked
-                    FROM Employees e
-                    JOIN Attendance a ON e.EmployeeID = a.EmployeeID
-                    JOIN Branches b ON e.BranchID = b.BranchID
-                    LEFT JOIN Positions p ON e.PositionID = p.PositionID
-                    LEFT JOIN Schedules s ON e.ScheduleID = s.ScheduleID
-                    WHERE 1=1";
-                $countSql = "
-                    SELECT COUNT(DISTINCT e.EmployeeID) as total 
-                    FROM Employees e
-                    JOIN Attendance a ON e.EmployeeID = a.EmployeeID
-                    WHERE 1=1";
-
-                $params = [];
-                $types = "";
-
-                if ($branch_id) {
-                    $sql .= " AND e.BranchID = ?";
-                    $countSql .= " AND e.BranchID = ?";
-                    $params[] = $branch_id;
-                    $types .= "i";
-                }
-
-                if ($start_date && $end_date) {
-                    $sql .= " AND a.Date BETWEEN ? AND ?";
-                    $countSql .= " AND a.Date BETWEEN ? AND ?";
-                    $params[] = $start_date;
-                    $params[] = $end_date;
-                    $types .= "ss";
-                }
-
-                $sql .= " GROUP BY e.EmployeeID, e.EmployeeName, e.BranchID, b.BranchName, p.HourlyMinimumWage";
-                $sql .= " LIMIT ? OFFSET ?";
-                $params[] = $limit;
-                $params[] = $offset;
-                $types .= "ii";
-
-                $stmt = $conn->prepare($sql);
-                if (!$stmt) throw new Exception("Prepare failed for main query: " . $conn->error);
-                if (!empty($params)) {
-                    $stmt->bind_param($types, ...$params);
-                }
-                $stmt->execute();
-                $result = $stmt->get_result();
-
-                while ($row = $result->fetch_assoc()) {
-                    $employeeId = $row['EmployeeID'];
-                    $leaves = getLeaves($conn, $employeeId, $start_date, $end_date, $cache);
-                    $holidays = getHolidays($conn, $employeeId, $start_date, $end_date, $cache);
-                    $data[] = [
-                        'EmployeeID' => $employeeId,
-                        'EmployeeName' => $row['EmployeeName'],
-                        'BranchID' => $row['BranchID'],
-                        'BranchName' => $row['BranchName'],
-                        'HourlyMinimumWage' => formatNumber($row['HourlyMinimumWage']),
-                        'LateMinutes' => (int)$row['LateMinutes'],
-                        'UndertimeMinutes' => (int)$row['UndertimeMinutes'],
-                        'HoursWorked' => formatNumber($row['HoursWorked']),
-                        'AllowancesData' => getAllowances($conn, $employeeId, $cache),
-                        'ContributionsData' => getContributions($conn, $employeeId, $cache, $payroll_cut),
-                        'CashAdvancesData' => getCashAdvances($conn, $employeeId, $cache, $start_date, $end_date),
-                        'OvertimeData' => getOvertime($conn, $employeeId, $start_date, $end_date, $cache),
-                        'HolidayData' => $holidays,
-                        'LeaveData' => $leaves,
-                        'AbsentDays' => getAbsentDays($conn, $employeeId, $start_date, $end_date, $leaves, $holidays),
-                        'AttendanceData' => getAttendance($conn, $employeeId, $start_date, $end_date, $cache)
-                    ];
-                }
-                $stmt->close();
-
-                $countStmt = $conn->prepare($countSql);
-                if (!$countStmt) throw new Exception("Prepare failed for count query: " . $conn->error);
-                $countParams = array_slice($params, 0, count($params) - 2);
-                $countTypes = substr($types, 0, strlen($types) - 2);
-                if (!empty($countParams)) {
-                    $countStmt->bind_param($countTypes, ...$countParams);
-                }
-                $countStmt->execute();
-                $countResult = $countStmt->get_result();
-                $total = $countResult->fetch_assoc()['total'];
-                $countStmt->close();
-
-                error_log("Payroll Admin Data for user_id=$user_id, branch_id=" . ($branch_id ?? 'all') . ": " . json_encode($data));
-            } else {
-                throw new Exception("Invalid role specified. Must be 'Payroll Staff' or 'Payroll Admin'.");
             }
+            $stmt->execute();
+            $result = $stmt->get_result();
 
-            echo json_encode([
-                "success" => true,
-                "data" => $data,
-                "total" => $total,
-                "page" => $page,
-                "limit" => $limit
-            ]);
+            while ($row = $result->fetch_assoc()) {
+                $employeeId = $row['EmployeeID'];
+                $leaves = getLeaves($conn, $employeeId, $start_date, $end_date, $cache);
+                $holidays = getHolidays($conn, $employeeId, $start_date, $end_date, $cache);
+                $data[] = [
+                    'EmployeeID' => $employeeId,
+                    'EmployeeName' => $row['EmployeeName'],
+                    'BranchID' => $row['BranchID'],
+                    'BranchName' => $row['BranchName'],
+                    'HourlyMinimumWage' => formatNumber($row['HourlyMinimumWage']),
+                    'LateMinutes' => (int)$row['LateMinutes'],
+                    'UndertimeMinutes' => (int)$row['UndertimeMinutes'],
+                    'HoursWorked' => formatNumber($row['HoursWorked']),
+                    'AllowancesData' => getAllowances($conn, $employeeId, $cache),
+                    'ContributionsData' => getContributions($conn, $employeeId, $cache, $payroll_cut),
+                    'CashAdvancesData' => getCashAdvances($conn, $employeeId, $cache, $start_date, $end_date),
+                    'OvertimeData' => getOvertime($conn, $employeeId, $start_date, $end_date, $cache),
+                    'HolidayData' => $holidays,
+                    'LeaveData' => $leaves,
+                    'AbsentDays' => getAbsentDays($conn, $employeeId, $start_date, $end_date, $leaves, $holidays),
+                    'AttendanceData' => getAttendance($conn, $employeeId, $start_date, $end_date, $cache)
+                ];
+            }
+            $stmt->close();
+
+            $countStmt = $conn->prepare($countSql);
+            if (!$countStmt) throw new Exception("Prepare failed for count query: " . $conn->error);
+            $countParams = array_slice($params, 0, count($params) - 2);
+            $countTypes = substr($types, 0, strlen($types) - 2);
+            if (!empty($countParams)) {
+                $countStmt->bind_param($countTypes, ...$countParams);
+            }
+            $countStmt->execute();
+            $countResult = $countStmt->get_result();
+            $total = $countResult->fetch_assoc()['total'];
+            $countStmt->close();
+
+            error_log("Payroll Admin Data for user_id=$user_id, branch_id=" . ($branch_id ?? 'all') . ": " . json_encode($data));
+        } else {
+            throw new Exception("Invalid role specified. Must be 'Payroll Staff' or 'Payroll Admin'.");
+        }
+
+        echo json_encode([
+            "success" => true,
+            "data" => $data,
+            "total" => $total,
+            "page" => $page,
+            "limit" => $limit
+        ]);
     } elseif ($method == "POST") {
         $input = json_decode(file_get_contents('php://input'), true);
         $action = isset($input['action']) ? $input['action'] : null;
@@ -1471,6 +1756,15 @@ function calculatePayroll($employeeData, $attendance, $overtime, $holidays, $pay
 
         if (!recordExists($conn, 'UserAccounts', $user_id)) {
             throw new Exception("Invalid user_id: User does not exist.");
+        }
+
+        if ($start_date && $end_date) {
+            if (!validateDate($start_date) || !validateDate($end_date)) {
+                throw new Exception("Invalid date format. Use YYYY-MM-DD.");
+            }
+            if (strtotime($end_date) < strtotime($start_date)) {
+                throw new Exception("End date cannot be before start date.");
+            }
         }
 
         if ($action === 'generate_payslip') {
@@ -1531,20 +1825,77 @@ function calculatePayroll($employeeData, $attendance, $overtime, $holidays, $pay
                 'AttendanceData' => $attendance
             ];
 
-            $payroll = calculatePayroll($employeeData, $attendance, $overtime, $holidays, $payroll_cut, $start_date, $end_date);
+            $payroll = calculatePayroll($conn, $employeeData, $attendance, $overtime, $holidays, $payroll_cut, $start_date, $end_date);
             $employeeData = array_merge($employeeData, $payroll);
+
+            // --- Insert Contributions Snapshot ---
+            $branchId = $row['BranchID'];
+            $hourlyMinWage = $row['HourlyMinimumWage'];
+            $periodBasicPay = $payroll['BasicPay']; // use payroll-calculated BasicPay
+
+            $sss = getSSSContribution($conn, $employeeId, $periodBasicPay);
+            $pagibig = getPagIbigContribution($conn, $employeeId, $periodBasicPay);
+            $philhealth = getPhilHealthContribution($conn, $employeeId, $periodBasicPay);
+
+            $stmt = $conn->prepare("INSERT INTO contributions (EmployeeID, BranchID, HourlyMinWage, ContributionType, Amount, UserId, PayrollCut, PeriodStart, PeriodEnd)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    ON DUPLICATE KEY UPDATE 
+                                    BranchID = VALUES(BranchID),
+                                    HourlyMinWage = VALUES(HourlyMinWage),
+                                    Amount = VALUES(Amount),
+                                    UserId = VALUES(UserId),
+                                    PayrollCut = VALUES(PayrollCut),
+                                    PeriodStart = VALUES(PeriodStart),
+                                    PeriodEnd = VALUES(PeriodEnd)
+                                 ");
+
+            foreach (
+                [
+                    ['SSS', $sss],
+                    ['PhilHealth', $philhealth],
+                    ['Pag-IBIG', $pagibig]
+                ] as [$type, $amount]
+            ) {
+                $stmt->bind_param(
+                    "iisdsssss",
+                    $employeeId,
+                    $branchId,
+                    $hourlyMinWage,
+                    $type,
+                    $amount,
+                    $user_id,
+                    $payroll_cut,
+                    $start_date,
+                    $end_date
+                );
+                $stmt->execute();
+            }
+            $stmt->close();
 
             // Safe access to AllowancesData and ContributionsData
             $transportAllowance = !empty($employeeData['AllowancesData']) && isset($employeeData['AllowancesData'][0]['Amount']) ? $employeeData['AllowancesData'][0]['Amount'] : '0';
             $contributions = [
-                'PagIbig' => !empty($employeeData['ContributionsData']) && isset($employeeData['ContributionsData'][0]['Amount']) ? $employeeData['ContributionsData'][0]['Amount'] : '0',
-                'SSS' => !empty($employeeData['ContributionsData']) && isset($employeeData['ContributionsData'][1]['Amount']) ? $employeeData['ContributionsData'][1]['Amount'] : '0',
-                'PhilHealth' => !empty($employeeData['ContributionsData']) && isset($employeeData['ContributionsData'][2]['Amount']) ? $employeeData['ContributionsData'][2]['Amount'] : '0',
-                'PagIbigCalamity' => !empty($employeeData['ContributionsData']) && isset($employeeData['ContributionsData'][0]['Amount']) ? $employeeData['ContributionsData'][0]['Amount'] : '0',
-                'SSSSalary' => !empty($employeeData['ContributionsData']) && isset($employeeData['ContributionsData'][1]['Amount']) ? $employeeData['ContributionsData'][1]['Amount'] : '0',
-                'PagIbigSalary' => !empty($employeeData['ContributionsData']) && isset($employeeData['ContributionsData'][2]['Amount']) ? $employeeData['ContributionsData'][2]['Amount'] : '0',
-                'SSSCalamity' => !empty($employeeData['ContributionsData']) && isset($employeeData['ContributionsData'][3]['Amount']) ? $employeeData['ContributionsData'][3]['Amount'] : '0'
+                'PagIbig' => '0.00',
+                'SSS' => '0.00',
+                'PhilHealth' => '0.00',
+                'PagIbigCalamity' => '0.00',
+                'SSSSalary' => '0.00',
+                'PagIbigSalary' => '0.00',
+                'SSSCalamity' => '0.00'
             ];
+            foreach ($employeeData['ContributionsData'] as $contrib) {
+                if ($contrib['ContributionType'] === 'Pag-IBIG') {
+                    $contributions['PagIbig'] = $contrib['Amount'];
+                    $contributions['PagIbigCalamity'] = $contrib['Amount'];
+                    $contributions['PagIbigSalary'] = $contrib['Amount'];
+                } elseif ($contrib['ContributionType'] === 'SSS') {
+                    $contributions['SSS'] = $contrib['Amount'];
+                    $contributions['SSSSalary'] = $contrib['Amount'];
+                    $contributions['SSSCalamity'] = $contrib['Amount'];
+                } elseif ($contrib['ContributionType'] === 'PhilHealth') {
+                    $contributions['PhilHealth'] = $contrib['Amount'];
+                }
+            }
 
             $description = "Generated payslip for EmployeeID: $employeeId ($employeeName)\n" .
                 "Employee Name: $employeeName\n" .
@@ -1570,7 +1921,7 @@ function calculatePayroll($employeeData, $attendance, $overtime, $holidays, $pay
                 "Holiday Pay: ₱{$payroll['HolidayPay']['Total']}\n" .
                 "Late/Undertime Mins: " . ($payroll['LateMinutes'] + $payroll['UndertimeMinutes']) . " mins ₱{$payroll['LateDeduction']}\n" .
                 "Absent (Days): {$employeeData['AbsentDays']} days ₱{$payroll['AbsentDeduction']}\n" .
-                ($payroll_cut === 'first' ? 
+                ($payroll_cut === 'first' ?
                     "Pag-Ibig: ₱{$contributions['PagIbig']}\n" .
                     "SSS: ₱{$contributions['SSS']}\n" .
                     "PhilHealth: ₱{$contributions['PhilHealth']}\n" :
@@ -1649,20 +2000,78 @@ function calculatePayroll($employeeData, $attendance, $overtime, $holidays, $pay
                     'AttendanceData' => $attendance
                 ];
 
-                $payroll = calculatePayroll($employeeData, $attendance, $overtime, $holidays, $payroll_cut, $start_date, $end_date);
+                $payroll = calculatePayroll($conn, $employeeData, $attendance, $overtime, $holidays, $payroll_cut, $start_date, $end_date);
                 $employeeData = array_merge($employeeData, $payroll);
+
+                // --- Insert Contributions Snapshot ---
+                $branchId = $row['BranchID'];
+                $hourlyMinWage = $row['HourlyMinimumWage'];
+                $periodBasicPay = $payroll['BasicPay']; // use payroll-calculated BasicPay
+
+                $sss = getSSSContribution($conn, $employeeId, $periodBasicPay);
+                $pagibig = getPagIbigContribution($conn, $employeeId, $periodBasicPay);
+                $philhealth = getPhilHealthContribution($conn, $employeeId, $periodBasicPay);
+
+                $stmt = $conn->prepare("INSERT INTO contributions 
+                                            (EmployeeID, BranchID, HourlyMinWage, ContributionType, Amount, UserId, PayrollCut, PeriodStart, PeriodEnd)
+                                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                            ON DUPLICATE KEY UPDATE 
+                                            BranchID = VALUES(BranchID),
+                                            HourlyMinWage = VALUES(HourlyMinWage),
+                                            Amount = VALUES(Amount),
+                                            UserId = VALUES(UserId),
+                                            PayrollCut = VALUES(PayrollCut),
+                                            PeriodStart = VALUES(PeriodStart),
+                                            PeriodEnd = VALUES(PeriodEnd)
+                                        ");
+                foreach (
+                    [
+                        ['SSS', $sss],
+                        ['PhilHealth', $philhealth],
+                        ['Pag-IBIG', $pagibig]
+                    ] as [$type, $amount]
+                ) {
+                    $stmt->bind_param(
+                        "iisdsssss",
+                        $employeeId,
+                        $branchId,
+                        $hourlyMinWage,
+                        $type,
+                        $amount,
+                        $user_id,
+                        $payroll_cut,
+                        $start_date,
+                        $end_date
+                    );
+                    $stmt->execute();
+                }
+                $stmt->close();
 
                 // Safe access to AllowancesData and ContributionsData
                 $transportAllowance = !empty($employeeData['AllowancesData']) && isset($employeeData['AllowancesData'][0]['Amount']) ? $employeeData['AllowancesData'][0]['Amount'] : '0';
                 $contributions = [
-                    'PagIbig' => !empty($employeeData['ContributionsData']) && isset($employeeData['ContributionsData'][0]['Amount']) ? $employeeData['ContributionsData'][0]['Amount'] : '0',
-                    'SSS' => !empty($employeeData['ContributionsData']) && isset($employeeData['ContributionsData'][1]['Amount']) ? $employeeData['ContributionsData'][1]['Amount'] : '0',
-                    'PhilHealth' => !empty($employeeData['ContributionsData']) && isset($employeeData['ContributionsData'][2]['Amount']) ? $employeeData['ContributionsData'][2]['Amount'] : '0',
-                    'PagIbigCalamity' => !empty($employeeData['ContributionsData']) && isset($employeeData['ContributionsData'][0]['Amount']) ? $employeeData['ContributionsData'][0]['Amount'] : '0',
-                    'SSSSalary' => !empty($employeeData['ContributionsData']) && isset($employeeData['ContributionsData'][1]['Amount']) ? $employeeData['ContributionsData'][1]['Amount'] : '0',
-                    'PagIbigSalary' => !empty($employeeData['ContributionsData']) && isset($employeeData['ContributionsData'][2]['Amount']) ? $employeeData['ContributionsData'][2]['Amount'] : '0',
-                    'SSSCalamity' => !empty($employeeData['ContributionsData']) && isset($employeeData['ContributionsData'][3]['Amount']) ? $employeeData['ContributionsData'][3]['Amount'] : '0'
+                    'PagIbig' => '0.00',
+                    'SSS' => '0.00',
+                    'PhilHealth' => '0.00',
+                    'PagIbigCalamity' => '0.00',
+                    'SSSSalary' => '0.00',
+                    'PagIbigSalary' => '0.00',
+                    'SSSCalamity' => '0.00'
                 ];
+                foreach ($employeeData['ContributionsData'] as $contrib) {
+                    if ($contrib['ContributionType'] === 'Pag-IBIG') {
+                        $contributions['PagIbig'] = $contrib['Amount'];
+                        $contributions['PagIbigCalamity'] = $contrib['Amount'];
+                        $contributions['PagIbigSalary'] = $contrib['Amount'];
+                    } elseif ($contrib['ContributionType'] === 'SSS') {
+                        $contributions['SSS'] = $contrib['Amount'];
+                        $contributions['SSSSalary'] = $contrib['Amount'];
+                        $contributions['SSSCalamity'] = $contrib['Amount'];
+                    } elseif ($contrib['ContributionType'] === 'PhilHealth') {
+                        $contributions['PhilHealth'] = $contrib['Amount'];
+                    }
+                }
+                error_log("ContributionsData for EmployeeID $employeeId: " . json_encode($employeeData['ContributionsData']));
 
                 $description = "Generated bulk payslip for EmployeeID: $employeeId ($employeeName)\n" .
                     "Employee Name: $employeeName\n" .
@@ -1688,7 +2097,7 @@ function calculatePayroll($employeeData, $attendance, $overtime, $holidays, $pay
                     "Holiday Pay: ₱{$payroll['HolidayPay']['Total']}\n" .
                     "Late/Undertime Mins: " . ($payroll['LateMinutes'] + $payroll['UndertimeMinutes']) . " mins ₱{$payroll['LateDeduction']}\n" .
                     "Absent (Days): {$employeeData['AbsentDays']} days ₱{$payroll['AbsentDeduction']}\n" .
-                    ($payroll_cut === 'first' ? 
+                    ($payroll_cut === 'first' ?
                         "Pag-Ibig: ₱{$contributions['PagIbig']}\n" .
                         "SSS: ₱{$contributions['SSS']}\n" .
                         "PhilHealth: ₱{$contributions['PhilHealth']}\n" :
@@ -1723,7 +2132,7 @@ function calculatePayroll($employeeData, $attendance, $overtime, $holidays, $pay
                     b.BranchName,
                     p.HourlyMinimumWage,
                     COALESCE(
-                        SUM(
+                        SUM(can i
                             CASE 
                                 WHEN a.TimeIn IS NOT NULL AND a.TimeOut IS NOT NULL
                                 THEN TIMESTAMPDIFF(MINUTE, a.TimeIn, a.TimeOut) / 60.0
@@ -1786,8 +2195,6 @@ function calculatePayroll($employeeData, $attendance, $overtime, $holidays, $pay
     } else {
         throw new Exception("Method not allowed.");
     }
-
-    $conn->close();
 } catch (Exception $e) {
     http_response_code(400);
     echo json_encode([
@@ -1795,6 +2202,6 @@ function calculatePayroll($employeeData, $attendance, $overtime, $holidays, $pay
         "error" => $e->getMessage()
     ]);
 }
+$conn->close();
 
 ob_end_flush();
-?>

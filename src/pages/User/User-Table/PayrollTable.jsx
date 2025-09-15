@@ -113,6 +113,9 @@ const PayrollTable = () => {
   const [isPayrollViewModalVisible, setIsPayrollViewModalVisible] = useState(false);
   const [selectedPayroll, setSelectedPayroll] = useState(null);
   const [historyDateRange, setHistoryDateRange] = useState([null, null]);
+  const [computedStartDate, setComputedStartDate] = useState(null);
+  const [workingDaysList, setWorkingDaysList] = useState([]);
+  const [payrollPeriodText, setPayrollPeriodText] = useState('');
 
   const API_BASE_URL = "http://localhost/UserTableDB/UserDB";
   const userId = localStorage.getItem('userId');
@@ -203,6 +206,21 @@ const PayrollTable = () => {
     } catch (err) {
       message.warning('Failed to log activity');
     }
+  };
+
+  const computePayrollPeriodRange = (lastPayrollDate) => {
+    if (!lastPayrollDate) return { start: null, end: null };
+    let count = 0;
+    let current = dayjs(lastPayrollDate);
+    let workingDays = [];
+    while (count < 11) {
+      current = current.subtract(1, 'day');
+      if (current.day() !== 0) { // 0 = Sunday
+        workingDays.unshift(current);
+        count++;
+      }
+    }
+    return { start: workingDays[0], end: dayjs(lastPayrollDate) };
   };
 
   const fetchDropdownData = async () => {
@@ -1003,11 +1021,44 @@ const PayrollTable = () => {
     debouncedFetchData();
   };
 
+  useEffect(() => {
+    const lastPayrollDate = form.getFieldValue('lastPayrollDate');
+    if (form.getFieldValue('lastPayrollDate')) {
+      const { startDate, days } = computePreviousWorkingDays(lastPayrollDate);
+      setComputedStartDate(startDate);
+      setWorkingDaysList(days);
+    }
+  }, [isModalVisible]);
+
   const handleBranchChange = (value) => {
     const branchValue = value || 'all';
     setSelectedBranch(branchValue);
     setCurrentPage(1);
     fetchData();
+  };
+
+  const handleLastPayrollDateChange = (date) => {
+    form.setFieldsValue({ lastPayrollDate: date });
+    if (date) {
+      const { start, end } = computePayrollPeriodRange(date);
+      if (start && end) {
+        // Format: "Payroll Period: August 4-16, 2025"
+        const startMonth = start.format('MMMM');
+        const endMonth = end.format('MMMM');
+        const year = end.format('YYYY');
+        const startDay = start.format('D');
+        const endDay = end.format('D');
+        const periodText =
+          startMonth === endMonth
+            ? `Payroll Period: ${startMonth} ${startDay}-${endDay}, ${year}`
+            : `Payroll Period: ${startMonth} ${startDay} - ${endMonth} ${endDay}, ${year}`;
+        setPayrollPeriodText(periodText);
+      } else {
+        setPayrollPeriodText('');
+      }
+    } else {
+      setPayrollPeriodText('');
+    }
   };
 
   const handlePageChange = (page, size) => {
@@ -1707,7 +1758,7 @@ const PayrollTable = () => {
         styles={{ fontSize: '18px' }}
         width={screenWidth > 480 ? '80%' : '90%'}
         centered
-        destroyOnClose
+        destroyOnHidden
       >
         {selectedPayroll && selectedPayroll.length > 0 ? (
           <div style={{ padding: '20px', maxHeight: '60vh', overflowY: 'auto' }}>
@@ -1894,7 +1945,7 @@ const PayrollTable = () => {
         />
       )}
 
-      
+
       <Modal
         title="Set Payroll Date"
         open={isModalVisible}
@@ -1936,15 +1987,19 @@ const PayrollTable = () => {
         onCancel={() => {
           setIsModalVisible(false);
           form.resetFields();
+          setPayrollPeriodText(""); // clear text
+        }}
+        afterClose={() => {
+          setPayrollPeriodText("");
         }}
         okText="Set Period"
         cancelText="Cancel"
         centered
         width={screenWidth > 480 ? '50%' : '90%'}
-        destroyOnClose
+        destroyOnHidden
       >
         <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
-          <Form form={form} layout="vertical">
+          <Form layout="vertical" form={form}>
             <Alert
               message="How It Works"
               description={
@@ -1974,7 +2029,16 @@ const PayrollTable = () => {
               }
               rules={[{ required: true, message: 'Please select the last payroll date' }]}
             >
-              <DatePicker format="MM/DD/YYYY" style={{ width: '50%' }} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                <DatePicker
+                  format="MM/DD/YYYY"
+                  style={{ width: '50%' }}
+                  onChange={handleLastPayrollDateChange}
+                />
+                {payrollPeriodText && (
+                  <span style={{ fontWeight: 500, color: '#3291AD' }}>{payrollPeriodText}</span>
+                )}
+              </div>
             </Form.Item>
             <Form.Item
               name="cutOff"
@@ -2026,7 +2090,7 @@ const PayrollTable = () => {
         ]}
         width={screenWidth > 480 ? '50%' : '90%'}
         centered
-        destroyOnClose
+        destroyOnHidden
       >
         {payslipLoading ? (
           <div style={{ textAlign: 'center', padding: '20px', maxHeight: '60vh', overflowY: 'auto' }}>
@@ -2125,7 +2189,7 @@ const PayrollTable = () => {
         ]}
         width={screenWidth > 480 ? '45%' : '90%'}
         centered
-        destroyOnClose
+        destroyOnHidden
       >
         {payslipLoading ? (
           <div style={{ textAlign: 'center', padding: '20px', maxHeight: '60vh', overflowY: 'auto' }}>
