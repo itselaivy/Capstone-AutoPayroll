@@ -363,6 +363,8 @@ const PayrollTable = () => {
       }
 
       const data = await response.json();
+      console.log('Payslip Response Full:', data);
+      console.log('ContributionsData:', data.data.ContributionsData);
       if (!data.success) {
         message.error(`Failed to generate payslip: ${data.error || 'Unknown error'}`);
         setPayslipLoading(false);
@@ -782,6 +784,8 @@ const PayrollTable = () => {
           continue;
         }
         const data = await response.json();
+        console.log('Bulk Payslip for EmployeeID ' + employee.employeeId + ':', data); //Log per employee
+        console.log('Bulk ContributionsData for EmployeeID ' + employee.employeeId + ':', data.data.ContributionsData);
         if (data.success && data.data) {
           // Calculate Days Present
           const expectedDays = countWorkingDays(payrollDates.startDate, payrollDates.endDate);
@@ -1573,6 +1577,32 @@ const PayrollTable = () => {
       const payrollCut = selectedPeriod && selectedPeriod.cut === '1st Cut' ? 'first' : 'second';
       setPayrollDates({ startDate, endDate });
       setPayrollCut(payrollCut);
+      if (payrollCut === 'first') {
+        const startDateBackend = dayjs(startDate, 'MM/DD/YYYY').format('YYYY-MM-DD');
+        const endDateBackend = dayjs(endDate, 'MM/DD/YYYY').format('YYYY-MM-DD');
+        const payload = {
+          action: 'bulk_compute_contributions',
+          user_id: parseInt(userId),
+          start_date: startDateBackend,
+          end_date: endDateBackend,
+          payroll_cut: payrollCut,
+          branch_id: selectedBranch === 'all' ? null : selectedBranch // Pass branch if not 'all'
+        };
+
+        const response = await fetch(`${API_BASE_URL}/fetch_payroll.php`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+
+        const bulkData = await response.json();
+        if (bulkData.success) {
+          message.success(`Contributions computed and inserted for ${bulkData.processedEmployees} employees.`);
+        } else {
+          message.warning(`Contributions computation completed with issues: ${bulkData.error}`);
+        }
+      }
+
       setIsModalVisible(false);
       form.resetFields();
       message.success(`Payroll date range set successfully (${selectedPeriod.cut})`);
@@ -2134,12 +2164,24 @@ const PayrollTable = () => {
                         desc: `Late/Undertime Mins: ${(parseInt(payslipData.LateMinutes) + parseInt(payslipData.UndertimeMinutes))} mins`,
                         amount: formatNumberWithCommas(payslipData.LateDeduction || '0.00')
                       },
-                      ...(payslipData.ContributionsData?.map((item, index) => ({
-                        key: item.ID ? `contribution-${payslipData.EmployeeID}-${item.ID}` : `contribution-${payslipData.EmployeeID}-${index}`,
-                        desc: item.ContributionType || 'Unknown',
-                        amount: formatNumberWithCommas(item.Amount || '0.00'),
-                      })) || []),
-                    ].filter(item => parseFloat(item.amount.replace(/,/g, '')) !== 0)}
+                      {
+                        key: `absent-${payslipData.EmployeeID}`,
+                        desc: `Absent Deduction: ${payslipData.AbsentDays || 0} days`,
+                        amount: formatNumberWithCommas(payslipData.AbsentDeduction || '0.00') //Use AbsentDeduction
+                      },
+                      ...(payslipData.ContributionsData?.map((item, index) => {
+                        console.log('Contribution Item:', item); // Log each contribution
+                        return {
+                          key: item.ID ? `contribution-${payslipData.EmployeeID}-${item.ID}` : `contribution-${payslipData.EmployeeID}-${index}`,
+                          desc: item.ContributionType || 'Unknown',
+                          amount: formatNumberWithCommas(item.Amount || '0.00'),
+                        };
+                      }) || []),
+                    ].filter(item => {
+                      const amount = parseFloat(item.amount.replace(/,/g, '')) || 0;
+                      console.log('Deduction Filter:', item.desc, amount); // NEW: Log filter
+                      return amount > 0;
+                    })}
                     pagination={false}
                     size="small"
                   />

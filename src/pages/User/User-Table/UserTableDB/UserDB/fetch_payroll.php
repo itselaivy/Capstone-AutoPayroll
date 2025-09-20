@@ -202,6 +202,12 @@ try {
                 ];
             }
             $stmt->close();
+
+            if (empty($data)) {
+                error_log("No contributions found for EmployeeID $employeeId, PayrollCut $payroll_cut, Period $periodStart to $periodEnd");
+            } else {
+                error_log("Fetched contributions for EmployeeID $employeeId: " . json_encode($data));
+            }
         }
 
         // Compute contributions
@@ -822,6 +828,29 @@ try {
         $payroll = [];
         $employeeId = $employeeData['EmployeeID'];
 
+        $payroll = [
+            'DailyRate' => '0',
+            'BasicRate' => '0',
+            'HourlyRate' => '0',
+            'BasicPay' => '0',
+            'LeavePay' => '0',
+            'OvertimePay' => ['Regular' => '0', 'Night' => '0', 'Total' => '0'],
+            'OvertimeHours' => ['Regular' => '0', 'Night' => '0'],
+            'HolidayPay' => ['Special' => '0', 'Regular' => '0', 'Total' => '0'],
+            'HolidayHours' => ['Special' => '0', 'Regular' => '0'],
+            'SundayPay' => ['Hours' => '0', 'Total' => '0'],
+            'SundayHours' => '0',
+            'LateMinutes' => 0,
+            'UndertimeMinutes' => 0,
+            'LateDeduction' => '0',
+            'AbsentDeduction' => '0', // FIXED: Always initialize
+            'TotalEarnings' => '0',
+            'TotalDeductions' => '0',
+            'NetPay' => '0',
+            'EarningsData' => [],
+            'PremiumPayData' => []
+        ];
+
         // Calculate Days Present
         $start = new DateTime($startDate);
         $end = new DateTime($endDate);
@@ -871,7 +900,8 @@ try {
                 'error' => 'Invalid employee data: HourlyMinimumWage is missing or invalid',
                 'TotalEarnings' => '0.00',
                 'TotalDeductions' => '0.00',
-                'NetPay' => '0.00'
+                'NetPay' => '0.00',
+                'AbsentDeduction' => '0.00'
             ];
         }
 
@@ -896,13 +926,13 @@ try {
         $basicPay = $dailyRateAmount + $transportAllowanceAmount;
         $leavePay = $dailyRate * $leaveDays;
 
-        function computeBasicPay($dailyRateAmount, $transportAllowanceAmount)
-        {
-            $dailyRateAmt = $dailyRateAmount;
-            $transportAllowanceAmt = $transportAllowanceAmount;
-            $_basicPay = $dailyRateAmt + $transportAllowanceAmt;
-            return $_basicPay;
-        }
+        // function computeBasicPay($dailyRateAmount, $transportAllowanceAmount)
+        // {
+        //     $dailyRateAmt = $dailyRateAmount;
+        //     $transportAllowanceAmt = $transportAllowanceAmount;
+        //     $_basicPay = $dailyRateAmt + $transportAllowanceAmt;
+        //     return $_basicPay;
+        // }
 
         $payroll['BasicPay'] = formatNumber($basicPay, true);
         $payroll['LeavePay'] = formatNumber($leavePay, true);
@@ -1816,7 +1846,7 @@ try {
                 'BranchName' => $row['BranchName'],
                 'HourlyMinimumWage' => formatNumberWithDecimals($row['HourlyMinimumWage'] ?? 0),
                 'AllowancesData' => getAllowances($conn, $employeeId, $cache),
-                'ContributionsData' => getContributions($conn, $employeeId, $cache, $payroll_cut),
+                'ContributionsData' => getContributions($conn, $employeeId, $cache, $payroll_cut, 0, $user_id, $start_date, $end_date),
                 'CashAdvancesData' => getCashAdvances($conn, $employeeId, $cache, $start_date, $end_date),
                 'OvertimeData' => $overtime,
                 'HolidayData' => $holidays,
@@ -1827,6 +1857,37 @@ try {
 
             $payroll = calculatePayroll($conn, $employeeData, $attendance, $overtime, $holidays, $payroll_cut, $start_date, $end_date);
             $employeeData = array_merge($employeeData, $payroll);
+
+            // Log ContributionsData for debugging
+            error_log("ContributionsData for EmployeeID $employeeId: " . json_encode($employeeData['ContributionsData']));
+
+            $response = [
+                'success' => true,
+                'message' => "Payslip generated for EmployeeID: $employeeId",
+                'data' => [
+                    'EmployeeID' => $employeeId,
+                    'EmployeeName' => $employeeData['EmployeeName'],
+                    'BranchName' => $employeeData['BranchName'],
+                    'DailyRate' => $payroll['DailyRate'],
+                    'BasicPay' => $payroll['BasicPay'],
+                    'OvertimePay' => $payroll['OvertimePay'],
+                    'HolidayPay' => $payroll['HolidayPay'],
+                    'SundayPay' => $payroll['SundayPay'],
+                    'LateDeduction' => $payroll['LateDeduction'],
+                    'AbsentDeduction' => $payroll['AbsentDeduction'], // FIXED: Include in response
+                    'TotalEarnings' => $payroll['TotalEarnings'],
+                    'TotalDeductions' => $payroll['TotalDeductions'],
+                    'NetPay' => $payroll['NetPay'],
+                    'HoursWorked' => formatNumber(array_sum(array_map(function ($a) {
+                        return (float)($a['HoursWorked'] ?? 0);
+                    }, $attendance))),
+                    'LateMinutes' => $payroll['LateMinutes'],
+                    'UndertimeMinutes' => $payroll['UndertimeMinutes'],
+                    'ContributionsData' => $employeeData['ContributionsData'],
+                    'EarningsData' => $payroll['EarningsData'],
+                    'PremiumPayData' => $payroll['PremiumPayData']
+                ]
+            ];
 
             // --- Insert Contributions Snapshot ---
             $branchId = $row['BranchID'];
@@ -1991,7 +2052,7 @@ try {
                     'BranchName' => $row['BranchName'],
                     'HourlyMinimumWage' => formatNumberWithDecimals($row['HourlyMinimumWage'] ?? 0),
                     'AllowancesData' => getAllowances($conn, $employeeId, $cache),
-                    'ContributionsData' => getContributions($conn, $employeeId, $cache, $payroll_cut),
+                    'ContributionsData' => getContributions($conn, $employeeId, $cache, $payroll_cut, 0, $user_id, $start_date, $end_date),
                     'CashAdvancesData' => getCashAdvances($conn, $employeeId, $cache, $start_date, $end_date),
                     'OvertimeData' => $overtime,
                     'HolidayData' => $holidays,
@@ -1999,6 +2060,8 @@ try {
                     'AbsentDays' => getAbsentDays($conn, $employeeId, $start_date, $end_date, $leaves, $holidays),
                     'AttendanceData' => $attendance
                 ];
+
+                error_log("Bulk ContributionsData for EmployeeID $employeeId: " . json_encode($employeeData['ContributionsData']));
 
                 $payroll = calculatePayroll($conn, $employeeData, $attendance, $overtime, $holidays, $payroll_cut, $start_date, $end_date);
                 $employeeData = array_merge($employeeData, $payroll);
@@ -2189,6 +2252,154 @@ try {
                 "message" => "Payroll report generated successfully.",
                 "data" => $reportData
             ]);
+        } elseif ($action === 'bulk_compute_contributions') {
+            //Bulk compute and insert contributions for first cutoff
+            if ($payroll_cut !== 'first') {
+                throw new Exception("Bulk computation only supported for first cutoff.");
+            }
+
+            $branch_id = isset($input['branch_id']) && $input['branch_id'] !== 'all' ? (int)$input['branch_id'] : null;
+            $allowedBranches = [];
+            if ($role === 'Payroll Staff') {
+                $branchStmt = $conn->prepare("SELECT BranchID FROM UserBranches WHERE UserID = ?");
+                if (!$branchStmt) throw new Exception("Prepare failed for branch query: " . $conn->error);
+                $branchStmt->bind_param("i", $user_id);
+                $branchStmt->execute();
+                $branchResult = $branchStmt->get_result();
+                while ($row = $branchResult->fetch_assoc()) {
+                    $allowedBranches[] = $row['BranchID'];
+                }
+                $branchStmt->close();
+
+                if (empty($allowedBranches)) {
+                    echo json_encode(['success' => true, 'message' => 'No branches assigned.', 'processedEmployees' => 0]);
+                    exit;
+                }
+
+                if ($branch_id && !in_array($branch_id, $allowedBranches)) {
+                    throw new Exception("Selected branch is not assigned to this user.");
+                }
+            }
+
+            // Fetch relevant employees
+            $sql = "SELECT EmployeeID FROM Employees e WHERE 1=1";
+            $params = [];
+            $types = "";
+            if ($role === 'Payroll Staff') {
+                $placeholders = implode(',', array_fill(0, count($allowedBranches), '?'));
+                $sql .= " AND e.BranchID IN ($placeholders)";
+                $params = $allowedBranches;
+                $types = str_repeat('i', count($allowedBranches));
+            }
+            if ($branch_id) {
+                $sql .= " AND e.BranchID = ?";
+                $params[] = $branch_id;
+                $types .= "i";
+            }
+            $stmt = $conn->prepare($sql);
+            if (!empty($params)) {
+                $stmt->bind_param($types, ...$params);
+            }
+            $stmt->execute();
+            $result = $stmt->get_result();
+            $employeeIds = [];
+            while ($row = $result->fetch_assoc()) {
+                $employeeIds[] = $row['EmployeeID'];
+            }
+            $stmt->close();
+
+            $insertedCount = 0;
+            foreach ($employeeIds as $employeeId) {
+                // Get employee data (wage, branch)
+                $empStmt = $conn->prepare("
+                SELECT e.BranchID, p.HourlyMinimumWage 
+                FROM Employees e 
+                JOIN Positions p ON e.PositionID = p.PositionID 
+                WHERE e.EmployeeID = ?
+            ");
+                $empStmt->bind_param("i", $employeeId);
+                $empStmt->execute();
+                $empRow = $empStmt->get_result()->fetch_assoc();
+                $empStmt->close();
+                $branchId = $empRow['BranchID'] ?? 0;
+                $hourlyMinWage = $empRow['HourlyMinimumWage'] ?? 0;
+
+                // Calculate periodBasicPay from attendance
+                $attStmt = $conn->prepare("
+                SELECT SUM(TotalHours) as total_hours, COUNT(DISTINCT Date) as days_worked
+                FROM Attendance 
+                WHERE EmployeeID = ? AND Date BETWEEN ? AND ? AND TotalHours > 0
+            ");
+                $attStmt->bind_param("iss", $employeeId, $start_date, $end_date);
+                $attStmt->execute();
+                $attRow = $attStmt->get_result()->fetch_assoc();
+                $attStmt->close();
+                $totalHours = $attRow['total_hours'] ?? 0;
+                $daysWorked = $attRow['days_worked'] ?? 0;
+                $adjustedHours = max(0, $totalHours - $daysWorked); // Lunch deduction
+                $periodBasicPay = $hourlyMinWage * $adjustedHours;
+
+                error_log("Bulk Compute - EmployeeID $employeeId: SSS=$sss, PhilHealth=$philhealth, PagIbig=$pagibig");
+
+                if ($periodBasicPay <= 0) {
+                    error_log("Bulk Compute - EmployeeID $employeeId: Skipping due to periodBasicPay=0");
+                    continue;
+                }
+
+                // Compute contributions
+                $sss = getSSSContribution($conn, $periodBasicPay);
+                $philhealth = getPhilHealthContribution($conn, $employeeId, $start_date, $end_date);
+                $pagibig = getPagIbigContribution($conn, $employeeId, $periodBasicPay);
+
+                $contributions = [
+                    ['type' => 'SSS', 'amount' => $sss],
+                    ['type' => 'PhilHealth', 'amount' => $philhealth],
+                    ['type' => 'Pag-Ibig', 'amount' => $pagibig]
+                ];
+
+                // Insert or update with duplicate check
+                foreach ($contributions as $contrib) {
+                    if ($contrib['amount'] > 0) {
+                        $insertStmt = $conn->prepare("
+                        INSERT INTO contributions (EmployeeID, BranchID, HourlyMinWage, ContributionType, Amount, UserId, PayrollCut, PeriodStart, PeriodEnd)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON DUPLICATE KEY UPDATE 
+                            BranchID = VALUES(BranchID),
+                            HourlyMinWage = VALUES(HourlyMinWage),
+                            Amount = VALUES(Amount),
+                            UserId = VALUES(UserId)
+                    ");
+                        $insertStmt->bind_param(
+                            "iidssdsss",
+                            $employeeId,
+                            $branchId,
+                            $hourlyMinWage,
+                            $contrib['type'],
+                            $contrib['amount'],
+                            $user_id,
+                            $payroll_cut,
+                            $start_date,
+                            $end_date
+                        );
+                        if ($insertStmt->execute()) {
+                            $insertedCount++;
+                            error_log("Bulk Inserted/Updated - EmployeeID $employeeId, Type={$contrib['type']}, Amount={$contrib['amount']}");
+                        } else {
+                            error_log("Bulk Insert Failed - EmployeeID $employeeId, Type {$contrib['type']}: " . $insertStmt->error);
+                        }
+                        $insertStmt->close();
+                    } else {
+                        error_log("Bulk Skipped - EmployeeID $employeeId, Type {$contrib['type']}, Amount=0");
+                    }
+                }
+            }
+
+            echo json_encode([
+                'success' => true,
+                'message' => "Contributions computed and inserted/updated for $insertedCount entries across " . count($employeeIds) . " employees.",
+                'processedEmployees' => count($employeeIds)
+            ]);
+            exit;
         } else {
             throw new Exception("Invalid action specified.");
         }
